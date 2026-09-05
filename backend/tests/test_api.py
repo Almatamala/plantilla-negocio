@@ -21,11 +21,9 @@ def test_create_product_with_variants_and_public_catalog(client, admin_headers):
     assert len(public_catalog.json()) == 1
 
 
-def test_invalid_product_and_discount_are_rejected(client, admin_headers):
+def test_invalid_product_is_rejected(client, admin_headers):
     product = client.post("/api/products", headers=admin_headers, json={"name": "Sin precio", "slug": "sin-precio", "price": -1})
     assert product.status_code == 422
-    discount = client.post("/api/discounts", headers=admin_headers, json={"code": "SALE", "type": "percentage", "value": 150})
-    assert discount.status_code == 422
 
 
 def test_order_total_is_calculated_and_status_can_change(client, admin_headers):

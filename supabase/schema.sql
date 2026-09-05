@@ -40,7 +40,6 @@ create table if not exists public.orders (
   customer_id uuid references auth.users(id) on delete set null,
   status text not null default 'pending' check (status in ('pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled', 'refunded')),
   total integer not null default 0 check (total >= 0),
-  shipping_address jsonb,
   payment_method text,
   created_at timestamptz not null default now()
 );
@@ -52,26 +51,6 @@ create table if not exists public.order_items (
   name text not null,
   unit_price integer not null check (unit_price >= 0),
   quantity integer not null check (quantity > 0)
-);
-create table if not exists public.discount_codes (
-  id uuid primary key default gen_random_uuid(),
-  code text not null unique,
-  type text not null check (type in ('percentage', 'fixed', 'free_shipping')),
-  value integer not null default 0 check (value >= 0),
-  minimum_amount integer,
-  starts_at timestamptz,
-  ends_at timestamptz,
-  usage_limit integer,
-  usage_count integer not null default 0,
-  active boolean not null default true
-);
-create table if not exists public.shipping_zones (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  regions text[] not null default '{}',
-  rate integer not null default 0 check (rate >= 0),
-  free_shipping_from integer,
-  cutoff_time time
 );
 create table if not exists public.pages (
   id uuid primary key default gen_random_uuid(),
@@ -98,8 +77,6 @@ alter table public.products enable row level security;
 alter table public.product_variants enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
-alter table public.discount_codes enable row level security;
-alter table public.shipping_zones enable row level security;
 alter table public.pages enable row level security;
 alter table public.store_settings enable row level security;
 
@@ -120,8 +97,6 @@ create policy "customers read their order items" on public.order_items for selec
 create policy "published pages are public" on public.pages for select using (published);
 create policy "admins manage orders" on public.orders for all using (public.is_admin()) with check (public.is_admin());
 create policy "admins manage order items" on public.order_items for all using (public.is_admin()) with check (public.is_admin());
-create policy "admins manage discounts" on public.discount_codes for all using (public.is_admin()) with check (public.is_admin());
-create policy "admins manage shipping zones" on public.shipping_zones for all using (public.is_admin()) with check (public.is_admin());
 create policy "admins manage pages" on public.pages for all using (public.is_admin()) with check (public.is_admin());
 create policy "admins manage store settings" on public.store_settings for all using (public.is_admin()) with check (public.is_admin());
 

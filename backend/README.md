@@ -1,6 +1,6 @@
 # Backend local
 
-La API usa FastAPI, SQLAlchemy y PostgreSQL. Sus modelos cubren el catálogo, variantes, inventario, órdenes, descuentos, zonas, contenido y ajustes definidos en `supabase/schema.sql`.
+La API usa FastAPI, SQLAlchemy y PostgreSQL. Sus modelos cubren el catálogo, variantes, inventario, órdenes, contenido y ajustes definidos en `supabase/schema.sql`.
 
 ## Docker
 

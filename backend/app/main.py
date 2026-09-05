@@ -7,8 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from .config import get_settings
 from .database import Base, engine, get_db
-from .models import Category, DiscountCode, Order, OrderItem, Page, Product, ProductVariant, ShippingZone, StoreSettings
-from .schemas import CategoryIn, CategoryOut, DiscountIn, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, SettingsIn, ShippingZoneIn
+from .models import Category, Order, OrderItem, Page, Product, ProductVariant, StoreSettings
+from .schemas import CategoryIn, CategoryOut, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, SettingsIn
 
 settings = get_settings()
 
@@ -112,13 +112,6 @@ def simple_create(model) -> Callable:
     def endpoint(payload, db: Session = Depends(get_db)): return commit(db, model(**payload.model_dump()))
     return endpoint
 
-
-@app.post("/api/discounts", status_code=201, dependencies=[Depends(require_admin)])
-def create_discount(payload: DiscountIn, db: Session = Depends(get_db)): return commit(db, DiscountCode(**payload.model_dump()))
-
-
-@app.post("/api/shipping-zones", status_code=201, dependencies=[Depends(require_admin)])
-def create_shipping_zone(payload: ShippingZoneIn, db: Session = Depends(get_db)): return commit(db, ShippingZone(**payload.model_dump()))
 
 
 @app.post("/api/pages", status_code=201, dependencies=[Depends(require_admin)])

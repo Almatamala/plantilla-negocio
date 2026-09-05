@@ -1,15 +1,11 @@
 import uuid
-from datetime import datetime, time
+from datetime import datetime
 from typing import Optional
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Time, func
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import JSON
 from .database import Base
 
 UUID = String(36)
-JsonType = JSON().with_variant(JSONB, "postgresql")
-RegionsType = JSON().with_variant(ARRAY(String), "postgresql")
 
 
 def new_id() -> str:
@@ -71,7 +67,6 @@ class Order(Base):
     customer_id: Mapped[Optional[str]] = mapped_column(ForeignKey("profiles.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    shipping_address: Mapped[Optional[dict]] = mapped_column(JsonType)
     payment_method: Mapped[Optional[str]] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
@@ -88,29 +83,6 @@ class OrderItem(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     order: Mapped[Order] = relationship(back_populates="items")
 
-
-class DiscountCode(Base):
-    __tablename__ = "discount_codes"
-    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
-    code: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
-    type: Mapped[str] = mapped_column(String(20), nullable=False)
-    value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    minimum_amount: Mapped[Optional[int]] = mapped_column(Integer)
-    starts_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    usage_limit: Mapped[Optional[int]] = mapped_column(Integer)
-    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class ShippingZone(Base):
-    __tablename__ = "shipping_zones"
-    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    regions: Mapped[list[str]] = mapped_column(RegionsType, nullable=False, default=list)
-    rate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    free_shipping_from: Mapped[Optional[int]] = mapped_column(Integer)
-    cutoff_time: Mapped[Optional[time]] = mapped_column(Time)
 
 
 class Page(Base):
