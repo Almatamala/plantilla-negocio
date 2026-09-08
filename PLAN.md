@@ -53,6 +53,63 @@ Consecuencias sobre este plan:
 
 ---
 
+## 0.2 Protección del panel de administración (seguridad)
+
+**Requisito (aprobado por el dueño):** un usuario normal no debe poder acceder al panel de admin, ni
+siquiera llegar a la página de verificación (`/login`). El admin debe poder entrar desde **celular,
+tablet y PC** (IPs dinámicas → descarta allowlists de IP como método principal).
+
+**Riesgos del estado actual:**
+
+1. `/admin` renderiza el panel sin ningún chequeo: cualquiera ve la interfaz (las mutaciones fallan sin
+token, pero ya está “dentro”).
+2. El token `API_ADMIN_TOKEN` vive en `localStorage` del navegador: visible y robable con devtools;
+quien lo tenga puede mutar vía curl directo a la API.
+
+**Opciones evaluadas:**
+
+| # | Opción | Compatible multi-dispositivo | Nivel |
+|---|---|---|---|
+| 1 | Gate client-side (chequear token antes de renderizar y redirigir) | ✅ | Débil — solo disuade, se salta con devtools |
+| 2 | **Sesión server-side + `proxy.ts`** (elegida) | ✅✅ | Fuerte a nivel de app |
+| 3 | Ocultar rutas (URL secreta + sin enlaces) | ✅ | Complemento — seguridad por oscuridad |
+| 4 | Capa de red: AWS WAF/ALB con HTTP Basic Auth sobre `/admin*` y `/login*` | ✅ (Basic Auth, no IPs) | Muy fuerte a nivel de red |
+| 5 | Allowlist de IPs (WAF) | ❌ — IPs móviles cambian | Fuerte pero inviable como método principal |
+
+**Decisión (D13, aprobada):** **sesión server-side + `proxy.ts`** como protección principal a nivel de
+app. La capa de red (opción 4) queda documentada como refuerzo futuro opcional.
+
+### Tareas de implementación
+
+**T1 — Sesión y login server-side (token nunca en el navegador)**
+- Route Handler `app/api/auth/login/route.ts`: recibe la clave, la valida contra la API (FastAPI) desde
+  el servidor y, si es correcta, establece una **cookie de sesión httpOnly, Secure y SameSite=Strict**
+  (sesión con ID aleatorio; sin secretos en el cliente).
+- `app/login/page.tsx` deja de guardar el token en `localStorage`; solo llama al Route Handler.
+- `app/api/auth/logout/route.ts` para cerrar sesión (borrar cookie).
+
+**T2 — Gate en `proxy.ts` (Next 16)**
+- Crear `proxy.ts` en la raíz (equivalente del antiguo middleware; ver guía en
+  `node_modules/next/dist/docs/`): si la ruta es `/admin` o `/login` y **no** hay cookie de sesión
+  válida → redirigir a la tienda (o 404). El usuario normal ni llega a la verificación.
+
+**T3 — Llamadas admin sin exponer el token**
+- Route Handlers `app/api/admin/*` (proxy BFF): reciben la petición del panel, inyectan
+  `API_ADMIN_TOKEN` desde el entorno del servidor y llaman a la API; el navegador nunca conoce el token.
+- `lib/api.ts` usa estos endpoints para mutaciones admin (sin header `X-Admin-Token` en el cliente).
+
+**T4 — Ocultar rutas públicas**
+- Quitar enlaces a `/admin` y `/login` del storefront (footer y header).
+
+**Criterio de aceptación:** sin cookie de sesión, `/admin` y `/login` redirigen a la tienda; el token
+admin no aparece en `localStorage` ni en el código que llega al navegador; el panel funciona en
+celular, tablet y PC.
+
+**Refuerzo futuro (opcional):** agregar HTTP Basic Auth en AWS WAL/ALB sobre `/admin*` y `/login*` como
+capa de red (paso a paso pendiente de documentar).
+
+---
+
 ## 1. Resumen de fases
 
 | Fase | Nombre | Entregable | Estimación | Decisiones requeridas |
