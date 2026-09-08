@@ -1,8 +1,24 @@
 /**
  * Punto único para personalizar una nueva tienda sin modificar la interfaz.
- * En una segunda etapa estos valores pueden vivir en la tabla `store_settings`.
+ * Estos valores pueden ser sobreescritos desde la tabla `store_settings` del panel.
  */
-export const storeConfig = {
+export type StoreConfig = {
+  name: string;
+  announcement: string;
+  eyebrow: string;
+  headline: string;
+  description: string;
+  featuredCollection: string;
+  storyEyebrow: string;
+  storyHeadline: string;
+  storyDescription: string;
+  contact_phone: string;
+  whatsapp_phone: string;
+  instagram_url: string;
+  bank_account_info: string;
+};
+
+export const storeConfig: StoreConfig = {
   name: "Tienda Base",
   announcement: "Compra simple, productos que importan",
   eyebrow: "Tu colección, tu estilo",
@@ -12,4 +28,8 @@ export const storeConfig = {
   storyEyebrow: "Una plantilla que crece contigo",
   storyHeadline: "Haz que tu marca se sienta única.",
   storyDescription: "Personaliza este espacio para comunicar tu propuesta, historia, beneficios o cualquier mensaje importante para tus clientes.",
-} as const;
+  contact_phone: "",
+  whatsapp_phone: "",
+  instagram_url: "",
+  bank_account_info: "",
+};

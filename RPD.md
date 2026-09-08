@@ -16,6 +16,35 @@ cambios de código por sí solo**: su propósito es que el dueño del producto l
 
 ---
 
+## 1.1 Actualización v2 — Adiós Supabase, hola API dockerizada (AWS)
+
+**Decisión D7 resuelta:** la API FastAPI dockerizada (desplegada en AWS) es la **única fuente de
+verdad**. Todo lo relacionado con Supabase fue eliminado: dependencias (`@supabase/*`),
+`lib/supabase/`, `supabase/schema.sql` y las llamadas desde los componentes. La capa de datos del
+frontend ahora es `lib/api.ts` (cliente HTTP con `X-Admin-Token`).
+
+**Conflicto/decisiones analizados en la migración:**
+
+1. **CORS:** el dominio del frontend (dev y producción) debe estar en `CORS_ORIGINS` del backend; si
+   no, las peticiones del navegador fallan.
+2. **Autenticación:** se reemplazó el magic-link de Supabase por login con `API_ADMIN_TOKEN`
+   (guardado en `localStorage` y enviado como `X-Admin-Token`). No hay usuarios por cliente: las
+   órdenes se crean públicamente y el admin confirma el pago manualmente.
+3. **Imágenes:** Supabase Storage → endpoint `POST /api/upload` del backend con volumen persistente
+   (`UPLOAD_DIR`, EBS/EFS en AWS).
+4. **Stock:** el decremento y la auto-desactivación (Agotado) viven server-side en `POST /api/orders`
+   dentro de una transacción, reemplazando el RPC `decrement_stock` de Supabase.
+5. **Schema:** ya no hay archivo SQL separado; las tablas se crean al arrancar desde
+   `backend/app/models.py` (SQLAlchemy).
+6. **Configuración:** el frontend usa `NEXT_PUBLIC_API_URL` en lugar de las variables de Supabase.
+7. **Riesgo:** sin la API levantada, la tienda no persiste pedidos (muestra error claro); el catálogo
+   demo queda como fallback visual.
+
+**Pendientes que no cambian:** credenciales TBK para Webpay, webhook de notificación WhatsApp y seed
+inicial de franjas/zonas/días cerrados desde el panel Agenda.
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
@@ -203,7 +232,7 @@ quiere partir con transferencia).
 | D4 | "Bajo pedido" | ¿Qué significa? (producción futura, días de anticipación `lead_time_days`, cupos diarios) | Schema + agenda |
 | D5 | Slots horarios | Franjas fijas configurables vs. horario libre del cliente | Schema agenda |
 | D6 | Zonas de entrega | Radio San Javier, Talca solo presencial, tarifas | Schema + checkout |
-| D7 | Fuente de verdad única | Supabase + API Routes de Next **vs.** FastAPI desplegado | Arquitectura; hoy hay 2 backends y ninguno persiste pedidos desde la UI |
+| D7 | Fuente de verdad única | ~~Supabase~~ **RESUELTA: API FastAPI dockerizada en AWS** | Arquitectura; ver §1.1 |
 | D8 | Orden de pagos | Transferencia primero (manual) + Webpay en fase 2 | Esfuerzo, credenciales |
 | D9 | WhatsApp automático | API Meta Cloud vs. enlace `wa.me` manual | Costo, cuenta Business |
 | D10 | Comentarios | Anónimos vs. con cuenta; moderados vs. directos | Schema, RLS |
@@ -234,7 +263,7 @@ quiere partir con transferencia).
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |
 | `lib/products.ts` | Productos demo + `formatPrice` |
 | `lib/store-config.ts` | Textos de identidad hardcodeados |
-| `lib/supabase/browser.ts` | Cliente Supabase (solo browser; no hay cliente server) |
-| `supabase/schema.sql` | Esquema + RLS + `is_admin()` |
+| `lib/api.ts` | Cliente HTTP de la API dockerizada (`X-Admin-Token`) |
+| `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar) |
 | `backend/app/*` | API FastAPI local (catálogo, órdenes, settings) — hoy sin uso por el frontend |
 | `backend/tests/*` | Tests de la API local |

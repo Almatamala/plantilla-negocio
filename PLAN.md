@@ -21,7 +21,7 @@
 | D4 "Bajo pedido" | `allow_backorder` + `lead_time_days` (días de anticipación mostrados al cliente) |
 | D5 Slots horarios | Franjas fijas configurables en admin (tabla `time_slots`) |
 | D6 Zonas de entrega | Domicilio solo San Javier; retiro presencial San Javier + Talca; sin tarifa por ahora |
-| D7 Fuente de verdad | **Supabase como única fuente de verdad**; congelar/eliminar FastAPI local |
+| D7 Fuente de verdad | **RESUELTA: API FastAPI dockerizada en AWS como única fuente de verdad** (ver actualización abajo) |
 | D8 Orden de pagos | Transferencia primero (confirmación manual); Webpay en fase posterior |
 | D9 WhatsApp | v1: enlace `wa.me` (botón flotante); notificación automática se evalúa aparte |
 | D10 Comentarios | Anónimos, con moderación del admin antes de publicar |
@@ -33,6 +33,23 @@
   changes respecto a lo conocido).
 - Cada fase termina con un **gate**: verificación (typecheck, lint, build) + revisión del dueño antes de
   seguir.
+
+---
+
+## 0.1 Actualización — Migración a API dockerizada (AWS), fuera Supabase
+
+D7 quedó resuelta a favor de la **API FastAPI dockerizada en AWS** como única fuente de verdad.
+Consecuencias sobre este plan:
+
+- **F0.3 cambia:** ya no es una migración SQL de Supabase; el schema vive en `backend/app/models.py`
+  (SQLAlchemy) y las tablas se crean al arrancar la API. El trabajo equivalente (nuevas columnas y
+  tablas de productos, agenda, zonas, reviews, órdenes y settings) ya se implementó en el backend y se
+  valida con `pytest`.
+- El frontend usa `lib/api.ts` (cliente HTTP) en lugar de Supabase; el login usa `API_ADMIN_TOKEN`.
+- Las imágenes se suben a `POST /api/upload` (volumen persistente en AWS) en lugar de Storage.
+- El decremento de stock y la auto-desactivación se hacen server-side en `POST /api/orders`.
+- La implementación completa (F0–F3) ya está realizada y refactorizada a esta arquitectura; los únicos
+  pendientes son externos (credenciales TBK para Webpay, webhook de WhatsApp, seed de agenda/zonas).
 
 ---
 
