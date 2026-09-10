@@ -1,8 +1,8 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.0
-**Fecha:** 2026-09-08
+**Versión del documento:** 1.1
+**Fecha:** 2026-09-10
 **Estado:** Borrador para revisión del dueño del producto
 
 ---
@@ -45,20 +45,64 @@ inicial de franjas/zonas/días cerrados desde el panel Agenda.
 
 ---
 
+## 1.2 Actualización v3 — Login de usuarios (clientes y admins) y sesión server-side
+
+**Estado: implementado y probado (2026-09-10).** `pytest` 28/28, `tsc`/lint/build OK, API dockerizada
+local verificada de punta a punta.
+
+La autenticación vive en el backend FastAPI (única fuente de verdad) con **dos vías**, ambas emitiendo
+un **JWT de sesión** (HS256, 30 días, firmado con `AUTH_JWT_SECRET`):
+
+1. **Correo y contraseña** — `POST /api/auth/register` (crea cuenta) y `POST /api/auth/login`.
+   Contraseñas con hash `bcrypt`; rol `customer` por defecto, `admin` si el correo está en
+   `ADMIN_EMAILS`.
+2. **Google OAuth2** — `GET /api/auth/google/authorize` y `GET /api/auth/google/callback` (flujo
+   Authorization Code con `authlib`). Find-or-create del perfil por email; rol `admin` según
+   `ADMIN_EMAILS`.
+
+**Sesión en el frontend (Next.js):** la cookie es **httpOnly, SameSite=Strict, Secure** y la manejan
+los route handlers `app/api/auth/*`. El archivo **`proxy.ts`** (Next 16) protege `/admin` (solo
+`role=admin`) y redirige a los logueados fuera de `/login`. Esto **resuelve D13** del PLAN: la clave
+`API_ADMIN_TOKEN` ya no es método de login de la UI (queda solo como respaldo para llamadas directas a
+la API con `X-Admin-Token`).
+
+**Nuevas páginas y flujo:**
+
+- `/login` — correo/contraseña (con opción de registro) y botón "Continuar con Google" debajo.
+- `/cuenta` — editar nombre y **teléfono por defecto** (se precarga en el checkout), historial de
+  pedidos propios (`GET /api/orders/me`) y cerrar sesión.
+- Checkout — autocompleta nombre/correo/teléfono si hay sesión, **sin obligar a loguearse** (flujo de
+  invitado intacto).
+- Storefront — el header/footer reflejan la sesión (enlace "Mi cuenta").
+- Órdenes — `POST /api/orders` vincula `orders.customer_id` al perfil cuando `customer_email` coincide.
+
+**Endpoints nuevos:** `POST /api/auth/register`, `POST /api/auth/login`,
+`GET /api/auth/google/authorize`, `GET /api/auth/google/callback`, `GET|PATCH /api/auth/me`,
+`GET /api/orders/me`.
+
+**Env vars nuevas:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `ADMIN_EMAILS`
+(default `alvaro.dario09@gmail.com`), `AUTH_JWT_SECRET` (**el mismo valor en Next.js y en la API**).
+
+**Pendientes:** credenciales TBK para Webpay (F2.3), webhook de notificación WhatsApp (F3.1),
+**credenciales de Google Cloud** (`GOOGLE_CLIENT_ID/SECRET` — hasta configurarlas el botón de Google
+avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), seed inicial de agenda
+(franjas/zonas/días cerrados) y las secciones Clientes/Configuración del panel (siguen como placeholder).
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
 |---|---|
-| **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Una sola página tienda (`app/page.tsx` → `components/storefront.tsx`), carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por magic-link en `app/login`. |
-| **Catálogo** | `lib/products.ts` con 4 productos demo. Si hay Supabase configurado, el storefront lee `products` activos y los reemplaza. Fotos **no existen**: se usan gradientes CSS (`product-visual`) como placeholder. |
-| **Datos** | `supabase/schema.sql`: tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `pages`, `store_settings`, con RLS y función `is_admin()`. |
-| **Admin** | Panel con secciones Inicio / Productos / Pedidos / Clientes / Contenido / Reportes / Configuración. CRUD de productos (con Supabase si está conectado), filtros, edición de stock, gestión de pedidos con modal de ítems y filtros. |
-| **Backend alternativo** | `backend/` FastAPI + SQLAlchemy que replica el schema (catálogo, variantes, órdenes, páginas, settings) con token `X-Admin-Token`. Corre solo local/Docker; **el frontend no lo usa**. |
+| **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`, carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por correo/contraseña + Google en `app/login`, página de cuenta `app/cuenta`, `proxy.ts` protege `/admin` (rol admin). |
+| **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
+| **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `time_slots`, `closed_days`, `shipping_zones`, `reviews`, `pages`, `store_settings`. Las tablas se crean al arrancar la API. |
+| **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Clientes / Comentarios / Contenido / Reportes / Configuración. CRUD de productos contra la API, filtros, edición de stock, gestión de pedidos con modal de ítems y filtros, agenda (franjas/días cerrados/zonas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
+| **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, zonas, reviews, órdenes con stock server-side, ajustes e imágenes. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
 | **Identidad** | Textos de la tienda hardcodeados en `lib/store-config.ts` (nombre, hero, historia). Existe tabla `store_settings` pero **no se usa**. |
 
-> ⚠️ Nota: hay cambios **sin commitear** en `components/admin-dashboard.tsx` (modal de ítems de pedido,
-> filtros de pedidos, creación de producto y modal de stock). Al momento de leer este documento,
-> ese trabajo está a medio camino y conviene commitearlo antes de empezar cualquier otra cosa.
+> Nota: el trabajo que quedó a medio camino en `components/admin-dashboard.tsx` (modal de ítems,
+> filtros, creación de producto, modal de stock) fue commiteado y el desarrollo continuó: ver §1.2.
 
 ---
 
@@ -184,8 +228,8 @@ inicial de franjas/zonas/días cerrados desde el panel Agenda.
   oculto** (`hidden md:block`) sin alternativa → contradice directamente el requisito "gestionar desde el
   celular, ipad, computador".
 - ❌ **Comentarios de clientes**: no existe ni tabla ni UI.
-- ⚠️ El admin **no valida el rol**: cualquier usuario logueado entra al panel (la RLS de Supabase
-  protege la escritura, pero la UI no se adapta y muestra errores al no-admin).
+- ✅ El panel **sí valida el rol**: `proxy.ts` solo deja entrar a sesiones `role=admin` y la API exige
+  JWT de admin o `X-Admin-Token` en las mutaciones (ver §1.2).
 
 **Conflictos y decisiones:**
 
@@ -238,6 +282,7 @@ quiere partir con transferencia).
 | D10 | Comentarios | Anónimos vs. con cuenta; moderados vs. directos | Schema, RLS |
 | D11 | Instagram | Embed real (token) vs. enlace/gráfica estática | Mantención |
 | D12 | Alcance del panel móvil | Drawer/bottom-nav en admin | Trabajo transversal |
+| D13 | Protección del panel de administración | **RESUELTA E IMPLEMENTADA** (ver §1.2): sesión server-side en cookie httpOnly + `proxy.ts` por rol admin; login por correo/contraseña + Google | Arquitectura + seguridad |
 
 ---
 
@@ -263,7 +308,11 @@ quiere partir con transferencia).
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |
 | `lib/products.ts` | Productos demo + `formatPrice` |
 | `lib/store-config.ts` | Textos de identidad hardcodeados |
-| `lib/api.ts` | Cliente HTTP de la API dockerizada (`X-Admin-Token`) |
-| `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar) |
-| `backend/app/*` | API FastAPI local (catálogo, órdenes, settings) — hoy sin uso por el frontend |
+| `lib/api.ts` | Cliente HTTP de la API dockerizada (JWT de sesión `Bearer`; respaldo `X-Admin-Token`) |
+| `lib/session.ts` | Verificación del JWT de sesión (jose) + nombre de la cookie httpOnly |
+| `proxy.ts` | Protege `/admin` (rol admin) y redirige a logueados fuera de `/login` |
+| `app/api/auth/*` | Route handlers: login/registro, callback de Google, `/me`, logout (cookie httpOnly) |
+| `app/cuenta` | Página de cuenta: datos, teléfono por defecto, historial de pedidos, cerrar sesión |
+| `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
+| `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (GOOGLE_*, ADMIN_EMAILS, AUTH_JWT_SECRET) |
 | `backend/tests/*` | Tests de la API local |

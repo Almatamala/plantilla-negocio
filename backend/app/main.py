@@ -1,22 +1,40 @@
 import os
 import uuid
+from datetime import datetime, timezone
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from jwt import decode as jwt_decode, encode as jwt_encode
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+import bcrypt
+from authlib.integrations.httpx_client import OAuth2Client
 from .config import get_settings
 from .database import Base, engine, get_db
-from .models import Category, ClosedDay, Order, OrderItem, Page, Product, ProductVariant, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch
+from .models import Category, ClosedDay, Order, OrderItem, Page, Product, ProductVariant, Profile, Review, ShippingZone, StoreSettings, TimeSlot
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch
 
 settings = get_settings()
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+SESSION_MAX_AGE_DAYS = 30
+GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+def google_client() -> OAuth2Client:
+    return OAuth2Client(
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret,
+        redirect_uri=settings.google_redirect_uri,
+        scope="openid email profile",
+    )
 
 
 @asynccontextmanager
@@ -32,9 +50,52 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 PUBLIC_STATUSES = ["active", "preorder", "sold_out"]
 
 
-def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    if x_admin_token != settings.api_admin_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de administrador inválido.")
+def google_configured() -> bool:
+    return bool(settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri)
+
+
+def session_token(profile) -> str:
+    now = int(datetime.now(timezone.utc).timestamp())
+    payload = {"sub": profile.id, "role": profile.role, "iat": now, "exp": now + SESSION_MAX_AGE_DAYS * 86400}
+    return jwt_encode(payload, settings.auth_jwt_secret, algorithm="HS256")
+
+
+def verify_session_token(token: str | None) -> dict | None:
+    if not token:
+        return None
+    try:
+        return jwt_decode(token, settings.auth_jwt_secret, algorithms=["HS256"])
+    except Exception:
+        return None
+
+
+def bearer_token(authorization: str | None) -> str | None:
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return None
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    except ValueError:
+        return False
+
+
+def require_admin(
+    x_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> None:
+    if x_admin_token == settings.api_admin_token:
+        return
+    payload = verify_session_token(bearer_token(authorization))
+    if payload and payload.get("role") == "admin":
+        return
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de administrador inválido.")
 
 
 def commit(db: Session, entity):
@@ -62,6 +123,108 @@ def order_out(order: Order) -> OrderOut:
 
 @app.get("/health")
 def health() -> dict[str, str]: return {"status": "ok"}
+
+
+# ── Autenticación (Google OAuth + sesión JWT) ───────────────────────────────
+
+@app.get("/api/auth/google/authorize")
+def google_authorize():
+    if not google_configured():
+        raise HTTPException(status_code=503, detail="El login con Google no está configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y GOOGLE_REDIRECT_URI).")
+    state = jwt_encode(
+        {"state": uuid.uuid4().hex, "exp": int(datetime.now(timezone.utc).timestamp()) + 600},
+        settings.auth_jwt_secret,
+        algorithm="HS256",
+    )
+    url, _ = google_client().create_authorization_url(GOOGLE_AUTHORIZE_URL, state=state)
+    return {"url": url}
+
+
+@app.get("/api/auth/google/callback")
+def google_callback(code: str, state: str | None = None, db: Session = Depends(get_db)):
+    if not google_configured():
+        raise HTTPException(status_code=503, detail="El login con Google no está configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y GOOGLE_REDIRECT_URI).")
+    if not state or not verify_session_token(state):
+        raise HTTPException(status_code=400, detail="Parámetro de seguridad inválido. Intenta iniciar sesión nuevamente.")
+    try:
+        client = google_client()
+        client.fetch_token(
+            GOOGLE_TOKEN_URL,
+            authorization_response=f"{settings.google_redirect_uri}?code={code}&state={state}",
+        )
+        userinfo = client.get(GOOGLE_USERINFO_URL).json()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="No se pudo validar el código de Google. Intenta nuevamente.") from error
+    email = (userinfo.get("email") or "").strip().lower()
+    if not email or not userinfo.get("email_verified"):
+        raise HTTPException(status_code=403, detail="La cuenta de Google no tiene un correo verificado.")
+    profile = db.scalar(select(Profile).where(Profile.email == email))
+    if profile is None:
+        role = "admin" if email in settings.admin_email_list else "customer"
+        profile = Profile(email=email, name=userinfo.get("name"), google_sub=userinfo.get("sub"), role=role)
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    else:
+        if email in settings.admin_email_list:
+            profile.role = "admin"
+        if userinfo.get("name"):
+            profile.name = userinfo.get("name")
+        if userinfo.get("sub"):
+            profile.google_sub = userinfo.get("sub")
+        db.commit()
+        db.refresh(profile)
+    return {"token": session_token(profile), "user": ProfileOut.model_validate(profile)}
+
+
+@app.post("/api/auth/register", status_code=201)
+def register(payload: RegisterIn, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    if db.scalar(select(Profile).where(Profile.email == email)):
+        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo.")
+    role = "admin" if email in settings.admin_email_list else "customer"
+    profile = Profile(email=email, name=payload.name.strip(), password_hash=hash_password(payload.password), role=role)
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return {"token": session_token(profile), "user": ProfileOut.model_validate(profile)}
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginIn, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    profile = db.scalar(select(Profile).where(Profile.email == email))
+    if not profile or not profile.password_hash or not verify_password(payload.password, profile.password_hash):
+        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos.")
+    return {"token": session_token(profile), "user": ProfileOut.model_validate(profile)}
+
+
+@app.get("/api/auth/me")
+def auth_me(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+    payload = verify_session_token(bearer_token(authorization))
+    if not payload:
+        raise HTTPException(status_code=401, detail="Sesión no válida o expirada.")
+    profile = db.get(Profile, payload.get("sub"))
+    if not profile:
+        raise HTTPException(status_code=401, detail="Sesión no válida o expirada.")
+    return ProfileOut.model_validate(profile)
+
+
+@app.patch("/api/auth/me")
+def update_me(payload: ProfilePatch, authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+    session = verify_session_token(bearer_token(authorization))
+    if not session:
+        raise HTTPException(status_code=401, detail="Sesión no válida o expirada.")
+    profile = db.get(Profile, session.get("sub"))
+    if not profile:
+        raise HTTPException(status_code=401, detail="Sesión no válida o expirada.")
+    if payload.name is not None:
+        profile.name = payload.name.strip() or None
+    if payload.phone is not None:
+        profile.phone = payload.phone.strip() or None
+    db.commit()
+    db.refresh(profile)
+    return ProfileOut.model_validate(profile)
 
 
 # ── Catálogo ────────────────────────────────────────────────────────────────
@@ -221,7 +384,17 @@ def list_orders(db: Session = Depends(get_db)):
 @app.post("/api/orders", response_model=OrderOut, status_code=201)
 def create_order(payload: OrderIn, db: Session = Depends(get_db)):
     total = sum(item.unit_price * item.quantity for item in payload.items)
-    order = Order(**payload.model_dump(exclude={"items"}), total=total)
+    customer_profile = None
+    if payload.customer_email:
+        customer_profile = db.scalar(select(Profile).where(Profile.email == payload.customer_email.strip().lower()))
+    order = Order(**payload.model_dump(exclude={"items", "customer_id"}), total=total)
+    if customer_profile:
+        order.customer_id = customer_profile.id
+    elif payload.customer_id:
+        if db.get(Profile, payload.customer_id) is None:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Cliente no encontrado.")
+        order.customer_id = payload.customer_id
     db.add(order)
     db.flush()
     for item in payload.items:
@@ -250,6 +423,20 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db)):
 @app.patch("/api/orders/{order_id}/status", response_model=OrderOut, dependencies=[Depends(require_admin)])
 def update_order_status(order_id: str, payload: OrderStatusPatch, db: Session = Depends(get_db)):
     order = find_or_404(db, Order, order_id); order.status = payload.status; return commit(db, order)
+
+
+@app.get("/api/orders/me")
+def my_orders(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+    session = verify_session_token(bearer_token(authorization))
+    if not session:
+        raise HTTPException(status_code=401, detail="Sesión no válida o expirada.")
+    rows = db.scalars(
+        select(Order)
+        .options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone))
+        .where(Order.customer_id == session.get("sub"))
+        .order_by(Order.created_at.desc())
+    ).all()
+    return [order_out(o) for o in rows]
 
 
 # ── Imágenes ────────────────────────────────────────────────────────────────

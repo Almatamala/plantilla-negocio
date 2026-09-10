@@ -12,6 +12,31 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProfileOut(ORMModel):
+    id: str
+    name: str | None
+    phone: str | None
+    email: str
+    role: str
+    created_at: datetime
+
+
+class ProfilePatch(BaseModel):
+    name: str | None = Field(default=None, max_length=180)
+    phone: str | None = Field(default=None, max_length=60)
+
+
+class RegisterIn(BaseModel):
+    name: str = Field(min_length=1, max_length=180)
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=8, max_length=200)
+
+
+class LoginIn(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+
+
 class CategoryIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     slug: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=140)

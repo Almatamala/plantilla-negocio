@@ -14,10 +14,14 @@ def new_id() -> str:
 
 
 class Profile(Base):
-    """Sustituto local de auth.users + public.profiles (por compatibilidad histórica)."""
+    """Usuarios de la tienda: clientes y administradores (login con Google)."""
     __tablename__ = "profiles"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(180))
+    phone: Mapped[Optional[str]] = mapped_column(String(60))
+    google_sub: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="customer")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

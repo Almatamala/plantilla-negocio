@@ -1,12 +1,36 @@
 /**
  * Cliente HTTP para la API dockerizada (FastAPI en AWS).
  * La API es la única fuente de verdad: catálogo, agenda, zonas, reviews,
- * órdenes, ajustes e imágenes. Las mutaciones administrativas envían
- * `X-Admin-Token` (guardado al iniciar sesión en /login).
+ * órdenes, ajustes e imágenes. Las mutaciones administrativas envían el
+ * JWT de sesión (Authorization: Bearer) cuando hay sesión de Google activa;
+ * como respaldo, la clave `API_ADMIN_TOKEN` guardada en /login (X-Admin-Token).
  */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ADMIN_TOKEN_KEY = "bosque-admin-token";
+
+let sessionTokenCache = "";
+
+/**
+ * Devuelve el JWT de sesión (si hay login con Google) leyéndolo desde la cookie
+ * httpOnly a través del route handler /api/auth/me. Solo corre en el navegador.
+ */
+export async function getSessionToken(): Promise<string> {
+  if (typeof window === "undefined") return "";
+  if (sessionTokenCache) return sessionTokenCache;
+  try {
+    const res = await fetch("/api/auth/me", { cache: "no-store" });
+    const data = await res.json();
+    if (data?.token) sessionTokenCache = data.token;
+    return data?.token ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function clearSessionTokenCache() {
+  sessionTokenCache = "";
+}
 
 export function getAdminToken(): string {
   if (typeof localStorage === "undefined") return "";
@@ -30,8 +54,13 @@ export function absoluteUrl(path: string): string {
 export async function apiFetch<T>(path: string, options: { method?: string; body?: unknown; admin?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (options.admin) {
-    const token = getAdminToken();
-    if (token) headers["X-Admin-Token"] = token;
+    const sessionToken = await getSessionToken();
+    if (sessionToken) {
+      headers["Authorization"] = `Bearer ${sessionToken}`;
+    } else {
+      const token = getAdminToken();
+      if (token) headers["X-Admin-Token"] = token;
+    }
   }
   const res = await fetch(`${API_URL}${path}`, {
     method: options.method ?? "GET",

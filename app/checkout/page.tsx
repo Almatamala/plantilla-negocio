@@ -38,6 +38,7 @@ export default function CheckoutPage() {
   const [slotId, setSlotId] = useState("");
   const [payment, setPayment] = useState<PaymentMethod>("transferencia");
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
+  const [user, setUser] = useState<{ name?: string | null; email?: string | null; phone?: string | null } | null>(null);
   const [message, setMessage] = useState("");
   const [placed, setPlaced] = useState(false);
   const [placedId, setPlacedId] = useState("");
@@ -50,6 +51,12 @@ export default function CheckoutPage() {
     apiFetch<{ date: string }[]>("/api/closed-days").then((rows) => setClosedDays(rows.map((d) => d.date))).catch(() => undefined);
     apiFetch<Zone[]>("/api/shipping-zones").then((rows) => { if (rows.length) setZones(rows); }).catch(() => undefined);
     apiFetch<{ bank_account_info: string | null }>("/api/settings").then((data) => { if (data.bank_account_info) setBankInfo(data.bank_account_info); }).catch(() => undefined);
+    fetch("/api/auth/me").then((r) => r.json()).then((data) => {
+      if (data?.user) {
+        setUser(data.user);
+        setCustomer((c) => ({ ...c, name: c.name || data.user.name || "", email: c.email || data.user.email || "", phone: c.phone || data.user.phone || "" }));
+      }
+    }).catch(() => undefined);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -109,6 +116,7 @@ export default function CheckoutPage() {
           <div className="space-y-8">
             <section className="rounded-2xl bg-white p-5">
               <h2 className="display text-2xl">1 · Tus datos</h2>
+              {user && <p className="mt-2 rounded-lg bg-[#edf0e8] px-3 py-2 text-xs text-[#526058]">Sesión iniciada{user.email ? ` como ${user.email}` : ""}. Tus datos se completaron automáticamente.</p>}
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <input required value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Nombre y apellido" className="rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
                 <input required value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} placeholder="Teléfono (WhatsApp)" className="rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>

@@ -48,8 +48,10 @@ Consecuencias sobre este plan:
 - El frontend usa `lib/api.ts` (cliente HTTP) en lugar de Supabase; el login usa `API_ADMIN_TOKEN`.
 - Las imágenes se suben a `POST /api/upload` (volumen persistente en AWS) en lugar de Storage.
 - El decremento de stock y la auto-desactivación se hacen server-side en `POST /api/orders`.
-- La implementación completa (F0–F3) ya está realizada y refactorizada a esta arquitectura; los únicos
-  pendientes son externos (credenciales TBK para Webpay, webhook de WhatsApp, seed de agenda/zonas).
+- La implementación completa (F0–F3) ya está realizada y refactorizada a esta arquitectura; después se
+  implementó el **login de usuarios** (correo/contraseña + Google, roles cliente/admin, sesión server-side,
+  página de cuenta) — ver §0.3. Los únicos pendientes son externos: credenciales TBK para Webpay, webhook
+  de WhatsApp, seed de agenda/zonas y las credenciales `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
 
 ---
 
@@ -107,6 +109,46 @@ celular, tablet y PC.
 
 **Refuerzo futuro (opcional):** agregar HTTP Basic Auth en AWS WAL/ALB sobre `/admin*` y `/login*` como
 capa de red (paso a paso pendiente de documentar).
+
+### Estado: IMPLEMENTADO (2026-09-10)
+
+El método de login cambió: en lugar de la clave `API_ADMIN_TOKEN`, la autenticación es por
+**correo/contraseña + Google OAuth** (ver §0.3). T1–T4 quedaron cubiertos:
+
+- **T1 (sesión server-side):** la sesión es un JWT firmado por la API y guardado en **cookie httpOnly,
+  SameSite=Strict, Secure** vía route handlers `app/api/auth/*`; el token nunca vive en `localStorage`.
+- **T2 (proxy.ts):** `proxy.ts` en la raíz redirige a la tienda a quien no tenga sesión `role=admin`
+  intentando entrar a `/admin`, y a los logueados fuera de `/login`.
+- **T3 (llamadas admin):** las mutaciones del panel envían el JWT de sesión como `Authorization: Bearer`
+  (obtenido por `/api/auth/me`); la API lo acepta cuando `role=admin`. `X-Admin-Token` queda solo como
+  respaldo para acceso directo a la API.
+- **T4 (ocultar rutas):** se quitaron los enlaces públicos a `/admin` del footer y de la sección historia.
+
+El refuerzo de red (WAF/ALB Basic Auth) sigue pendiente como opcional.
+
+---
+
+## 0.3 Actualización — Login de usuarios (clientes y admins), sesión y roles
+
+**Implementado (2026-09-10) y probado:** `pytest` 28/28, `tsc`/lint/build OK, API dockerizada local
+verificada de punta a punta.
+
+- **Backend (FastAPI):** registro y login por **correo/contraseña** (`bcrypt`) y **Google OAuth2** con
+  `authlib` (flujo Authorization Code). Ambos emiten un **JWT de sesión** (HS256, 30 días, firmado con
+  `AUTH_JWT_SECRET`). Endpoints: `POST /api/auth/register`, `POST /api/auth/login`,
+  `GET /api/auth/google/authorize`, `GET /api/auth/google/callback`, `GET|PATCH /api/auth/me`,
+  `GET /api/orders/me`. El rol vive en `profiles.role` (`customer` por defecto; `admin` si el correo
+  está en `ADMIN_EMAILS`). Las órdenes se vinculan al perfil (`customer_id`) cuando `customer_email`
+  coincide, sin obligar al cliente a loguearse.
+- **Frontend (Next.js):** `proxy.ts` protege `/admin` por rol y `/login`; sesión en cookie httpOnly
+  (route handlers `app/api/auth/*`); página **`/cuenta`** con datos, **teléfono por defecto** (precargado
+  en el checkout), historial de pedidos y cierre de sesión; `/login` con correo/contraseña (+ registro)
+  y botón de Google debajo; el storefront refleja la sesión en header/footer.
+- **Env vars nuevas:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`,
+  `ADMIN_EMAILS` (default `alvaro.dario09@gmail.com`), `AUTH_JWT_SECRET` (**mismo valor en Next y API**).
+- **Pendiente externo:** crear el OAuth Client en Google Cloud Console y definir `GOOGLE_CLIENT_ID`/
+  `GOOGLE_CLIENT_SECRET` para activar el login de Google (hasta entonces responde 503 con aviso amigable).
+  El login por correo/contraseña funciona sin credenciales de Google.
 
 ---
 
@@ -411,7 +453,10 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 
 ## 8. Próximos pasos inmediatos
 
-1. Aprobar los defaults de decisiones (sección 0) o marcarlos en el RPD.
-2. Ejecutar **F0.1** (commit del trabajo pendiente) y **F0.2** (decisión D7).
-3. Programar la migración **F0.3** del schema.
-4. Iniciar **F1.1 + F1.2** (ficha con fotos) — el bloque que desbloquea la percepción del producto.
+1. Crear el OAuth Client en Google Cloud Console y definir `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`
+   (activa el login de Google; mientras tanto funciona el de correo/contraseña).
+2. Reiniciar `next dev` con el `.env.local` (`AUTH_JWT_SECRET` igual al backend) y verificar el flujo:
+   cliente → `/cuenta`, admin → `/admin`.
+3. Webpay Plus (F2.3): solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*`.
+4. Seed inicial de agenda (franjas, zonas San Javier/Talca, días cerrados) desde el panel Agenda.
+5. Decidir proveedor de la notificación automática de WhatsApp (F3.1).

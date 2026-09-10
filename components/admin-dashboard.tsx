@@ -2,9 +2,10 @@
 
 import { Slider } from "@base-ui/react/slider";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, Eye, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Settings, Store, Trash2, Upload, Users, X } from "lucide-react";
-import { apiFetch, uploadImage } from "@/lib/api";
+import { apiFetch, clearAdminToken, clearSessionTokenCache, uploadImage } from "@/lib/api";
 import { formatPrice, products as demoProducts, type Product, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
@@ -42,6 +43,8 @@ function productPayload(p: AdminProduct): Record<string, unknown> {
 }
 
 export function AdminDashboard() {
+  const router = useRouter();
+  const [user, setUser] = useState<{ name?: string | null; email?: string | null } | null>(null);
   const [section, setSection] = useState<Section>("inicio");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [catalog, setCatalog] = useState<AdminProduct[]>(demoProducts.map((p) => ({ ...p, category_id: null })));
@@ -65,11 +68,20 @@ export function AdminDashboard() {
         setOrders(ordersRows.map((o) => ({ id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", fulfillment: o.fulfillment ?? "retiro", location: o.location ?? "", notes: o.notes, scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, zone: o.shipping_zone_name, paymentMethod: o.payment_method, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price })) })));
         setState("Conectado a la API.");
       } catch (e) {
-        if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login con la clave de administración." : e.message) : "No se pudo conectar con la API.");
+        if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login para acceder al panel." : e.message) : "No se pudo conectar con la API.");
       }
     })();
     return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    fetch("/api/auth/me").then((r) => r.json()).then((data) => { if (data?.user) setUser(data.user); }).catch(() => undefined);
+  }, []);
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    clearSessionTokenCache();
+    clearAdminToken();
+    router.push("/");
+  }
   const revenue = useMemo(() => orders.filter((order) => order.status !== "Cancelado").reduce((sum, order) => sum + order.total, 0), [orders]);
   function changeOrder(id: string, patch: Partial<Order>) {
     setOrders((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
@@ -79,7 +91,7 @@ export function AdminDashboard() {
   }
   function addOrder() { setOrders((items) => [{ id: `#${1000 + items.length + 2}`, customer: "Cliente nuevo", total: 0, status: "Pendiente", fulfillment: "retiro", location: "Retiro en tienda", items: [] }, ...items]); }
   const selected = menu.find((item) => item.id === section)?.label;
-  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm"><span className="hidden max-w-[320px] truncate text-[#647167] sm:block">{state}</span><Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link></div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={addOrder} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrdersChange={setOrders} onOrderChange={changeOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div></main>;
+  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm"><span className="hidden max-w-[320px] truncate text-[#647167] sm:block">{state}</span>{user ? <><span className="hidden text-[#526058] sm:block">{user.email}</span><button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Salir</button></> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={addOrder} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrdersChange={setOrders} onOrderChange={changeOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div></main>;
 }
 
 function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrdersChange: React.Dispatch<React.SetStateAction<Order[]>>; onOrderChange: (id: string, patch: Partial<Order>) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {

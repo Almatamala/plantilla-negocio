@@ -21,6 +21,13 @@ services:
       API_ADMIN_TOKEN: change-me-in-development
       CORS_ORIGINS: http://localhost:3000
       UPLOAD_DIR: /app/uploads
+      # Login con Google (dejar vacío hasta tener credenciales en Google Cloud Console)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/auth/google/callback}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-alvaro.dario09@gmail.com}
+      # Secreto compartido con Next.js para firmar la sesión (cambiar en producción)
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-change-me-in-development}
     ports:
       - "8000:8000"
     volumes:
