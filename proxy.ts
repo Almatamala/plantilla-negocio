@@ -13,6 +13,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // El admin no usa la vista de cuenta: su lugar es el panel.
+  if (pathname.startsWith("/cuenta") && session?.role === "admin") {
+    return NextResponse.redirect(new URL("/admin", request.url));
+  }
+
   // Un usuario ya logueado no necesita volver a /login.
   if (pathname === "/login" && session) {
     return NextResponse.redirect(new URL("/", request.url));

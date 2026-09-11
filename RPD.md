@@ -86,7 +86,29 @@ la API con `X-Admin-Token`).
 **Pendientes:** credenciales TBK para Webpay (F2.3), webhook de notificación WhatsApp (F3.1),
 **credenciales de Google Cloud** (`GOOGLE_CLIENT_ID/SECRET` — hasta configurarlas el botón de Google
 avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), seed inicial de agenda
-(franjas/zonas/días cerrados) y las secciones Clientes/Configuración del panel (siguen como placeholder).
+(franjas/zonas/días cerrados); las secciones Clientes/Configuración del panel se eliminaron en la v4
+(ver §1.3).
+
+---
+
+## 1.3 Actualización v4 — Ajustes de alcance (repostería)
+
+**Aplicado (2026-09-11).** Se ajustó el producto al rubro (repostería) y se simplificó el panel:
+
+- **Alérgenos:** `pescado` y `mariscos` fuera del código (`lib/allergens.ts`); el resto se mantiene.
+- **Admin vs. cuenta:** el admin no usa `/cuenta`. El botón del storefront apunta a `/admin` para
+  `role=admin` y `proxy.ts` redirige a `/admin` si intenta entrar a `/cuenta`.
+- **Header del panel:** sin correo, sin estado de la API y con «Cerrar sesión» en lugar de «Salir».
+- **Secciones eliminadas del panel:** **Clientes** (se deriva de las órdenes) y **Configuración**
+  (los datos de tienda se editan en **Contenido**; `API_ADMIN_TOKEN` ya no es método de login).
+- **Sellos eliminados:** `artisan_seal` y `sustainable` fuera del schema de la API, del editor y del
+  storefront. **D4 se simplifica:** «bajo pedido» = solo `allow_backorder`, sin `lead_time_days`.
+- **Pedidos desde el admin:** «Nueva orden» abre un formulario que persiste vía `POST /api/orders`
+  (cliente, productos, entrega, agenda y pago). Un pedido mal ingresado se **edita** con
+  `PUT /api/orders/{id}` desde la tabla; **no hay borrado** de pedidos. El cambio de estado se mantiene
+  para confirmar pagos (transferencia). La edición no recalcula stock (se ajusta con «Agregar stock»).
+- **Transición a AWS:** los pasos y consideraciones (reconstruir la imagen de la API, limpieza de las
+  columnas retiradas y variables de entorno) quedaron en **PLAN §0.5**.
 
 ---
 
@@ -97,7 +119,7 @@ avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), 
 | **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`, carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por correo/contraseña + Google en `app/login`, página de cuenta `app/cuenta`, `proxy.ts` protege `/admin` (rol admin). |
 | **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
 | **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `time_slots`, `closed_days`, `shipping_zones`, `reviews`, `pages`, `store_settings`. Las tablas se crean al arrancar la API. |
-| **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Clientes / Comentarios / Contenido / Reportes / Configuración. CRUD de productos contra la API, filtros, edición de stock, gestión de pedidos con modal de ítems y filtros, agenda (franjas/días cerrados/zonas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
+| **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (franjas/días cerrados/zonas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
 | **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, zonas, reviews, órdenes con stock server-side, ajustes e imágenes. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
 | **Identidad** | Textos de la tienda hardcodeados en `lib/store-config.ts` (nombre, hero, historia). Existe tabla `store_settings` pero **no se usa**. |
 
@@ -273,7 +295,7 @@ quiere partir con transferencia).
 | D1 | Ficha de producto | Página `/producto/[slug]` vs. modal | SEO, esfuerzo frontend |
 | D2 | Alérgenos | Por producto vs. por familia/receta | Schema |
 | D3 | Regla de stock | Estado automático derivado de inventario vs. manual con umbrales | Lógica + schema |
-| D4 | "Bajo pedido" | ¿Qué significa? (producción futura, días de anticipación `lead_time_days`, cupos diarios) | Schema + agenda |
+| D4 | "Bajo pedido" | **RESUELTA (v4, ver §1.3):** solo `allow_backorder`, sin días de anticipación ni `lead_time_days` | Schema + agenda |
 | D5 | Slots horarios | Franjas fijas configurables vs. horario libre del cliente | Schema agenda |
 | D6 | Zonas de entrega | Radio San Javier, Talca solo presencial, tarifas | Schema + checkout |
 | D7 | Fuente de verdad única | ~~Supabase~~ **RESUELTA: API FastAPI dockerizada en AWS** | Arquitectura; ver §1.1 |

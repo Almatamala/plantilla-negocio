@@ -18,7 +18,7 @@
 | D1 Ficha de producto | Página propia `/producto/[slug]` (mejor SEO y escalable) |
 | D2 Alérgenos | Por producto: array de códigos (`gluten`, `lacteos`, `frutos-secos`, `huevo`, …) + íconos |
 | D3 Regla de stock | Híbrido: estado manual + auto `sold_out` cuando `inventory = 0` (salvo `allow_backorder`) |
-| D4 "Bajo pedido" | `allow_backorder` + `lead_time_days` (días de anticipación mostrados al cliente) |
+| D4 "Bajo pedido" | `allow_backorder` sin días de anticipación (ver §0.4) |
 | D5 Slots horarios | Franjas fijas configurables en admin (tabla `time_slots`) |
 | D6 Zonas de entrega | Domicilio solo San Javier; retiro presencial San Javier + Talca; sin tarifa por ahora |
 | D7 Fuente de verdad | **RESUELTA: API FastAPI dockerizada en AWS como única fuente de verdad** (ver actualización abajo) |
@@ -152,6 +152,58 @@ verificada de punta a punta.
 
 ---
 
+## 0.4 Actualización — Ajustes de alcance (repostería)
+
+**Aplicado al código y a la documentación (2026-09-11).** La tienda es una **repostería**, así que se
+recortó lo que no aplica al rubro y se simplificó el panel:
+
+- **Alérgenos:** se quitaron `pescado` y `mariscos` de `lib/allergens.ts`; quedan gluten, lácteos,
+  frutos secos, huevo, maní, soja y sésamo (D2 resuelta por producto, como estaba).
+- **Acceso del admin:** el admin ya no usa `/cuenta`. El botón «Mi cuenta» del storefront lo lleva a
+  `/admin` cuando `role=admin`, y `proxy.ts` lo redirige si intenta abrir `/cuenta`.
+- **Header del panel:** ya no muestra el correo ni el estado de la API, y el botón dice «Cerrar sesión»
+  (antes «Salir»).
+- **Secciones eliminadas:** **Clientes** (se derivará del historial de órdenes) y **Configuración**
+  (duplicaba lo que ya edita **Contenido**; el `API_ADMIN_TOKEN` dejó de ser el método de login).
+- **Sellos:** se eliminaron `artisan_seal` y `sustainable` del schema de la API, del editor del admin y
+  del storefront.
+- **Bajo pedido (D4):** se eliminó `lead_time_days` («días de anticipación»). «Bajo pedido» depende solo
+  de `allow_backorder`; el cliente ve la etiqueta sin prometer plazos por producto.
+- **Pedidos en el admin:** «Nueva orden» abre un formulario real que persiste en la API
+  (`POST /api/orders`): cliente, productos, entrega, agenda y pago. Un pedido mal ingresado se **edita**
+  (`PUT /api/orders/{id}`) desde el botón de edición de la tabla; **no hay borrado** de pedidos. El
+  selector de estado se mantiene porque es el flujo de confirmación de pago (transferencia). La edición
+  no recalcula stock: si cambian las cantidades, el stock se ajusta con «Agregar stock» en Productos.
+
+---
+
+## 0.5 Transición a AWS — qué considerar al desplegar
+
+Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend.yml`). Al pasar a AWS:
+
+1. **Reconstruir y redesplegar la imagen de la API (obligatorio).** El `Dockerfile` copia el código
+   (`COPY . .`) y arranca `uvicorn` **sin `--reload`**, así que un contenedor viejo sirve código viejo.
+   Mientras no se reconstruya, el panel recibe `404` al editar un pedido porque falta
+   `PUT /api/orders/{id}`. En local basta `docker compose -f docker-compose.backend.yml up --build -d`;
+   en AWS, subir la imagen a ECR y redesplegar (ECS/EC2).
+2. **Schema sin Alembic.** Las tablas se crean al arrancar con `Base.metadata.create_all`, que **no**
+   altera tablas existentes. Para retirar `products.artisan_seal`, `products.sustainable` y
+   `products.lead_time_days`, la API ejecuta al arrancar `ALTER TABLE products DROP COLUMN IF EXISTS …`
+   **solo en PostgreSQL** (idempotente). El usuario de la base debe tener permiso DDL; en RDS, verificar
+   que no esté restringido. En una base nueva no hace nada.
+3. **Variables de entorno.** `AUTH_JWT_SECRET` debe ser **el mismo** en Next.js y en la API (si difiere,
+   las sesiones dejan de validar); `CORS_ORIGINS` debe incluir el dominio de producción;
+   `ADMIN_EMAILS` define quién obtiene rol `admin`; `NEXT_PUBLIC_API_URL` apunta al dominio/balanceador
+   de la API.
+4. **Imágenes (`/api/upload`).** Montar un volumen persistente (EFS/EBS) en `UPLOAD_DIR` o migrar a S3
+   para no perder fotos al reiniciar contenedores.
+5. **Health check** del target group: `/health`.
+
+> Regla práctica: **cada cambio en `backend/` exige reconstruir la imagen** antes de probar en el
+> frontend; si no, aparecerán `404`/`405` por rutas que en el código ya existen.
+
+---
+
 ## 1. Resumen de fases
 
 | Fase | Nombre | Entregable | Estimación | Decisiones requeridas |
@@ -199,10 +251,8 @@ Archivo: `supabase/schema.sql` (nueva migración, no editar el original a ciegas
 **Nuevas columnas en `products`:**
 - `images text[]` (galería; `image_url` queda para compatibilidad o se depreca).
 - `ingredients text` (descripción de ingredientes principales).
-- `artisan_seal boolean` / `sustainable boolean` (sello artesanal/sustentable).
-- `allergens text[]` (códigos: `gluten`, `lacteos`, `frutos-secos`, `huevo`, `mani`, `soja`, `sesamo`, …).
-- `allow_backorder boolean default false` + `lead_time_days integer default 0` (bajo pedido con
-  anticipación).
+- `allergens text[]` (códigos: `gluten`, `lacteos`, `frutos-secos`, `huevo`, `mani`, `soja`, `sesamo`).
+- `allow_backorder boolean default false` (bajo pedido, sin días de anticipación — ver §0.4).
 - Ampliar el `CHECK` de `status`: `('draft','active','sold_out','preorder')` (o manejar "bajo pedido"
   vía `allow_backorder` + etiqueta derivada, según D3/D4).
 
@@ -248,7 +298,7 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 - **Archivos:** `app/producto/[slug]/page.tsx` (nuevo), `components/product-detail.tsx` (nuevo),
   `components/storefront.tsx` (enlaces desde la carta).
 - **Pasos:** ruta dinámica que lee el producto por slug (Supabase); galería de imágenes; descripción,
-  ingredientes, sello artesanal/sustentable; selector de cantidad + "agregar al carrito"; productos
+  ingredientes; selector de cantidad + "agregar al carrito"; productos
   relacionados opcional.
 - **Decisión:** D1 (default: página propia).
 - **Criterio:** la carta enlaza a la ficha; la ficha muestra fotos, ingredientes, sello y alérgenos;
@@ -278,7 +328,7 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 ### F1.4 — Etiquetas de stock en la carta
 - **Archivos:** `components/storefront.tsx`, `components/product-detail.tsx`.
 - **Pasos:** etiqueta visible por producto: **Disponible** (inventory > 0), **Agotado** (inventory = 0
-  sin backorder) o **Bajo Pedido** (allow_backorder, con "X días de anticipación"); deshabilitar el
+  sin backorder) o **Bajo Pedido** (allow_backorder, sin días de anticipación); deshabilitar el
   botón "+" en agotados.
 - **Decisión:** D3, D4.
 - **Criterio:** las tres etiquetas se ven correctamente según stock/backorder; un producto agotado no se

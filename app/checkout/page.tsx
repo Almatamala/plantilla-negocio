@@ -10,7 +10,7 @@ import { storeConfig } from "@/lib/store-config";
 type Slot = { id: string; label: string; start_time: string; end_time: string };
 type Zone = { id: string; name: string; type: "retiro" | "domicilio"; areas: string[] };
 type PaymentMethod = "transferencia" | "webpay";
-type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; lead_time_days: number; images: string[]; image_url: string | null; allergens: string[]; category_id: string | null };
+type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; images: string[]; image_url: string | null; allergens: string[]; category_id: string | null };
 
 const WEEKDAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -46,7 +46,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     const saved = localStorage.getItem("store-cart");
     const timer = window.setTimeout(() => { if (saved) setCart(JSON.parse(saved)); }, 0);
-    apiFetch<ApiProduct[]>("/api/products").then((rows) => { if (rows.length) setCatalog(rows.map((p, index) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: "Productos", tone: (["warm", "light", "deep", "classic"] as const)[index % 4], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, lead_time_days: p.lead_time_days ?? 0, images: p.images ?? [], image_url: p.image_url, allergens: p.allergens ?? [] }))); }).catch(() => undefined);
+    apiFetch<ApiProduct[]>("/api/products").then((rows) => { if (rows.length) setCatalog(rows.map((p, index) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: "Productos", tone: (["warm", "light", "deep", "classic"] as const)[index % 4], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, images: p.images ?? [], image_url: p.image_url, allergens: p.allergens ?? [] }))); }).catch(() => undefined);
     apiFetch<Slot[]>("/api/time-slots").then((rows) => { if (rows.length) setSlots(rows); }).catch(() => undefined);
     apiFetch<{ date: string }[]>("/api/closed-days").then((rows) => setClosedDays(rows.map((d) => d.date))).catch(() => undefined);
     apiFetch<Zone[]>("/api/shipping-zones").then((rows) => { if (rows.length) setZones(rows); }).catch(() => undefined);

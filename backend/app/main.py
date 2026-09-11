@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, Upl
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jwt import decode as jwt_decode, encode as jwt_encode
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
@@ -37,9 +37,19 @@ def google_client() -> OAuth2Client:
     )
 
 
+# Columnas retiradas (sellos artesanal/sustentable y días de anticipación).
+# `create_all` crea tablas pero no altera las existentes, así que en bases ya creadas
+# quitamos estas columnas al arrancar para que los INSERT no fallen por NOT NULL.
+LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            for column in LEGACY_PRODUCT_COLUMNS:
+                connection.execute(text(f"ALTER TABLE products DROP COLUMN IF EXISTS {column}"))
     yield
 
 
@@ -423,6 +433,20 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db)):
 @app.patch("/api/orders/{order_id}/status", response_model=OrderOut, dependencies=[Depends(require_admin)])
 def update_order_status(order_id: str, payload: OrderStatusPatch, db: Session = Depends(get_db)):
     order = find_or_404(db, Order, order_id); order.status = payload.status; return commit(db, order)
+
+
+@app.put("/api/orders/{order_id}", response_model=OrderOut, dependencies=[Depends(require_admin)])
+def update_order(order_id: str, payload: OrderIn, db: Session = Depends(get_db)):
+    """Corrige los datos de un pedido. No toca el stock ni el estado (el estado se cambia en su endpoint)."""
+    order = find_or_404(db, Order, order_id)
+    total = sum(item.unit_price * item.quantity for item in payload.items)
+    for key, value in payload.model_dump(exclude={"items", "customer_id", "status"}).items():
+        setattr(order, key, value)
+    order.total = total
+    order.items = [OrderItem(**item.model_dump()) for item in payload.items]
+    db.commit()
+    order = db.scalar(select(Order).options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone)).where(Order.id == order_id))
+    return order_out(order)
 
 
 @app.get("/api/orders/me")

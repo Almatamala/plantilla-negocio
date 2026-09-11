@@ -34,6 +34,20 @@ def test_order_total_is_calculated_and_status_can_change(client, admin_headers):
     assert updated.json()["status"] == "preparing"
 
 
+def test_order_can_be_edited_by_admin(client, admin_headers):
+    order = client.post("/api/orders", json={"customer_name": "Luis", "items": [{"name": "Producto", "unit_price": 1000, "quantity": 1}]}).json()
+    payload = {"customer_name": "Luis Pérez", "customer_phone": "+56900000000", "items": [{"name": "Producto", "unit_price": 1000, "quantity": 3}]}
+    assert client.put(f"/api/orders/{order['id']}", json=payload).status_code == 401
+    updated = client.put(f"/api/orders/{order['id']}", headers=admin_headers, json=payload)
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["customer_name"] == "Luis Pérez"
+    assert body["total"] == 3000
+    assert len(body["items"]) == 1
+    assert body["items"][0]["quantity"] == 3
+    assert client.get("/api/orders", headers=admin_headers).json()[0]["id"] == order["id"]
+
+
 def test_stock_decrements_and_auto_sold_out(client, admin_headers):
     product = client.post("/api/products", headers=admin_headers, json={"name": "Pan", "slug": "pan", "price": 1000, "status": "active", "inventory": 2}).json()
     first = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 1}]})
@@ -49,7 +63,7 @@ def test_stock_decrements_and_auto_sold_out(client, admin_headers):
 
 
 def test_backorder_keeps_preorder_status(client, admin_headers):
-    product = client.post("/api/products", headers=admin_headers, json={"name": "Kuchen", "slug": "kuchen", "price": 5000, "status": "preorder", "inventory": 0, "allow_backorder": True, "lead_time_days": 2}).json()
+    product = client.post("/api/products", headers=admin_headers, json={"name": "Kuchen", "slug": "kuchen", "price": 5000, "status": "preorder", "inventory": 0, "allow_backorder": True}).json()
     assert client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Kuchen", "unit_price": 5000, "quantity": 1}]}).status_code == 201
     updated = client.get(f"/api/products/{product['id']}").json()
     assert updated["inventory"] == 0

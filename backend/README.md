@@ -18,6 +18,7 @@ vía HTTP (`NEXT_PUBLIC_API_URL`).
 | `/api/orders` | GET | Admin |
 | `/api/orders` | POST | Público (decrementa stock server-side) |
 | `/api/orders/{id}/status` | PATCH | Admin |
+| `/api/orders/{id}` | PUT (corrige datos del pedido; no recalcula stock) | Admin |
 | `/api/settings` | GET / PUT | Público / Admin |
 | `/api/upload` | POST (multipart) | Admin |
 | `/api/auth/register` | POST (name, email, password) | Público (crea cuenta y emite sesión) |

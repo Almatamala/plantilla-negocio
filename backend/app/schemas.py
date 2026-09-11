@@ -68,13 +68,10 @@ class ProductIn(BaseModel):
     image_url: str | None = None
     images: list[str] = Field(default_factory=list)
     ingredients: str | None = None
-    artisan_seal: bool = False
-    sustainable: bool = False
     allergens: list[str] = Field(default_factory=list)
     status: ProductStatus = "draft"
     inventory: int = Field(default=0, ge=0)
     allow_backorder: bool = False
-    lead_time_days: int = Field(default=0, ge=0)
     sku: str | None = Field(default=None, max_length=80)
     seo_title: str | None = Field(default=None, max_length=160)
     seo_description: str | None = Field(default=None, max_length=320)

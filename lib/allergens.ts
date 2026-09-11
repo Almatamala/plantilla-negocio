@@ -1,4 +1,4 @@
-export type AllergenCode = "gluten" | "lacteos" | "frutos-secos" | "huevo" | "mani" | "soja" | "sesamo" | "pescado" | "mariscos";
+export type AllergenCode = "gluten" | "lacteos" | "frutos-secos" | "huevo" | "mani" | "soja" | "sesamo";
 
 export const ALLERGENS: Record<AllergenCode, { label: string; icon: string }> = {
   gluten: { label: "Gluten", icon: "🌾" },
@@ -8,8 +8,6 @@ export const ALLERGENS: Record<AllergenCode, { label: string; icon: string }> = 
   mani: { label: "Maní", icon: "🫘" },
   soja: { label: "Soja", icon: "🌱" },
   sesamo: { label: "Sésamo", icon: "🌰" },
-  pescado: { label: "Pescado", icon: "🐟" },
-  mariscos: { label: "Mariscos", icon: "🦐" },
 };
 
 export function allergenInfo(code: string): { label: string; icon: string } | null {

@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Minus, Plus, ShoppingBag, Sprout, BadgeCheck, Star } from "lucide-react";
+import { ArrowLeft, Minus, Plus, ShoppingBag, Star } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { formatPrice, products as demoProducts, stockLabel, type Product, type ProductStatus } from "@/lib/products";
 import { allergenInfo } from "@/lib/allergens";
 
 type Review = { id: string; product_id: string; author: string; rating: number; comment: string; created_at: string };
-type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; lead_time_days: number; images: string[]; image_url: string | null; ingredients: string | null; artisan_seal: boolean; sustainable: boolean; allergens: string[]; category_id: string | null };
+type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; images: string[]; image_url: string | null; ingredients: string | null; allergens: string[]; category_id: string | null };
 
 export function ProductDetail({ slug }: { slug: string }) {
   const [product, setProduct] = useState<Product | null | undefined>(undefined);
@@ -31,9 +31,8 @@ export function ProductDetail({ slug }: { slug: string }) {
           id: data.id, slug: data.slug, name: data.name, price: data.price,
           description: data.description ?? "", category: cats.find((c) => c.id === data.category_id)?.name ?? "Productos",
           tone: "warm", status: data.status, inventory: data.inventory,
-          allow_backorder: data.allow_backorder ?? false, lead_time_days: data.lead_time_days ?? 0,
+          allow_backorder: data.allow_backorder ?? false,
           images: data.images ?? [], image_url: data.image_url, ingredients: data.ingredients ?? undefined,
-          artisan_seal: data.artisan_seal ?? false, sustainable: data.sustainable ?? false,
           allergens: data.allergens ?? [],
         };
       } catch {
@@ -99,10 +98,6 @@ export function ProductDetail({ slug }: { slug: string }) {
             <h1 className="display mt-2 text-4xl leading-tight md:text-5xl">{product.name}</h1>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-3 py-1 text-xs font-medium ${stock.className}`}>{stock.label}</span>
-              {(product.artisan_seal || product.sustainable) && <>
-                {product.artisan_seal && <span className="inline-flex items-center gap-1 rounded-full bg-[#edf0e8] px-3 py-1 text-xs text-[#56745c]"><BadgeCheck size={13}/>Artesanal</span>}
-                {product.sustainable && <span className="inline-flex items-center gap-1 rounded-full bg-[#edf0e8] px-3 py-1 text-xs text-[#56745c]"><Sprout size={13}/>Sustentable</span>}
-              </>}
             </div>
             <p className="display mt-5 text-3xl">{formatPrice(product.price)}</p>
             <p className="mt-5 max-w-prose leading-7 text-[#526058]">{product.description}</p>

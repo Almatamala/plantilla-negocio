@@ -4,19 +4,19 @@ import { Slider } from "@base-ui/react/slider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, Eye, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Settings, Store, Trash2, Upload, Users, X } from "lucide-react";
+import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, Eye, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
 import { apiFetch, clearAdminToken, clearSessionTokenCache, uploadImage } from "@/lib/api";
 import { formatPrice, products as demoProducts, type Product, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
 
-type Section = "inicio" | "productos" | "pedidos" | "agenda" | "clientes" | "comentarios" | "contenido" | "reportes" | "configuracion";
-type OrderItem = { name: string; quantity: number; price: number };
+type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "contenido" | "reportes";
+type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
 type OrderStatus = "Pendiente" | "Pagado" | "Preparando" | "Enviado" | "Entregado" | "Cancelado";
-type Order = { id: string; customer: string; total: number; status: OrderStatus; fulfillment: "retiro" | "domicilio"; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; zone?: string | null; paymentMethod?: string | null; customerPhone?: string | null; notes?: string | null };
+type Order = { id: string; customer: string; total: number; status: OrderStatus; fulfillment: "retiro" | "domicilio"; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; notes?: string | null };
 type AdminProduct = Product & { category_id: string | null };
-type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; lead_time_days: number; images: string[]; image_url: string | null; ingredients: string | null; artisan_seal: boolean; sustainable: boolean; allergens: string[]; category_id: string | null };
-type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; fulfillment: "retiro" | "domicilio" | null; location: string | null; notes: string | null; time_slot_label: string | null; shipping_zone_name: string | null; items: { name: string; unit_price: number; quantity: number }[] };
+type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; images: string[]; image_url: string | null; ingredients: string | null; allergens: string[]; category_id: string | null };
+type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; fulfillment: "retiro" | "domicilio" | null; shipping_zone_id: string | null; location: string | null; notes: string | null; time_slot_label: string | null; shipping_zone_name: string | null; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
 type SlotRow = { id: string; label: string; start_time: string; end_time: string; enabled: boolean };
 type ClosedDayRow = { id: string; date: string; reason: string | null };
 type ZoneRow = { id: string; name: string; type: "retiro" | "domicilio"; areas: string[]; active: boolean };
@@ -29,7 +29,7 @@ const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", paid: 
 const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Pagado: "paid", Preparando: "preparing", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
 const displayOrderId = (id: string) => (id.startsWith("#") ? id : id.slice(0, 8).toUpperCase());
 const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: "inicio", label: "Inicio", icon: LayoutDashboard }, { id: "productos", label: "Productos", icon: Package }, { id: "pedidos", label: "Pedidos", icon: Box }, { id: "agenda", label: "Agenda", icon: CalendarDays }, { id: "clientes", label: "Clientes", icon: Users }, { id: "comentarios", label: "Comentarios", icon: MessageSquare }, { id: "contenido", label: "Contenido", icon: FileText }, { id: "reportes", label: "Reportes", icon: BarChart3 }, { id: "configuracion", label: "Configuración", icon: Settings },
+  { id: "inicio", label: "Inicio", icon: LayoutDashboard }, { id: "productos", label: "Productos", icon: Package }, { id: "pedidos", label: "Pedidos", icon: Box }, { id: "agenda", label: "Agenda", icon: CalendarDays }, { id: "comentarios", label: "Comentarios", icon: MessageSquare }, { id: "contenido", label: "Contenido", icon: FileText }, { id: "reportes", label: "Reportes", icon: BarChart3 },
 ];
 
 const DEMO_ORDERS: Order[] = [
@@ -39,7 +39,11 @@ const DEMO_ORDERS: Order[] = [
 ];
 
 function productPayload(p: AdminProduct): Record<string, unknown> {
-  return { category_id: p.category_id, name: p.name, slug: p.slug, description: p.description, price: p.price, image_url: p.image_url ?? null, images: p.images ?? [], ingredients: p.ingredients ?? null, artisan_seal: p.artisan_seal ?? false, sustainable: p.sustainable ?? false, allergens: p.allergens ?? [], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, lead_time_days: p.lead_time_days ?? 0, variants: [] };
+  return { category_id: p.category_id, name: p.name, slug: p.slug, description: p.description, price: p.price, image_url: p.image_url ?? null, images: p.images ?? [], ingredients: p.ingredients ?? null, allergens: p.allergens ?? [], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, variants: [] };
+}
+
+function mapApiOrder(o: ApiOrder): Order {
+  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", fulfillment: o.fulfillment ?? "retiro", location: o.location ?? "", notes: o.notes, scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
 }
 
 export function AdminDashboard() {
@@ -49,8 +53,10 @@ export function AdminDashboard() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [catalog, setCatalog] = useState<AdminProduct[]>(demoProducts.map((p) => ({ ...p, category_id: null })));
   const [orders, setOrders] = useState<Order[]>(DEMO_ORDERS);
-  const [state, setState] = useState("Esperando datos de la API…");
+  const [state, setState] = useState("");
   const [creating, setCreating] = useState(false);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -64,9 +70,8 @@ export function AdminDashboard() {
         if (cancelled) return;
         const map = new Map(cats.map((c) => [c.id, c.name]));
         setCategories(cats.map((c) => ({ id: c.id, name: c.name })));
-        setCatalog(products.map((p, i) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Sin categoría", category_id: p.category_id ?? null, status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, lead_time_days: p.lead_time_days ?? 0, images: p.images ?? [], image_url: p.image_url, ingredients: p.ingredients ?? undefined, artisan_seal: p.artisan_seal ?? false, sustainable: p.sustainable ?? false, allergens: p.allergens ?? [], tone: (["warm", "light", "deep", "classic"] as const)[i % 4] })));
-        setOrders(ordersRows.map((o) => ({ id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", fulfillment: o.fulfillment ?? "retiro", location: o.location ?? "", notes: o.notes, scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, zone: o.shipping_zone_name, paymentMethod: o.payment_method, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price })) })));
-        setState("Conectado a la API.");
+        setCatalog(products.map((p, i) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Sin categoría", category_id: p.category_id ?? null, status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, images: p.images ?? [], image_url: p.image_url, ingredients: p.ingredients ?? undefined, allergens: p.allergens ?? [], tone: (["warm", "light", "deep", "classic"] as const)[i % 4] })));
+        setOrders(ordersRows.map(mapApiOrder));
       } catch (e) {
         if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login para acceder al panel." : e.message) : "No se pudo conectar con la API.");
       }
@@ -76,6 +81,12 @@ export function AdminDashboard() {
   useEffect(() => {
     fetch("/api/auth/me").then((r) => r.json()).then((data) => { if (data?.user) setUser(data.user); }).catch(() => undefined);
   }, []);
+  // Avisos de acción (creado/eliminado/error): se muestran como toast y se ocultan solos.
+  useEffect(() => {
+    if (!state) return;
+    const timer = window.setTimeout(() => setState(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [state]);
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     clearSessionTokenCache();
@@ -89,26 +100,26 @@ export function AdminDashboard() {
       apiFetch(`/api/orders/${id}/status`, { method: "PATCH", admin: true, body: { status: statusUiToDb[patch.status] } }).catch((e) => setState(e instanceof Error ? e.message : "No se pudo actualizar."));
     }
   }
-  function addOrder() { setOrders((items) => [{ id: `#${1000 + items.length + 2}`, customer: "Cliente nuevo", total: 0, status: "Pendiente", fulfillment: "retiro", location: "Retiro en tienda", items: [] }, ...items]); }
+  function orderSaved(order: Order) {
+    setOrders((items) => items.some((item) => item.id === order.id) ? items.map((item) => item.id === order.id ? order : item) : [order, ...items]);
+  }
   const selected = menu.find((item) => item.id === section)?.label;
-  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm"><span className="hidden max-w-[320px] truncate text-[#647167] sm:block">{state}</span>{user ? <><span className="hidden text-[#526058] sm:block">{user.email}</span><button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Salir</button></> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={addOrder} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrdersChange={setOrders} onOrderChange={changeOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div></main>;
+  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm">{user ? <button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Cerrar sesión</button> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={() => setCreatingOrder(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrderChange={changeOrder} onOrderEdit={setEditingOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div>{state && <button onClick={() => setState("")} title="Cerrar aviso" className="fixed bottom-5 left-5 z-50 max-w-sm rounded-lg bg-[#243128] px-4 py-3 text-left text-sm text-white shadow-lg">{state}</button>}{creatingOrder && <OrderModal catalog={catalog} onClose={() => setCreatingOrder(false)} onSaved={orderSaved} setState={setState}/>}{editingOrder && <OrderModal key={editingOrder.id} order={editingOrder} catalog={catalog} onClose={() => setEditingOrder(null)} onSaved={orderSaved} setState={setState}/>}</main>;
 }
 
-function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrdersChange: React.Dispatch<React.SetStateAction<Order[]>>; onOrderChange: (id: string, patch: Partial<Order>) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {
+function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {
   const { section, catalog, orders, revenue, categories, onCatalogChange, setState } = props;
-  if (section === "inicio") return <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ventas del período" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Pedidos por gestionar" value={String(orders.filter((o) => !["Entregado", "Cancelado"].includes(o.status)).length)} icon={Box}/><Metric label="Productos activos" value={String(catalog.filter((p) => p.status === "active").length)} icon={Package}/><Metric label="Stock bajo" value={String(catalog.filter((p) => p.inventory > 0 && p.inventory <= 5).length)} icon={BarChart3}/></div><section className="mt-7 rounded-xl bg-white p-5"><div className="mb-4 flex items-center justify-between"><h2 className="display text-2xl">Pedidos recientes</h2><button onClick={() => props.onOrderChange(orders[0]?.id ?? "", { status: "Preparando" })} className="text-sm underline">Actualizar primero</button></div><OrderTable orders={orders} onOrderChange={props.onOrderChange}/></section></>;
+  if (section === "inicio") return <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ventas del período" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Pedidos por gestionar" value={String(orders.filter((o) => !["Entregado", "Cancelado"].includes(o.status)).length)} icon={Box}/><Metric label="Productos activos" value={String(catalog.filter((p) => p.status === "active").length)} icon={Package}/><Metric label="Stock bajo" value={String(catalog.filter((p) => p.inventory > 0 && p.inventory <= 5).length)} icon={BarChart3}/></div><section className="mt-7 rounded-xl bg-white p-5"><div className="mb-4 flex items-center justify-between"><h2 className="display text-2xl">Pedidos recientes</h2><button onClick={() => props.onOrderChange(orders[0]?.id ?? "", { status: "Preparando" })} className="text-sm underline">Actualizar primero</button></div><OrderTable orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section></>;
   if (section === "productos") return <ProductSection catalog={catalog} categories={categories} onCatalogChange={onCatalogChange} setState={setState} creating={props.creatingProduct} onCreatingChange={props.onCreateProductChange} />;
-  if (section === "pedidos") return <section className="rounded-xl bg-white p-5"><p className="mb-4 text-sm text-[#647167]">Los pedidos llegan desde el checkout de la tienda. Gestiona estados, entrega y pago.</p><OrdersSection orders={orders} onOrderChange={props.onOrderChange}/></section>;
+  if (section === "pedidos") return <section className="rounded-xl bg-white p-5"><p className="mb-4 text-sm text-[#647167]">Los pedidos llegan desde el checkout de la tienda, o se ingresan a mano con «Nueva orden». Gestiona estados, entrega y pago; si un pedido se ingresó mal, edítalo.</p><OrdersSection orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section>;
   if (section === "agenda") return <AgendaSection setState={setState}/>;
-  if (section === "clientes") return <DataCard title="Clientes" description="El historial de clientes se construirá a partir de las órdenes registradas." rows={[[orders.find((o) => o.customer !== "Sin nombre")?.customer ?? "Camila R.", "—", `${orders.length} pedidos`], ["Contacto WhatsApp", "Configúralo en Contenido", "Editar"]]}/>;
   if (section === "comentarios") return <ReviewsSection setState={setState}/>;
   if (section === "contenido") return <ContentEditor setState={setState}/>;
-  if (section === "reportes") return <><div className="grid gap-4 sm:grid-cols-3"><Metric label="Ventas" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Órdenes" value={String(orders.length)} icon={Box}/><Metric label="Ticket promedio" value={formatPrice(orders.length ? Math.round(revenue / orders.length) : 0)} icon={BarChart3}/></div><DataCard title="Productos más vendidos" description="Calculado a partir de las líneas de órdenes." rows={(() => { const counts = new Map<string, number>(); orders.flatMap((o) => o.items).forEach((i) => counts.set(i.name, (counts.get(i.name) ?? 0) + i.quantity)); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, qty]) => [name, `${qty} vendidos`, ""]); })()}/> </>;
-  return <DataCard title="Configuración" description="Administra identidad de tienda, dominio, contactos, usuarios y permisos." rows={[["Datos de la tienda", storeConfig.name, "Editar"], ["Clave de administración", "Se define en API_ADMIN_TOKEN del backend", "Gestionar"], ["Métodos de pago", "Transferencia activa · Webpay pendiente de credenciales", "Próximamente"]]}/>;
+  return <><div className="grid gap-4 sm:grid-cols-3"><Metric label="Ventas" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Órdenes" value={String(orders.length)} icon={Box}/><Metric label="Ticket promedio" value={formatPrice(orders.length ? Math.round(revenue / orders.length) : 0)} icon={BarChart3}/></div><DataCard title="Productos más vendidos" description="Calculado a partir de las líneas de órdenes." rows={(() => { const counts = new Map<string, number>(); orders.flatMap((o) => o.items).forEach((i) => counts.set(i.name, (counts.get(i.name) ?? 0) + i.quantity)); return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, qty]) => [name, `${qty} vendidos`, ""]); })()}/> </>;
 }
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
-function OrderTable({ orders, onOrderChange }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void }) { const [detail, setDetail] = useState<Order | null>(null); return <><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium"><span className="inline-flex items-center gap-2">{displayOrderId(order.id)}<button onClick={() => setDetail(order)} aria-label={`Ver productos de ${order.id}`} title="Ver productos" className="rounded-md border border-[#d9ddd5] p-1 transition hover:border-[#243128]"><Eye size={13}/></button></span></td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className="rounded-md border border-[#d9ddd5] bg-white px-2 py-1 text-xs"><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td></tr>)}</tbody></table></div>{detail && <OrderItemsModal order={detail} onClose={() => setDetail(null)}/>}</>; }
+function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { const [detail, setDetail] = useState<Order | null>(null); return <><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium"><span className="inline-flex items-center gap-2">{displayOrderId(order.id)}<button onClick={() => setDetail(order)} aria-label={`Ver productos de ${order.id}`} title="Ver productos" className="rounded-md border border-[#d9ddd5] p-1 transition hover:border-[#243128]"><Eye size={13}/></button></span></td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className="rounded-md border border-[#d9ddd5] bg-white px-2 py-1 text-xs"><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>{detail && <OrderItemsModal order={detail} onClose={() => setDetail(null)}/>}</>; }
 function OrderItemsModal({ order, onClose }: { order: Order; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
@@ -119,6 +130,7 @@ function OrderItemsModal({ order, onClose }: { order: Order; onClose: () => void
         </div>
         <p className="text-sm text-[#647167]">Cliente: <strong className="text-[#243128]">{order.customer}</strong></p>
         {order.customerPhone && <p className="mt-1 text-sm text-[#647167]">Teléfono: <strong className="text-[#243128]">{order.customerPhone}</strong></p>}
+        {order.customerEmail && <p className="mt-1 text-sm text-[#647167]">Correo: <strong className="text-[#243128]">{order.customerEmail}</strong></p>}
         <div className="mt-2"><FulfillmentCell order={order}/></div>
         <p className="mt-3 text-sm text-[#647167]">{order.scheduledDate ? <>Agendado: <strong className="text-[#243128]">{order.scheduledDate}{order.timeSlot ? ` · ${order.timeSlot}` : ""}</strong></> : "Sin fecha agendada"}{order.paymentMethod ? <> · Pago: <strong className="text-[#243128]">{order.paymentMethod}</strong></> : null}</p>
         {order.notes && <p className="mt-2 rounded-lg bg-[#edf0e8] p-3 text-sm text-[#526058]">Nota: {order.notes}</p>}
@@ -133,7 +145,7 @@ function OrderItemsModal({ order, onClose }: { order: Order; onClose: () => void
   );
 }
 function FulfillmentCell({ order }: { order: Order }) { const meta = fulfillmentMeta[order.fulfillment]; const Icon = meta.icon; return <div className="flex items-center gap-2"><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs whitespace-nowrap ${meta.className}`}><Icon size={12}/>{meta.label}</span><span className="text-xs text-[#748077]">{order.fulfillment === "retiro" ? "Retira en: " : "Envío a: "}{order.location || order.zone || "—"}</span></div>; }
-function OrdersSection({ orders, onOrderChange }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void }) {
+function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"activos" | "all" | OrderStatus>("activos");
   const [fulfillment, setFulfillment] = useState<"all" | Order["fulfillment"]>("all");
@@ -169,7 +181,7 @@ function OrdersSection({ orders, onOrderChange }: { orders: Order[]; onOrderChan
         </select>
         <p className="self-center text-sm whitespace-nowrap text-[#647167]">{filtered.length} de {orders.length} pedidos</p>
       </div>
-      <OrderTable orders={filtered} onOrderChange={onOrderChange}/>
+      <OrderTable orders={filtered} onOrderChange={onOrderChange} onOrderEdit={onOrderEdit}/>
       {filtered.length === 0 && <p className="py-8 text-center text-sm text-[#647167]">No hay pedidos que coincidan con los filtros. Usa «Todos los estados» para revisar pedidos entregados o cancelados.</p>}
     </>
   );
@@ -187,7 +199,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
   const [editing, setEditing] = useState<AdminProduct | null>(null);
   const [stocking, setStocking] = useState<AdminProduct | null>(null);
   const [sort, setSort] = useState<{ key: "name" | "price" | "inventory"; dir: "asc" | "desc" } | null>(null);
-  const blankProduct: AdminProduct = { id: "", slug: "", name: "", price: 0, category: "Sin categoría", description: "", ingredients: "", images: [], allergens: [], tone: "light", status: "draft", inventory: 0, allow_backorder: false, lead_time_days: 0, category_id: null };
+  const blankProduct: AdminProduct = { id: "", slug: "", name: "", price: 0, category: "Sin categoría", description: "", ingredients: "", images: [], allergens: [], tone: "light", status: "draft", inventory: 0, allow_backorder: false, category_id: null };
   const options = [...new Set(catalog.map((p) => p.category).filter(Boolean))].sort();
   const bounds = useMemo(() => {
     const prices = catalog.map((p) => p.price);
@@ -238,7 +250,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
     const slug = data.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "producto";
     try {
       const row = await apiFetch<ApiProduct>("/api/products", { method: "POST", admin: true, body: { ...data, slug, image_url: data.image_url ?? null, variants: [] } });
-      onCatalogChange((items) => [{ id: row.id, slug: row.slug, name: row.name, price: row.price, description: row.description ?? "", ingredients: row.ingredients ?? undefined, images: row.images ?? [], image_url: row.image_url, artisan_seal: row.artisan_seal, sustainable: row.sustainable, allergens: row.allergens ?? [], category: categories.find((c) => c.id === row.category_id)?.name ?? "Sin categoría", category_id: row.category_id ?? null, inventory: row.inventory, status: row.status, allow_backorder: row.allow_backorder, lead_time_days: row.lead_time_days, tone: "light" as const }, ...items]);
+      onCatalogChange((items) => [{ id: row.id, slug: row.slug, name: row.name, price: row.price, description: row.description ?? "", ingredients: row.ingredients ?? undefined, images: row.images ?? [], image_url: row.image_url, allergens: row.allergens ?? [], category: categories.find((c) => c.id === row.category_id)?.name ?? "Sin categoría", category_id: row.category_id ?? null, inventory: row.inventory, status: row.status, allow_backorder: row.allow_backorder, tone: "light" as const }, ...items]);
       setState("Producto creado.");
       onCreatingChange(false);
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo crear."); }
@@ -318,7 +330,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
             <tbody>
               {sorted.map((product) => { const meta = statusMeta[product.status]; const photo = product.images?.[0] ?? product.image_url; return (
                 <tr key={product.id} className="border-b border-[#edf0e8]">
-                  <td className="py-4"><div className="flex items-center gap-3">{photo ? <img src={photo} alt="" className="h-10 w-8 rounded object-cover"/> : <div data-tone={product.tone} className="product-visual h-10 w-8 rounded"/>}<div><strong>{product.name}</strong><span className="block text-xs text-[#748077]">/{product.slug}{product.allow_backorder && product.inventory === 0 ? ` · anticipación ${product.lead_time_days} día(s)` : ""}</span></div></div></td>
+                  <td className="py-4"><div className="flex items-center gap-3">{photo ? <img src={photo} alt="" className="h-10 w-8 rounded object-cover"/> : <div data-tone={product.tone} className="product-visual h-10 w-8 rounded"/>}<div><strong>{product.name}</strong><span className="block text-xs text-[#748077]">/{product.slug}</span></div></div></td>
                   <td>{product.category}</td>
                   <td>{formatPrice(product.price)}</td>
                   <td>{product.inventory}</td>
@@ -337,7 +349,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
     </div>
   );
 }
-type AdminProductData = { name: string; price: number; inventory: number; status: ProductStatus; category_id: string | null; description: string; ingredients: string; images: string[]; image_url: string | null; artisan_seal: boolean; sustainable: boolean; allergens: string[]; allow_backorder: boolean; lead_time_days: number };
+type AdminProductData = { name: string; price: number; inventory: number; status: ProductStatus; category_id: string | null; description: string; ingredients: string; images: string[]; image_url: string | null; allergens: string[]; allow_backorder: boolean };
 function ProductEditor({ product, categories, onCancel, onSave, setState, mode = "edit" }: { product: AdminProduct; categories: { id: string; name: string }[]; onCancel: () => void; onSave: (data: AdminProductData) => void; setState: (value: string) => void; mode?: "edit" | "create" }) {
   const isCreate = mode === "create";
   const [name, setName] = useState(product.name);
@@ -347,13 +359,10 @@ function ProductEditor({ product, categories, onCancel, onSave, setState, mode =
   const [images, setImages] = useState<string[]>(product.images ?? []);
   const [imageUrl] = useState(product.image_url ?? "");
   const [urlInput, setUrlInput] = useState("");
-  const [artisanSeal, setArtisanSeal] = useState(product.artisan_seal ?? false);
-  const [sustainable, setSustainable] = useState(product.sustainable ?? false);
   const [allergens, setAllergens] = useState<string[]>(product.allergens ?? []);
   const [inventory, setInventory] = useState(String(product.inventory));
   const [status, setStatus] = useState<ProductStatus>(product.status);
   const [allowBackorder, setAllowBackorder] = useState(product.allow_backorder ?? false);
-  const [leadTimeDays, setLeadTimeDays] = useState(String(product.lead_time_days ?? 0));
   const [categoryId, setCategoryId] = useState(product.category_id ?? "");
   function toggleAllergen(code: string) { setAllergens((current) => current.includes(code) ? current.filter((a) => a !== code) : [...current, code]); }
   async function upload(file: File) {
@@ -366,7 +375,7 @@ function ProductEditor({ product, categories, onCancel, onSave, setState, mode =
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const finalImages = [...images, ...(urlInput.trim() ? [urlInput.trim()] : [])];
-    onSave({ name, price: Number(price), inventory: Number(inventory), status, category_id: categoryId || null, description, ingredients, images: finalImages, image_url: imageUrl || (finalImages[0] ?? null), artisan_seal: artisanSeal, sustainable, allergens, allow_backorder: allowBackorder, lead_time_days: Number(leadTimeDays) || 0 });
+    onSave({ name, price: Number(price), inventory: Number(inventory), status, category_id: categoryId || null, description, ingredients, images: finalImages, image_url: imageUrl || (finalImages[0] ?? null), allergens, allow_backorder: allowBackorder });
   }
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
@@ -425,21 +434,11 @@ function ProductEditor({ product, categories, onCancel, onSave, setState, mode =
               </select>
             </label>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm"><input type="checkbox" checked={artisanSeal} onChange={(e) => setArtisanSeal(e.target.checked)}/>Sello artesanal</label>
-            <label className="flex items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm"><input type="checkbox" checked={sustainable} onChange={(e) => setSustainable(e.target.checked)}/>Sello sustentable</label>
-          </div>
           <div className="block text-sm">
             <span className="mb-1.5 block text-[#647167]">Alérgenos</span>
             <div className="flex flex-wrap gap-2">{Object.entries(ALLERGENS).map(([code, info]) => <button key={code} type="button" onClick={() => toggleAllergen(code)} className={`rounded-full border px-3 py-1.5 text-xs transition ${allergens.includes(code) ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{info.icon} {info.label}</button>)}</div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm"><input type="checkbox" checked={allowBackorder} onChange={(e) => setAllowBackorder(e.target.checked)}/>Acepta bajo pedido</label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-[#647167]">Días de anticipación</span>
-              <input type="number" min="0" value={leadTimeDays} onChange={(e) => setLeadTimeDays(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-            </label>
-          </div>
+          <label className="flex items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm"><input type="checkbox" checked={allowBackorder} onChange={(e) => setAllowBackorder(e.target.checked)}/>Acepta bajo pedido</label>
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
@@ -473,6 +472,120 @@ function StockModal({ product, onCancel, onAdd }: { product: AdminProduct; onCan
   );
 }
 
+function initialOrderItems(order: Order | undefined, catalog: AdminProduct[]): { product: AdminProduct; quantity: number }[] {
+  if (!order) return [];
+  return order.items.map((item) => {
+    const found = item.productId ? catalog.find((product) => product.id === item.productId) : undefined;
+    return { product: found ?? { id: item.productId ?? "", slug: "", name: item.name, price: item.price, category: "", description: "", tone: "light" as const, status: "active" as const, inventory: 0, category_id: null }, quantity: item.quantity };
+  });
+}
+
+function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Order; catalog: AdminProduct[]; onClose: () => void; onSaved: (order: Order) => void; setState: (value: string) => void }) {
+  const isEditing = Boolean(order);
+  const [slots, setSlots] = useState<SlotRow[]>([]);
+  const [zones, setZones] = useState<ZoneRow[]>([]);
+  const [customer, setCustomer] = useState({ name: order?.customer ?? "", phone: order?.customerPhone ?? "", email: order?.customerEmail ?? "" });
+  const [fulfillment, setFulfillment] = useState<"retiro" | "domicilio">(order?.fulfillment ?? "retiro");
+  const [zoneId, setZoneId] = useState(order?.shippingZoneId ?? "");
+  const [date, setDate] = useState(order?.scheduledDate ?? "");
+  const [slotId, setSlotId] = useState(order?.timeSlotId ?? "");
+  const [payment, setPayment] = useState(order?.paymentMethod ?? "Transferencia");
+  const [location, setLocation] = useState(order?.fulfillment === "domicilio" ? order.location : "");
+  const [notes, setNotes] = useState(order?.notes ?? "");
+  const [items, setItems] = useState(() => initialOrderItems(order, catalog));
+  const [picker, setPicker] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    apiFetch<SlotRow[]>("/api/time-slots").then((rows) => setSlots(rows.filter((slot) => slot.enabled))).catch(() => undefined);
+    apiFetch<ZoneRow[]>("/api/shipping-zones").then(setZones).catch(() => undefined);
+  }, []);
+  const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const zonesForFulfillment = zones.filter((zone) => zone.type === fulfillment);
+  function addItem() {
+    const product = catalog.find((p) => p.id === picker);
+    const qty = Number(quantity);
+    if (!product || !Number.isInteger(qty) || qty <= 0) return;
+    setItems((current) => current.some((item) => item.product.id === product.id)
+      ? current.map((item) => item.product.id === product.id ? { ...item, quantity: item.quantity + qty } : item)
+      : [...current, { product, quantity: qty }]);
+    setPicker("");
+    setQuantity("1");
+  }
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!customer.name.trim()) { setState("Ingresa el nombre del cliente."); return; }
+    if (items.length === 0) { setState("Agrega al menos un producto."); return; }
+    setSaving(true);
+    try {
+      const row = await apiFetch<ApiOrder>(isEditing ? `/api/orders/${order!.id}` : "/api/orders", {
+        method: isEditing ? "PUT" : "POST",
+        admin: isEditing,
+        body: {
+          customer_name: customer.name.trim(), customer_phone: customer.phone.trim() || null, customer_email: customer.email.trim() || null,
+          payment_method: payment, scheduled_date: date || null, time_slot_id: slotId || null,
+          fulfillment, shipping_zone_id: zoneId || null,
+          location: fulfillment === "domicilio" ? (location.trim() || null) : (zones.find((zone) => zone.id === zoneId)?.name ?? null),
+          notes: notes.trim() || null,
+          items: items.map((item) => ({ product_id: item.product.id || null, name: item.product.name, unit_price: item.product.price, quantity: item.quantity })),
+        },
+      });
+      onSaved(mapApiOrder(row));
+      setState(isEditing ? "Pedido actualizado." : "Pedido registrado.");
+      onClose();
+    } catch (e) { setState(e instanceof Error ? e.message : isEditing ? "No se pudo actualizar el pedido." : "No se pudo registrar el pedido."); }
+    finally { setSaving(false); }
+  }
+  const fieldClass = "w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]";
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
+      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="display text-2xl">{isEditing ? `Editar pedido ${displayOrderId(order!.id)}` : "Nueva orden"}</h2>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
+        </div>
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Cliente</span><input required value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className={fieldClass}/></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Teléfono</span><input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className={fieldClass}/></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Correo</span><input type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className={fieldClass}/></label>
+          </div>
+          <div>
+            <span className="mb-1.5 block text-sm text-[#647167]">Productos</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={picker} onChange={(e) => setPicker(e.target.value)} className={`${fieldClass} min-w-0 flex-1`}>
+                <option value="">Elige un producto…</option>
+                {catalog.map((product) => <option key={product.id} value={product.id}>{product.name} · {formatPrice(product.price)}</option>)}
+              </select>
+              <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} aria-label="Cantidad" className="w-20 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+              <button type="button" onClick={addItem} disabled={!picker} className="rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm transition hover:border-[#243128] disabled:opacity-40">Agregar</button>
+            </div>
+            <div className="mt-3 divide-y divide-[#edf0e8]">
+              {items.map((item, index) => <div key={`${item.product.id}-${index}`} className="flex items-center justify-between gap-3 py-2 text-sm"><span>{item.quantity} × {item.product.name}</span><span className="flex items-center gap-3"><span>{formatPrice(item.product.price * item.quantity)}</span><button type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label={`Quitar ${item.product.name}`} className="text-[#647167] hover:text-[#243128]"><Trash2 size={15}/></button></span></div>)}
+              {items.length === 0 && <p className="py-2 text-sm text-[#647167]">Agrega al menos un producto para crear el pedido.</p>}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Tipo de entrega</span><select value={fulfillment} onChange={(e) => { setFulfillment(e.target.value as "retiro" | "domicilio"); setZoneId(""); }} className={fieldClass}><option value="retiro">Retiro presencial</option><option value="domicilio">A domicilio</option></select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Zona</span><select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={fieldClass}><option value="">Sin zona</option>{zonesForFulfillment.map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label>
+          </div>
+          {fulfillment === "domicilio" && <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Dirección</span><input value={location} onChange={(e) => setLocation(e.target.value)} className={fieldClass} placeholder="Calle, número, referencias"/></label>}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Fecha agendada</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass}/></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Franja horaria</span><select value={slotId} onChange={(e) => setSlotId(e.target.value)} className={fieldClass}><option value="">Sin franja</option>{slots.map((slot) => <option key={slot.id} value={slot.id}>{slot.label} · {slot.start_time}–{slot.end_time}</option>)}</select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Pago</span><select value={payment} onChange={(e) => setPayment(e.target.value)} className={fieldClass}><option>Transferencia</option><option>Webpay</option><option>Efectivo</option></select></label>
+          </div>
+          <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Notas (opcional)</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={fieldClass}/></label>
+        </div>
+        <div className="mt-5 flex items-center justify-between border-t border-[#e2e5df] pt-4 text-sm"><span className="text-[#647167]">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
+        <div className="mt-4 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
+          <button disabled={saving} className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white disabled:opacity-50">{saving ? "Guardando…" : isEditing ? "Guardar cambios" : "Crear pedido"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
 function AgendaSection({ setState }: { setState: (value: string) => void }) {
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [closed, setClosed] = useState<ClosedDayRow[]>([]);
@@ -554,7 +667,7 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
       <div><h2 className="display text-2xl">Contenido de la tienda</h2><p className="mt-2 text-sm text-[#647167]">Estos textos y datos se muestran en la tienda pública. Se guardan en la API (tabla store_settings).</p></div>
       <div className="grid gap-4 sm:grid-cols-2">
         {field("name", "Nombre de la tienda", "BOSQUE")}
-        {field("announcement", "Anuncio superior", "Pedidos con 1 día de anticipación")}
+        {field("announcement", "Anuncio superior", "Pedidos programados con día y horario")}
         {field("hero_title", "Título principal", "Pan artesanal de San Javier")}
         {field("hero_description", "Descripción principal")}
         {field("story_headline", "Título de Nuestra Historia")}
