@@ -4,9 +4,9 @@ import { Slider } from "@base-ui/react/slider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, Eye, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
-import { apiFetch, clearAdminToken, clearSessionTokenCache, uploadImage } from "@/lib/api";
-import { formatPrice, products as demoProducts, type Product, type ProductStatus } from "@/lib/products";
+import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
+import { apiFetch, endSession, uploadImage } from "@/lib/api";
+import { formatPrice, type Product, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
 
@@ -32,12 +32,6 @@ const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "inicio", label: "Inicio", icon: LayoutDashboard }, { id: "productos", label: "Productos", icon: Package }, { id: "pedidos", label: "Pedidos", icon: Box }, { id: "agenda", label: "Agenda", icon: CalendarDays }, { id: "comentarios", label: "Comentarios", icon: MessageSquare }, { id: "contenido", label: "Contenido", icon: FileText }, { id: "reportes", label: "Reportes", icon: BarChart3 },
 ];
 
-const DEMO_ORDERS: Order[] = [
-  { id: "#1004", customer: "Camila R.", total: 77980, status: "Preparando", fulfillment: "domicilio", location: "San Javier — Av. Providencia 1234", scheduledDate: "2026-09-10", timeSlot: "09:00 – 12:00", zone: "San Javier", paymentMethod: "Transferencia", items: [{ name: "Producto Dos", quantity: 1, price: 42990 }, { name: "Producto Uno", quantity: 1, price: 34990 }] },
-  { id: "#1003", customer: "Lucas M.", total: 69980, status: "Pagado", fulfillment: "retiro", location: "Retiro en Talca — Plaza de Armas", scheduledDate: "2026-09-11", timeSlot: "12:00 – 15:00", zone: "Talca", paymentMethod: "Webpay", items: [{ name: "Producto Uno", quantity: 2, price: 34990 }] },
-  { id: "#1002", customer: "Andrea G.", total: 86980, status: "Entregado", fulfillment: "domicilio", location: "San Javier — Los Alerces 455", scheduledDate: "2026-09-08", timeSlot: "15:00 – 18:00", zone: "San Javier", paymentMethod: "Transferencia", items: [{ name: "Producto Tres", quantity: 1, price: 48990 }, { name: "Producto Cuatro", quantity: 1, price: 37990 }] },
-];
-
 function productPayload(p: AdminProduct): Record<string, unknown> {
   return { category_id: p.category_id, name: p.name, slug: p.slug, description: p.description, price: p.price, image_url: p.image_url ?? null, images: p.images ?? [], ingredients: p.ingredients ?? null, allergens: p.allergens ?? [], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, variants: [] };
 }
@@ -51,8 +45,8 @@ export function AdminDashboard() {
   const [user, setUser] = useState<{ name?: string | null; email?: string | null } | null>(null);
   const [section, setSection] = useState<Section>("inicio");
   const [mobileMenu, setMobileMenu] = useState(false);
-  const [catalog, setCatalog] = useState<AdminProduct[]>(demoProducts.map((p) => ({ ...p, category_id: null })));
-  const [orders, setOrders] = useState<Order[]>(DEMO_ORDERS);
+  const [catalog, setCatalog] = useState<AdminProduct[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [state, setState] = useState("");
   const [creating, setCreating] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -88,9 +82,7 @@ export function AdminDashboard() {
     return () => window.clearTimeout(timer);
   }, [state]);
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    clearSessionTokenCache();
-    clearAdminToken();
+    await endSession();
     router.push("/");
   }
   const revenue = useMemo(() => orders.filter((order) => order.status !== "Cancelado").reduce((sum, order) => sum + order.total, 0), [orders]);
@@ -119,31 +111,7 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
 }
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
-function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { const [detail, setDetail] = useState<Order | null>(null); return <><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium"><span className="inline-flex items-center gap-2">{displayOrderId(order.id)}<button onClick={() => setDetail(order)} aria-label={`Ver productos de ${order.id}`} title="Ver productos" className="rounded-md border border-[#d9ddd5] p-1 transition hover:border-[#243128]"><Eye size={13}/></button></span></td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className="rounded-md border border-[#d9ddd5] bg-white px-2 py-1 text-xs"><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>{detail && <OrderItemsModal order={detail} onClose={() => setDetail(null)}/>}</>; }
-function OrderItemsModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">Pedido {displayOrderId(order.id)}</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
-        <p className="text-sm text-[#647167]">Cliente: <strong className="text-[#243128]">{order.customer}</strong></p>
-        {order.customerPhone && <p className="mt-1 text-sm text-[#647167]">Teléfono: <strong className="text-[#243128]">{order.customerPhone}</strong></p>}
-        {order.customerEmail && <p className="mt-1 text-sm text-[#647167]">Correo: <strong className="text-[#243128]">{order.customerEmail}</strong></p>}
-        <div className="mt-2"><FulfillmentCell order={order}/></div>
-        <p className="mt-3 text-sm text-[#647167]">{order.scheduledDate ? <>Agendado: <strong className="text-[#243128]">{order.scheduledDate}{order.timeSlot ? ` · ${order.timeSlot}` : ""}</strong></> : "Sin fecha agendada"}{order.paymentMethod ? <> · Pago: <strong className="text-[#243128]">{order.paymentMethod}</strong></> : null}</p>
-        {order.notes && <p className="mt-2 rounded-lg bg-[#edf0e8] p-3 text-sm text-[#526058]">Nota: {order.notes}</p>}
-        <h3 className="mt-5 mb-1 text-xs tracking-[.16em] text-[#748077] uppercase">Productos</h3>
-        <div className="divide-y divide-[#edf0e8]">
-          {order.items.map((item) => <div key={item.name} className="flex items-center justify-between gap-3 py-3 text-sm"><div><p className="font-medium">{item.name}</p><p className="text-xs text-[#748077]">{item.quantity} × {formatPrice(item.price)}</p></div><span>{formatPrice(item.price * item.quantity)}</span></div>)}
-          {order.items.length === 0 && <p className="py-3 text-sm text-[#647167]">Este pedido todavía no tiene productos registrados.</p>}
-        </div>
-        <div className="mt-4 flex items-center justify-between border-t border-[#e2e5df] pt-4 text-sm"><span className="text-[#647167]">Total</span><strong className="display text-lg">{formatPrice(order.total)}</strong></div>
-      </div>
-    </div>
-  );
-}
+function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className="rounded-md border border-[#d9ddd5] bg-white px-2 py-1 text-xs"><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
 function FulfillmentCell({ order }: { order: Order }) { const meta = fulfillmentMeta[order.fulfillment]; const Icon = meta.icon; return <div className="flex items-center gap-2"><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs whitespace-nowrap ${meta.className}`}><Icon size={12}/>{meta.label}</span><span className="text-xs text-[#748077]">{order.fulfillment === "retiro" ? "Retira en: " : "Envío a: "}{order.location || order.zone || "—"}</span></div>; }
 function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
   const [search, setSearch] = useState("");

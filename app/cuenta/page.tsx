@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, LogOut, Package } from "lucide-react";
-import { apiFetch, clearAdminToken, clearSessionTokenCache } from "@/lib/api";
+import { apiFetch, endSession } from "@/lib/api";
 import { formatPrice } from "@/lib/products";
 import { storeConfig } from "@/lib/store-config";
 
@@ -71,9 +71,7 @@ export default function CuentaPage() {
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    clearSessionTokenCache();
-    clearAdminToken();
+    await endSession();
     router.push("/");
   }
 

@@ -2,8 +2,8 @@
  * Cliente HTTP para la API dockerizada (FastAPI en AWS).
  * La API es la única fuente de verdad: catálogo, agenda, zonas, reviews,
  * órdenes, ajustes e imágenes. Las mutaciones administrativas envían el
- * JWT de sesión (Authorization: Bearer) cuando hay sesión de Google activa;
- * como respaldo, la clave `API_ADMIN_TOKEN` guardada en /login (X-Admin-Token).
+ * JWT de sesión (Authorization: Bearer) de la sesión iniciada; como respaldo,
+ * la clave `API_ADMIN_TOKEN` en localStorage (X-Admin-Token) para acceso directo.
  */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -37,18 +37,30 @@ export function getAdminToken(): string {
   return localStorage.getItem(ADMIN_TOKEN_KEY) ?? "";
 }
 
-export function setAdminToken(token: string) {
-  localStorage.setItem(ADMIN_TOKEN_KEY, token);
-}
-
 export function clearAdminToken() {
   localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+/** Cierra la sesión: borra la cookie httpOnly y limpia las cachés del cliente. */
+export async function endSession() {
+  await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+  clearSessionTokenCache();
+  clearAdminToken();
 }
 
 export function absoluteUrl(path: string): string {
   if (!path) return path;
   if (/^https?:\/\//.test(path)) return path;
   return `${API_URL}${path}`;
+}
+
+async function errorDetail(response: Response): Promise<string> {
+  let detail = `Error ${response.status}`;
+  try {
+    const data = await response.json();
+    if (data?.detail) detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+  } catch { /* sin cuerpo JSON */ }
+  return detail;
 }
 
 export async function apiFetch<T>(path: string, options: { method?: string; body?: unknown; admin?: boolean } = {}): Promise<T> {
@@ -67,14 +79,7 @@ export async function apiFetch<T>(path: string, options: { method?: string; body
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
-  if (!res.ok) {
-    let detail = `Error ${res.status}`;
-    try {
-      const data = await res.json();
-      if (data?.detail) detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
-    } catch { /* sin cuerpo JSON */ }
-    throw new Error(detail);
-  }
+  if (!res.ok) throw new Error(await errorDetail(res));
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -84,11 +89,7 @@ export async function uploadImage(file: File): Promise<string> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`${API_URL}/api/upload`, { method: "POST", headers: token ? { "X-Admin-Token": token } : {}, body: form });
-  if (!res.ok) {
-    let detail = `Error ${res.status}`;
-    try { const data = await res.json(); if (data?.detail) detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail); } catch { /* noop */ }
-    throw new Error(detail);
-  }
+  if (!res.ok) throw new Error(await errorDetail(res));
   const data = (await res.json()) as { url: string };
   return absoluteUrl(data.url);
 }

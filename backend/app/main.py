@@ -1,7 +1,6 @@
 import os
 import uuid
 from datetime import datetime, timezone
-from collections.abc import Callable
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -475,11 +474,6 @@ async def upload_image(file: UploadFile = File(...)):
 
 
 # ── Contenido y ajustes ─────────────────────────────────────────────────────
-
-def simple_create(model) -> Callable:
-    def endpoint(payload, db: Session = Depends(get_db)): return commit(db, model(**payload.model_dump()))
-    return endpoint
-
 
 @app.post("/api/pages", status_code=201, dependencies=[Depends(require_admin)])
 def create_page(payload: PageIn, db: Session = Depends(get_db)): return commit(db, Page(**payload.model_dump()))
