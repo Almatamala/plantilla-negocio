@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { API_URL } from "@/lib/api";
-import { SESSION_COOKIE } from "@/lib/session";
+import { withSessionCookie } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 días, igual que en la API
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -25,21 +23,29 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.token || !data?.user) {
+
+    if (!res.ok) {
       return NextResponse.json(
-        { error: data?.detail ?? "No se pudo iniciar sesión." },
+        { error: data?.detail ?? "No se pudo iniciar sesión.", needs_verification: res.status === 403 },
         { status: res.status },
       );
     }
-    const response = NextResponse.json({ ok: true, role: data.user.role });
-    response.cookies.set(SESSION_COOKIE, data.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: SESSION_MAX_AGE,
-      path: "/",
-    });
-    return response;
+
+    // Cuenta creada con confirmación por correo activa: todavía no hay sesión.
+    if (data?.verification_required) {
+      return NextResponse.json({
+        ok: true,
+        verification_required: true,
+        email: data.email ?? email,
+        sent: Boolean(data.sent),
+        message: data.message ?? "",
+      });
+    }
+
+    if (!data?.token || !data?.user) {
+      return NextResponse.json({ error: "No se pudo iniciar sesión." }, { status: 502 });
+    }
+    return withSessionCookie(NextResponse.json({ ok: true, role: data.user.role, verification_required: false }), data.token);
   } catch {
     return NextResponse.json(
       { error: `No se pudo conectar con la API (${API_URL}). Verifica NEXT_PUBLIC_API_URL.` },

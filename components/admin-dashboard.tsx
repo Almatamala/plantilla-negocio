@@ -4,26 +4,27 @@ import { Slider } from "@base-ui/react/slider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Trash2, Upload, X } from "lucide-react";
+import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Tags, Trash2, Upload, X } from "lucide-react";
 import { apiFetch, endSession, uploadImage } from "@/lib/api";
 import { formatPrice, type Product, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
+import { AgendaSection, zoneTypeOf, type SlotRow, type ZoneRow } from "@/components/admin-agenda";
+import { formatSlot, weekdayFromIso } from "@/lib/schedule";
 
 type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "contenido" | "reportes";
 type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
 type OrderStatus = "Pendiente" | "Pagado" | "Preparando" | "Enviado" | "Entregado" | "Cancelado";
-type Order = { id: string; customer: string; total: number; status: OrderStatus; fulfillment: "retiro" | "domicilio"; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; notes?: string | null };
+type Order = { id: string; customer: string; total: number; status: OrderStatus; fulfillment: "retiro" | "encuentro"; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null };
 type AdminProduct = Product & { category_id: string | null };
+type CategoryRow = { id: string; name: string; slug: string };
 type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; images: string[]; image_url: string | null; ingredients: string | null; allergens: string[]; category_id: string | null };
-type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; fulfillment: "retiro" | "domicilio" | null; shipping_zone_id: string | null; location: string | null; notes: string | null; time_slot_label: string | null; shipping_zone_name: string | null; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
-type SlotRow = { id: string; label: string; start_time: string; end_time: string; enabled: boolean };
-type ClosedDayRow = { id: string; date: string; reason: string | null };
-type ZoneRow = { id: string; name: string; type: "retiro" | "domicilio"; areas: string[]; active: boolean };
+type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; fulfillment: "retiro" | "encuentro" | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
+
 
 const fulfillmentMeta: Record<Order["fulfillment"], { label: string; icon: typeof Store; className: string }> = {
-  domicilio: { label: "A domicilio", icon: MapPin, className: "bg-[#e2f0e2] text-[#3c6b3f]" },
-  retiro: { label: "Retiro", icon: Store, className: "bg-[#e4e9f5] text-[#3d5384]" },
+  retiro: { label: "Retiro presencial", icon: Store, className: "bg-[#e4e9f5] text-[#3d5384]" },
+  encuentro: { label: "Punto de encuentro", icon: MapPin, className: "bg-[#e2f0e2] text-[#3c6b3f]" },
 };
 const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", paid: "Pagado", preparing: "Preparando", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado" };
 const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Pagado: "paid", Preparando: "preparing", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
@@ -37,7 +38,7 @@ function productPayload(p: AdminProduct): Record<string, unknown> {
 }
 
 function mapApiOrder(o: ApiOrder): Order {
-  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", fulfillment: o.fulfillment ?? "retiro", location: o.location ?? "", notes: o.notes, scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
+  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", fulfillment: o.fulfillment === "encuentro" ? "encuentro" : "retiro", location: o.location ?? "", scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
 }
 
 export function AdminDashboard() {
@@ -51,19 +52,20 @@ export function AdminDashboard() {
   const [creating, setCreating] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [managingCategories, setManagingCategories] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const [cats, products, ordersRows] = await Promise.all([
-          apiFetch<{ id: string; name: string }[]>("/api/categories", { admin: true }),
+          apiFetch<CategoryRow[]>("/api/categories", { admin: true }),
           apiFetch<ApiProduct[]>("/api/products", { admin: true }),
           apiFetch<ApiOrder[]>("/api/orders", { admin: true }),
         ]);
         if (cancelled) return;
         const map = new Map(cats.map((c) => [c.id, c.name]));
-        setCategories(cats.map((c) => ({ id: c.id, name: c.name })));
+        setCategories(cats);
         setCatalog(products.map((p, i) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Sin categoría", category_id: p.category_id ?? null, status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, images: p.images ?? [], image_url: p.image_url, ingredients: p.ingredients ?? undefined, allergens: p.allergens ?? [], tone: (["warm", "light", "deep", "classic"] as const)[i % 4] })));
         setOrders(ordersRows.map(mapApiOrder));
       } catch (e) {
@@ -75,6 +77,12 @@ export function AdminDashboard() {
   useEffect(() => {
     fetch("/api/auth/me").then((r) => r.json()).then((data) => { if (data?.user) setUser(data.user); }).catch(() => undefined);
   }, []);
+  /** Refresca el nombre de categoría que muestra cada producto del catálogo. */
+  function applyCategories(next: CategoryRow[]) {
+    const map = new Map(next.map((c) => [c.id, c.name]));
+    setCategories(next);
+    setCatalog((items) => items.map((p) => p.category_id ? { ...p, category: map.get(p.category_id) ?? "Sin categoría" } : p));
+  }
   // Avisos de acción (creado/eliminado/error): se muestran como toast y se ocultan solos.
   useEffect(() => {
     if (!state) return;
@@ -96,7 +104,7 @@ export function AdminDashboard() {
     setOrders((items) => items.some((item) => item.id === order.id) ? items.map((item) => item.id === order.id ? order : item) : [order, ...items]);
   }
   const selected = menu.find((item) => item.id === section)?.label;
-  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm">{user ? <button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Cerrar sesión</button> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={() => setCreatingOrder(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrderChange={changeOrder} onOrderEdit={setEditingOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div>{state && <button onClick={() => setState("")} title="Cerrar aviso" className="fixed bottom-5 left-5 z-50 max-w-sm rounded-lg bg-[#243128] px-4 py-3 text-left text-sm text-white shadow-lg">{state}</button>}{creatingOrder && <OrderModal catalog={catalog} onClose={() => setCreatingOrder(false)} onSaved={orderSaved} setState={setState}/>}{editingOrder && <OrderModal key={editingOrder.id} order={editingOrder} catalog={catalog} onClose={() => setEditingOrder(null)} onSaved={orderSaved} setState={setState}/>}</main>;
+  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm">{user ? <button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Cerrar sesión</button> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={() => setCreatingOrder(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <div className="flex flex-wrap items-center gap-2"><button onClick={() => setManagingCategories(true)} className="inline-flex items-center gap-2 rounded-lg border border-[#d9ddd5] bg-white px-4 py-2.5 text-sm transition hover:border-[#243128]"><Tags size={16}/>Categorías</button><button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button></div>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrderChange={changeOrder} onOrderEdit={setEditingOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div>{state && <button onClick={() => setState("")} title="Cerrar aviso" className="fixed bottom-5 left-5 z-50 max-w-sm rounded-lg bg-[#243128] px-4 py-3 text-left text-sm text-white shadow-lg">{state}</button>}{creatingOrder && <OrderModal catalog={catalog} onClose={() => setCreatingOrder(false)} onSaved={orderSaved} setState={setState}/>}{editingOrder && <OrderModal key={editingOrder.id} order={editingOrder} catalog={catalog} onClose={() => setEditingOrder(null)} onSaved={orderSaved} setState={setState}/>}{managingCategories && <CategoriesModal categories={categories} onChange={applyCategories} onClose={() => setManagingCategories(false)} setState={setState}/>}</main>;
 }
 
 function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {
@@ -112,7 +120,7 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
 function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className="rounded-md border border-[#d9ddd5] bg-white px-2 py-1 text-xs"><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
-function FulfillmentCell({ order }: { order: Order }) { const meta = fulfillmentMeta[order.fulfillment]; const Icon = meta.icon; return <div className="flex items-center gap-2"><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs whitespace-nowrap ${meta.className}`}><Icon size={12}/>{meta.label}</span><span className="text-xs text-[#748077]">{order.fulfillment === "retiro" ? "Retira en: " : "Envío a: "}{order.location || order.zone || "—"}</span></div>; }
+function FulfillmentCell({ order }: { order: Order }) { const meta = fulfillmentMeta[order.fulfillment]; const Icon = meta.icon; return <div className="flex items-center gap-2"><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs whitespace-nowrap ${meta.className}`}><Icon size={12}/>{meta.label}</span><span className="text-xs text-[#748077]">Retira en: {order.location || order.zone || "—"}</span></div>; }
 function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"activos" | "all" | OrderStatus>("activos");
@@ -143,9 +151,9 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
           <option value="Cancelado">Cancelado</option>
         </select>
         <select value={fulfillment} onChange={(e) => setFulfillment(e.target.value as typeof fulfillment)} className="rounded-lg border border-[#d9ddd5] bg-white px-3 py-2.5 text-sm">
-          <option value="all">Todo tipo de entrega</option>
-          <option value="domicilio">A domicilio</option>
-          <option value="retiro">Retiro</option>
+          <option value="all">Todo tipo de retiro</option>
+          <option value="retiro">Retiro presencial</option>
+          <option value="encuentro">Punto de encuentro</option>
         </select>
         <p className="self-center text-sm whitespace-nowrap text-[#647167]">{filtered.length} de {orders.length} pedidos</p>
       </div>
@@ -453,13 +461,10 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [zones, setZones] = useState<ZoneRow[]>([]);
   const [customer, setCustomer] = useState({ name: order?.customer ?? "", phone: order?.customerPhone ?? "", email: order?.customerEmail ?? "" });
-  const [fulfillment, setFulfillment] = useState<"retiro" | "domicilio">(order?.fulfillment ?? "retiro");
   const [zoneId, setZoneId] = useState(order?.shippingZoneId ?? "");
   const [date, setDate] = useState(order?.scheduledDate ?? "");
   const [slotId, setSlotId] = useState(order?.timeSlotId ?? "");
   const [payment, setPayment] = useState(order?.paymentMethod ?? "Transferencia");
-  const [location, setLocation] = useState(order?.fulfillment === "domicilio" ? order.location : "");
-  const [notes, setNotes] = useState(order?.notes ?? "");
   const [items, setItems] = useState(() => initialOrderItems(order, catalog));
   const [picker, setPicker] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -469,7 +474,13 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
     apiFetch<ZoneRow[]>("/api/shipping-zones").then(setZones).catch(() => undefined);
   }, []);
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-  const zonesForFulfillment = zones.filter((zone) => zone.type === fulfillment);
+  // El tipo de retiro se deriva del punto elegido: ya no hay despacho a domicilio (D16).
+  const selectedZone = zones.find((zone) => zone.id === zoneId) ?? null;
+  // Los puntos anteriores a D16 (tipo `domicilio`) se agrupan como retiro para que sigan elegibles.
+  const zonesByType = (type: ZoneRow["type"]) => zones.filter((zone) => zoneTypeOf(zone.type) === type);
+  // Solo las franjas del punto elegido y que atienden ese día de la semana (D18).
+  const zoneSlots = slots.filter((slot) => (!zoneId || slot.zone_id === zoneId) && (!date || slot.weekdays.includes(weekdayFromIso(date))));
+  const selectedSlotId = zoneSlots.some((slot) => slot.id === slotId) ? slotId : "";
   function addItem() {
     const product = catalog.find((p) => p.id === picker);
     const qty = Number(quantity);
@@ -491,10 +502,9 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
         admin: isEditing,
         body: {
           customer_name: customer.name.trim(), customer_phone: customer.phone.trim() || null, customer_email: customer.email.trim() || null,
-          payment_method: payment, scheduled_date: date || null, time_slot_id: slotId || null,
-          fulfillment, shipping_zone_id: zoneId || null,
-          location: fulfillment === "domicilio" ? (location.trim() || null) : (zones.find((zone) => zone.id === zoneId)?.name ?? null),
-          notes: notes.trim() || null,
+          payment_method: payment, scheduled_date: date || null, time_slot_id: selectedSlotId || null,
+          fulfillment: selectedZone ? zoneTypeOf(selectedZone.type) : null, shipping_zone_id: zoneId || null,
+          location: selectedZone ? (selectedZone.location || selectedZone.name) : null,
           items: items.map((item) => ({ product_id: item.product.id || null, name: item.product.name, unit_price: item.product.price, quantity: item.quantity })),
         },
       });
@@ -534,16 +544,14 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Tipo de entrega</span><select value={fulfillment} onChange={(e) => { setFulfillment(e.target.value as "retiro" | "domicilio"); setZoneId(""); }} className={fieldClass}><option value="retiro">Retiro presencial</option><option value="domicilio">A domicilio</option></select></label>
-            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Zona</span><select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={fieldClass}><option value="">Sin zona</option>{zonesForFulfillment.map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Punto de retiro</span><select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={fieldClass}><option value="">Sin punto definido</option>{zonesByType("retiro").length > 0 && <optgroup label="Retiro presencial">{zonesByType("retiro").map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</optgroup>}{zonesByType("encuentro").length > 0 && <optgroup label="Puntos de encuentro">{zonesByType("encuentro").map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</optgroup>}</select></label>
+            {selectedZone && <p className="self-end pb-2.5 text-xs text-[#647167]">{selectedZone.location || "Sin ubicación definida"}</p>}
           </div>
-          {fulfillment === "domicilio" && <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Dirección</span><input value={location} onChange={(e) => setLocation(e.target.value)} className={fieldClass} placeholder="Calle, número, referencias"/></label>}
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Fecha agendada</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass}/></label>
-            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Franja horaria</span><select value={slotId} onChange={(e) => setSlotId(e.target.value)} className={fieldClass}><option value="">Sin franja</option>{slots.map((slot) => <option key={slot.id} value={slot.id}>{slot.label} · {slot.start_time}–{slot.end_time}</option>)}</select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Franja horaria</span><select value={selectedSlotId} onChange={(e) => setSlotId(e.target.value)} className={fieldClass}><option value="">{zoneSlots.length === 0 ? "Sin franjas para ese día" : "Sin franja"}</option>{zoneSlots.map((slot) => <option key={slot.id} value={slot.id}>{slot.label} · {formatSlot(slot)}</option>)}</select></label>
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Pago</span><select value={payment} onChange={(e) => setPayment(e.target.value)} className={fieldClass}><option>Transferencia</option><option>Webpay</option><option>Efectivo</option></select></label>
           </div>
-          <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Notas (opcional)</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={fieldClass}/></label>
         </div>
         <div className="mt-5 flex items-center justify-between border-t border-[#e2e5df] pt-4 text-sm"><span className="text-[#647167]">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
         <div className="mt-4 flex justify-end gap-3">
@@ -554,64 +562,6 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
     </div>
   );
 }
-function AgendaSection({ setState }: { setState: (value: string) => void }) {
-  const [slots, setSlots] = useState<SlotRow[]>([]);
-  const [closed, setClosed] = useState<ClosedDayRow[]>([]);
-  const [zones, setZones] = useState<ZoneRow[]>([]);
-  const [slotForm, setSlotForm] = useState({ label: "", start_time: "09:00", end_time: "12:00" });
-  const [closedForm, setClosedForm] = useState({ date: "", reason: "" });
-  const [zoneForm, setZoneForm] = useState({ name: "", type: "retiro" as "retiro" | "domicilio", areas: "" });
-  useEffect(() => {
-    apiFetch<SlotRow[]>("/api/time-slots").then(setSlots).catch(() => undefined);
-    apiFetch<ClosedDayRow[]>("/api/closed-days").then(setClosed).catch(() => undefined);
-    apiFetch<ZoneRow[]>("/api/shipping-zones?include_inactive=true", { admin: true }).then(setZones).catch(() => undefined);
-  }, []);
-  async function addSlot(event: React.FormEvent) { event.preventDefault(); if (!slotForm.label.trim()) return; try { const row = await apiFetch<SlotRow>("/api/time-slots", { method: "POST", admin: true, body: slotForm }); setSlots((items) => [...items, row]); setState("Franja agregada."); setSlotForm({ label: "", start_time: "09:00", end_time: "12:00" }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo agregar."); } }
-  async function toggleSlot(id: string, enabled: boolean) { setSlots((items) => items.map((s) => s.id === id ? { ...s, enabled } : s)); try { await apiFetch(`/api/time-slots/${id}`, { method: "PATCH", admin: true, body: { enabled } }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo actualizar."); } }
-  async function deleteSlot(id: string) { setSlots((items) => items.filter((s) => s.id !== id)); try { await apiFetch(`/api/time-slots/${id}`, { method: "DELETE", admin: true }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar."); } }
-  async function addClosed(event: React.FormEvent) { event.preventDefault(); if (!closedForm.date) return; try { const row = await apiFetch<ClosedDayRow>("/api/closed-days", { method: "POST", admin: true, body: closedForm }); setClosed((items) => [...items, row]); setState("Día cerrado guardado."); setClosedForm({ date: "", reason: "" }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo guardar."); } }
-  async function deleteClosed(id: string) { setClosed((items) => items.filter((c) => c.id !== id)); try { await apiFetch(`/api/closed-days/${id}`, { method: "DELETE", admin: true }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar."); } }
-  async function addZone(event: React.FormEvent) { event.preventDefault(); if (!zoneForm.name.trim()) return; const areas = zoneForm.areas.split(",").map((a) => a.trim()).filter(Boolean); try { const row = await apiFetch<ZoneRow>("/api/shipping-zones", { method: "POST", admin: true, body: { ...zoneForm, areas } }); setZones((items) => [...items, row]); setState("Zona agregada."); setZoneForm({ name: "", type: "retiro", areas: "" }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo agregar."); } }
-  async function toggleZone(id: string, active: boolean) { setZones((items) => items.map((z) => z.id === id ? { ...z, active } : z)); try { await apiFetch(`/api/shipping-zones/${id}`, { method: "PATCH", admin: true, body: { active } }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo actualizar."); } }
-  async function deleteZone(id: string) { setZones((items) => items.filter((z) => z.id !== id)); try { await apiFetch(`/api/shipping-zones/${id}`, { method: "DELETE", admin: true }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar."); } }
-  return (
-    <div className="space-y-6">
-      <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Franjas horarias</h2>
-        <p className="mt-2 text-sm text-[#647167]">Los clientes eligen día y franja al agendar su pedido.</p>
-        <form onSubmit={addSlot} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto_auto]">
-          <input required value={slotForm.label} onChange={(e) => setSlotForm({ ...slotForm, label: e.target.value })} placeholder="Ej. Mañana" className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <input required type="time" value={slotForm.start_time} onChange={(e) => setSlotForm({ ...slotForm, start_time: e.target.value })} className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <input required type="time" value={slotForm.end_time} onChange={(e) => setSlotForm({ ...slotForm, end_time: e.target.value })} className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <button className="rounded-lg bg-[#243128] px-4 py-2 text-sm text-white">Agregar</button>
-        </form>
-        <div className="mt-4 divide-y divide-[#edf0e8]">{slots.length === 0 ? <p className="py-3 text-sm text-[#647167]">Sin franjas configuradas. Agrégalas desde aquí o en el panel Agenda del admin.</p> : slots.map((slot) => <div key={slot.id} className="flex items-center justify-between py-3 text-sm"><span className="font-medium">{slot.label}</span><span className="text-[#647167]">{slot.start_time} – {slot.end_time}</span><span className="flex items-center gap-3"><button onClick={() => toggleSlot(slot.id, !slot.enabled)} className={`rounded-full px-3 py-1 text-xs ${slot.enabled ? "bg-[#e2f0e2] text-[#3c6b3f]" : "bg-[#edf0e8] text-[#647167]"}`}>{slot.enabled ? "Habilitada" : "Deshabilitada"}</button><button onClick={() => deleteSlot(slot.id)} aria-label="Eliminar franja" className="text-[#647167] hover:text-[#243128]"><Trash2 size={15}/></button></span></div>)}</div>
-      </section>
-      <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Días cerrados</h2>
-        <p className="mt-2 text-sm text-[#647167]">Cierra fines de semana, feriados o días de producción intensa.</p>
-        <form onSubmit={addClosed} className="mt-4 grid gap-2 md:grid-cols-[auto_1fr_auto]">
-          <input required type="date" value={closedForm.date} onChange={(e) => setClosedForm({ ...closedForm, date: e.target.value })} className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <input value={closedForm.reason} onChange={(e) => setClosedForm({ ...closedForm, reason: e.target.value })} placeholder="Motivo (opcional)" className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <button className="rounded-lg bg-[#243128] px-4 py-2 text-sm text-white">Cerrar día</button>
-        </form>
-        <div className="mt-4 divide-y divide-[#edf0e8]">{closed.length === 0 ? <p className="py-3 text-sm text-[#647167]">No hay días cerrados.</p> : closed.map((day) => <div key={day.id} className="flex items-center justify-between py-3 text-sm"><span className="font-medium">{day.date}</span><span className="text-[#647167]">{day.reason ?? ""}</span><button onClick={() => deleteClosed(day.id)} aria-label="Quitar día cerrado" className="text-[#647167] hover:text-[#243128]"><Trash2 size={15}/></button></div>)}</div>
-      </section>
-      <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Zonas de entrega</h2>
-        <p className="mt-2 text-sm text-[#647167]">Domicilio solo en San Javier; retiro presencial en San Javier y Talca.</p>
-        <form onSubmit={addZone} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_1fr_auto]">
-          <input required value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="Ej. San Javier" className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <select value={zoneForm.type} onChange={(e) => setZoneForm({ ...zoneForm, type: e.target.value as "retiro" | "domicilio" })} className="rounded-lg border border-[#d9ddd5] bg-white px-3 py-2 text-sm outline-none focus:border-[#243128]"><option value="retiro">Retiro presencial</option><option value="domicilio">A domicilio</option></select>
-          <input value={zoneForm.areas} onChange={(e) => setZoneForm({ ...zoneForm, areas: e.target.value })} placeholder="Áreas (separadas por coma)" className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]"/>
-          <button className="rounded-lg bg-[#243128] px-4 py-2 text-sm text-white">Agregar</button>
-        </form>
-        <div className="mt-4 divide-y divide-[#edf0e8]">{zones.length === 0 ? <p className="py-3 text-sm text-[#647167]">Sin zonas configuradas.</p> : zones.map((zone) => <div key={zone.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><span className="font-medium">{zone.name}</span><span className={`rounded-full px-3 py-1 text-xs ${zone.type === "domicilio" ? "bg-[#e2f0e2] text-[#3c6b3f]" : "bg-[#e4e9f5] text-[#3d5384]"}`}>{zone.type === "domicilio" ? "A domicilio" : "Retiro presencial"}</span><span className="text-xs text-[#748077]">{zone.areas.join(", ")}</span><span className="flex items-center gap-3"><button onClick={() => toggleZone(zone.id, !zone.active)} className={`rounded-full px-3 py-1 text-xs ${zone.active ? "bg-[#e2f0e2] text-[#3c6b3f]" : "bg-[#edf0e8] text-[#647167]"}`}>{zone.active ? "Activa" : "Inactiva"}</button><button onClick={() => deleteZone(zone.id)} aria-label="Eliminar zona" className="text-[#647167] hover:text-[#243128]"><Trash2 size={15}/></button></span></div>)}</div>
-      </section>
-    </div>
-  );
-}
-
 function ContentEditor({ setState }: { setState: (value: string) => void }) {
   const [settings, setSettings] = useState({
     name: storeConfig.name, announcement: storeConfig.announcement, hero_title: storeConfig.headline, hero_description: storeConfig.description,
@@ -670,6 +620,102 @@ function ReviewsSection({ setState }: { setState: (value: string) => void }) {
     </section>
   );
 }
+/** Convierte «Postres Fríos» en `postres-frios` (slug válido para la API). */
+function slugify(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 140);
+}
+
+/**
+ * Gestión de categorías del catálogo: listar, agregar, editar y quitar.
+ * Al eliminar una categoría sus productos quedan como «Sin categoría».
+ */
+function CategoriesModal({ categories, onChange, onClose, setState }: { categories: CategoryRow[]; onChange: (next: CategoryRow[]) => void; onClose: () => void; setState: (value: string) => void }) {
+  const [newName, setNewName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fieldClass = "w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]";
+  const sorted = (rows: CategoryRow[]) => [...rows].sort((a, b) => a.name.localeCompare(b.name));
+
+  async function create(event: React.FormEvent) {
+    event.preventDefault();
+    const name = newName.trim();
+    const slug = slugify(name);
+    if (!name || !slug) { setState("Escribe un nombre válido para la categoría."); return; }
+    setBusy(true);
+    try {
+      const row = await apiFetch<CategoryRow>("/api/categories", { method: "POST", admin: true, body: { name, slug } });
+      onChange(sorted([...categories, { id: row.id, name: row.name, slug: row.slug }]));
+      setNewName("");
+      setState("Categoría creada.");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo crear la categoría."); }
+    finally { setBusy(false); }
+  }
+
+  async function save(row: CategoryRow) {
+    const name = editName.trim();
+    if (!name) { setState("El nombre no puede quedar vacío."); return; }
+    setBusy(true);
+    try {
+      const updated = await apiFetch<CategoryRow>(`/api/categories/${row.id}`, { method: "PUT", admin: true, body: { name, slug: slugify(name) } });
+      onChange(sorted(categories.map((c) => c.id === row.id ? { id: updated.id, name: updated.name, slug: updated.slug } : c)));
+      setEditingId(null);
+      setState("Categoría actualizada.");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo actualizar la categoría."); }
+    finally { setBusy(false); }
+  }
+
+  async function remove(row: CategoryRow) {
+    if (!window.confirm(`¿Eliminar la categoría «${row.name}»? Los productos que la usen quedarán como «Sin categoría».`)) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/api/categories/${row.id}`, { method: "DELETE", admin: true });
+      onChange(categories.filter((c) => c.id !== row.id));
+      setState("Categoría eliminada.");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar la categoría."); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="display text-2xl">Categorías</h2>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
+        </div>
+        <p className="text-sm text-[#647167]">Organizan la carta y el filtro de la tienda. Al eliminar una categoría, sus productos quedan como «Sin categoría».</p>
+        <div className="mt-5 divide-y divide-[#edf0e8]">
+          {categories.length === 0 && <p className="py-3 text-sm text-[#647167]">Todavía no hay categorías.</p>}
+          {categories.map((row) => (
+            <div key={row.id} className="flex flex-wrap items-center gap-2 py-3 text-sm">
+              {editingId === row.id ? (
+                <>
+                  <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)} aria-label={`Nombre de ${row.name}`} className={`${fieldClass} min-w-0 flex-1`}/>
+                  <button disabled={busy} onClick={() => save(row)} className="rounded-lg bg-[#243128] px-3 py-2 text-xs text-white disabled:opacity-50">Guardar</button>
+                  <button onClick={() => setEditingId(null)} className="rounded-lg border border-[#d9ddd5] px-3 py-2 text-xs hover:border-[#243128]">Cancelar</button>
+                </>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1"><strong>{row.name}</strong><span className="block text-xs text-[#748077]">/{row.slug}</span></span>
+                  <button onClick={() => { setEditingId(row.id); setEditName(row.name); }} aria-label={`Editar ${row.name}`} className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button>
+                  <button disabled={busy} onClick={() => remove(row)} aria-label={`Eliminar ${row.name}`} className="rounded-md border border-[#d9ddd5] p-1.5 text-[#8a4a44] transition hover:border-[#8a4a44] disabled:opacity-50"><Trash2 size={14}/></button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <form onSubmit={create} className="mt-5 border-t border-[#e2e5df] pt-5">
+          <label className="block text-sm">
+            <span className="mb-1.5 block text-[#647167]">Nueva categoría</span>
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Ej. Tortas, Postres, Panes" className={fieldClass}/>
+          </label>
+          <button disabled={busy || !newName.trim()} className="mt-3 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white disabled:opacity-50">Agregar categoría</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function ReviewRow({ review, onStatus, onRemove }: { review: { id: string; author: string; rating: number; comment: string; status: string; product: string | null }; onStatus: (status: string) => void; onRemove: () => void }) {
   return <div className="rounded-xl border border-[#e2e5df] p-4"><div className="flex flex-wrap items-center justify-between gap-2 text-sm"><span className="font-medium">{review.author} · {review.product ?? "Producto"}</span><span className="text-[#c9962e]">{"★".repeat(review.rating)}</span></div><p className="mt-2 text-sm leading-6 text-[#526058]">{review.comment}</p><div className="mt-3 flex items-center gap-2">{review.status !== "approved" && <button onClick={() => onStatus("approved")} className="inline-flex items-center gap-1.5 rounded-lg bg-[#243128] px-3 py-1.5 text-xs text-white"><Check size={13}/>Aprobar</button>}{review.status !== "rejected" && <button onClick={() => onStatus("rejected")} className="rounded-lg border border-[#d9ddd5] px-3 py-1.5 text-xs hover:border-[#243128]">Rechazar</button>}<button onClick={onRemove} aria-label="Eliminar comentario" className="ml-auto text-[#647167] hover:text-[#243128]"><Trash2 size={15}/></button></div></div>;
 }

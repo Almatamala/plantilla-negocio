@@ -1,8 +1,8 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.1
-**Fecha:** 2026-09-10
+**Versión del documento:** 1.4
+**Fecha:** 2026-09-15
 **Estado:** Borrador para revisión del dueño del producto
 
 ---
@@ -112,16 +112,98 @@ avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), 
 
 ---
 
+## 1.4 Actualización v5 — Ajustes del dueño (2026-09-14)
+
+**Implementado y verificado** (`pytest` 36/36, `tsc`, `lint`, `build` y prueba de humo de la API). Los
+cambios están detallados en **PLAN §0.6**; aquí el análisis que los justifica frente a este documento:
+
+1. **Botón de WhatsApp redondo y solo con el ícono** (§3.4). Estaba con texto
+   (`rounded-full … <MessageCircle/>WhatsApp`); pasa a `components/whatsapp-button.tsx` (redondo, ícono
+   oficial) y se muestra en tienda, ficha y checkout.
+2. **Bug del carrito (§3.1 / flujo de compra):** al agregar desde la ficha y elegir «seguir comprando»,
+   el carrito se reiniciaba. Causa: dos dueños del mismo `localStorage` (la ficha escribía a mano y el
+   storefront persistía un carrito vacío antes de restaurar lo guardado). Solución: `lib/cart.ts`,
+   carrito único como store externo.
+3. **Categorías editables (§3.5, panel):** el panel solo listaba categorías; la API tenía únicamente
+   `GET` y `POST`. Se agregan **`PUT` y `DELETE /api/categories/{id}`** y un botón **«Categorías»** junto
+   a «Nuevo producto» con modal para agregar, editar y quitar (los productos quedan «Sin categoría»).
+4. **Confirmación de cuenta por correo (§3.6):** faltaba por completo; se implementa con **código
+   temporal de 6 dígitos** y correo personalizado (**D14**, proveedor **Resend**).
+5. **Acceso a cuenta/panel en el footer (§3.5):** el botón del header funciona correctamente, así que el
+   enlace del footer se **elimina** (el footer conserva Instagram).
+6. **Referencia de diseño simplysweet.cl (D15):** la ficha de producto mantiene **header y footer** y ya
+   no tiene «Volver a la tienda»; el **checkout se reestructuró según la referencia** (verificado que es
+   una tienda **Shopify**, o sea checkout estándar: header mínimo con el logo, formulario en columna
+   izquierda con secciones separadas por líneas finas, resumen del pedido fijo al costado con el botón de
+   pago, resumen plegable en móvil), **conservando los mismos campos** que se piden hoy y su flujo de 4
+   pasos. La referencia queda registrada en **PLAN §9** para reutilizarla.
+
+**Pendiente externo:** cuenta y **dominio verificado en Resend**. Sin esas credenciales la confirmación
+por correo queda desactivada y las cuentas nuevas entran activas, para no dejar la tienda sin acceso.
+
+---
+
+## 1.5 Actualización v6 — Ajustes del dueño (2026-09-15)
+
+**Implementado y verificado** (`pytest` 36/36, `tsc`, `lint`, `build`). El detalle por tarea está en
+**PLAN §0.7**; aquí el análisis frente a este documento:
+
+1. **No existe el despacho a domicilio (§3.3).** El código tenía `shipping_zones.type` = `retiro` |
+   `domicilio` con cobertura en `areas[]`, y el checkout pedía dirección al elegir domicilio. El negocio
+   **solo entrega para retiro**: **retiro presencial** y **puntos de encuentro** en San Javier y Talca,
+   cada uno **definido por ubicación y horario**; el cliente elige **cuál** y **qué día/franja** ir a
+   buscarlo, dentro de una **ventana de 2 semanas**. Esto **resuelve D6** y agrega **D16**: el tipo pasa a
+   `retiro` | `encuentro` y las zonas ganan `location` + `schedule` (se retira `areas`).
+2. **Nota del pedido eliminada (§3.4).** El paso «5 · Nota del pedido» del checkout se retira (no se usará
+   a futuro), junto con el campo del formulario de pedidos del admin y del schema: **D17**, columna
+   `orders.notes` eliminada con la migración idempotente al arrancar.
+3. **Desborde horizontal del checkout en celular (§3.3, flujo de compra).** Los inputs, botones y el
+   selector de días se salían del cuadro porque la fila de días (con scroll horizontal propio) ensanchaba
+   su columna de grid (`min-width: auto`) y, con ella, todo el formulario. Se corrige con `min-w-0` en las
+   columnas y en las tarjetas de punto de retiro; en tablet no había problema.
+
+**Nota de datos:** `orders.fulfillment` cambia de `retiro` | `domicilio` a `retiro` | `encuentro`. El panel
+normaliza valores antiguos a `retiro` para no romperse; si hubiera pedidos con `domicilio`, se corrigen
+desde el panel (no hay producción todavía).
+
+---
+
+## 1.6 Actualización v7 — Agenda por punto y cierres cómodos (2026-09-15)
+
+**Implementado y verificado** (`pytest` 40/40, `tsc`, `lint`, `build`). Detalle en **PLAN §0.8**. El dueño
+pidió que el panel pueda administrar los puntos «de forma didáctica y precisa»:
+
+1. **Las franjas horarias se fusionan con el punto de retiro/encuentro (§3.3).** Antes eran globales
+   (`time_slots` sin dueño) y el punto tenía su horario como texto libre (§1.5): el cliente podía agendar
+   el sábado 11:00–13:00 en un punto que solo existe los sábados… o el mismo punto un miércoles. Ahora
+   cada franja **cuelga del punto** (`time_slots.zone_id`, con cascada) y declara sus **días de la semana**
+   (`weekdays`, 0 domingo … 6 sábado). Esto agrega **D18** y cambia el flujo del checkout a
+   **punto → día → franja**, con validación en la API (franja habilitada, del punto elegido y del día
+   elegido).
+2. **Cierres más cómodos (§3.3).** Además de las fechas puntuales, se agregan **cierres recurrentes por
+   día de la semana** (`closed_weekdays`): cerrar el lunes de producción es un clic, sin cargar fechas a
+   mano. Es **D19**; en una instalación nueva el domingo queda cerrado por defecto (editable).
+3. **Panel didáctico.** La agenda del admin pasa a `components/admin-agenda.tsx`: una **tarjeta por punto**
+   con su ubicación, sus franjas (agregar, editar, habilitar, eliminar, con chips de días) y las acciones
+   del punto (editar, activar, eliminar); abajo, los cierres semanales como chips de Lunes a Domingo y las
+   fechas puntuales. El `PATCH` de punto y de franja ahora son parciales.
+
+**Nota de datos:** al migrar, las franjas globales antiguas **se eliminan** (no pertenecen a ningún punto) y
+`shipping_zones.schedule` se retira; el horario del punto son sus franjas. Se vuelven a cargar desde Agenda
+(las franjas por punto siguen pendientes de seed, igual que los puntos reales).
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
 |---|---|
 | **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`, carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por correo/contraseña + Google en `app/login`, página de cuenta `app/cuenta`, `proxy.ts` protege `/admin` (rol admin). |
 | **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
-| **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `time_slots`, `closed_days`, `shipping_zones`, `reviews`, `pages`, `store_settings`. Las tablas se crean al arrancar la API. |
+| **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con días de la semana), `closed_days` (fechas), `closed_weekdays` (cierre semanal), `shipping_zones`, `reviews`, `pages`, `store_settings`. Las tablas se crean al arrancar la API. |
 | **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (franjas/días cerrados/zonas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
 | **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, zonas, reviews, órdenes con stock server-side, ajustes e imágenes. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
-| **Identidad** | Textos de la tienda hardcodeados en `lib/store-config.ts` (nombre, hero, historia). Existe tabla `store_settings` pero **no se usa**. |
+| **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**. |
 
 > Nota: el trabajo que quedó a medio camino en `components/admin-dashboard.tsx` (modal de ítems,
 > filtros, creación de producto, modal de stock) fue commiteado y el desarrollo continuó: ver §1.2.
@@ -188,8 +270,14 @@ avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), 
 - ❌ Selección de **día + rango horario** por el cliente: no existe ningún flujo.
 - ❌ **Bloqueo de días** (cierre de días) y configuración de horarios: no hay tabla de agenda ni de días
   cerrados.
-- ⚠️ Despacho: el admin ya distingue `retiro` / `domicilio` con una dirección de texto libre, pero **no
-  hay zonas de entrega** (San Javier domicilio; San Javier y Talca presencial) ni validación.
+- ✅ **Retiro:** el cliente elige el punto donde busca su pedido —**retiro presencial** o **punto de
+  encuentro** (San Javier / Talca)— y cada punto se define por su **ubicación** y sus **franjas horarias**;
+  no hay despacho a domicilio (**D16**, ver §1.5 y PLAN §0.7).
+- ✅ **Franjas por punto y con días (D18, §1.6):** cada franja pertenece a un punto y declara los **días de
+  la semana** en que se atiende, así el cliente solo puede agendar día y hora que ese punto realmente
+  atiende; la ventana sigue siendo de **2 semanas**.
+- ✅ **Cierres (D19, §1.6):** días cerrados **todas las semanas** (p. ej. lunes de producción, domingo por
+  defecto) y **fechas puntuales**.
 
 **Conflictos y decisiones:**
 
@@ -199,9 +287,10 @@ avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), 
 2. **Slots fijos vs. libres.** ¿Franjas predefinidas configurables (ej. 09:00–12:00, 12:00–15:00) o el
    cliente escribe su horario? Para control de producción, lo razonable son slots configurables por el
    admin. → **Decidir** (afecta schema: `order_slots` + `closed_days`).
-3. **Zonas de entrega.** Domicilio solo en San Javier (¿radio/barrios?), retiro/entrega presencial en San
-   Javier **y** Talca. Hoy `location` es texto libre. Se necesita una tabla o constante de zonas con su
-   alcance y (si aplica) tarifa. → **Decidir alcance exacto**.
+3. **Puntos de retiro.** **Resuelto (D16, §1.5; D18/D19, §1.6):** no hay despacho a domicilio; solo
+   retiro presencial y puntos de encuentro en San Javier y Talca, cada uno con **ubicación** y **franjas
+   horarias** (que declaran sus días). Se descartó la cobertura por áreas (`areas[]`) porque no existe
+   reparto; la tarifa queda fuera de alcance.
 4. **Desincronización de idiomas.** El admin usa estados en español ("Preparando") y `fulfillment`
    hardcodeado; el schema/backend usan inglés (`preparing`, `pending`). Al persistir pedidos hay que
    unificar los valores.
@@ -267,6 +356,28 @@ avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), 
 
 ---
 
+### 3.6 Cuenta de cliente: confirmación por correo con código temporal de 6 dígitos
+
+**Estado actual: implementado en v5 (D14)** — requerimiento nuevo del dueño.
+
+- ✅ Registro y login con **correo/contraseña** (bcrypt) y **Google OAuth**; la sesión es un JWT en
+  **cookie httpOnly**.
+- ✅ `POST /api/auth/register` genera un **código de 6 dígitos** (hasheado, vence en 15 min, máx. 3
+  reenvíos, 5 intentos), envía el **correo personalizado del negocio** (`backend/app/emails.py`, Resend) y
+  **no emite sesión**; `POST /api/auth/verify-email` confirma el código y emite la sesión;
+  `POST /api/auth/resend-code` pide uno nuevo respetando espera y límite.
+- ✅ El login responde **403** mientras el correo no esté confirmado y `/login` muestra el paso del código
+  con «Reenviar código» y «Cambiar de correo».
+- ✅ Las cuentas de **Google** entran confirmadas y las **existentes** también (migración automática al
+  arrancar la API: `ALTER TABLE … ADD COLUMN IF NOT EXISTS email_verified … DEFAULT TRUE`).
+- ⚠️ **Sin credenciales de Resend la confirmación queda desactivada** (decisión explícita para no dejar la
+  tienda sin acceso): la cuenta se crea activa y se avisa en la respuesta.
+
+**Pendiente externo:** crear la cuenta en [Resend](https://resend.com) y **verificar el dominio** del
+negocio; después definir `RESEND_API_KEY` y `RESEND_EMAIL_FROM` en el entorno de la API.
+
+---
+
 ## 4. Priorización propuesta
 
 > Clasificación sugerida. El dueño puede reasignar; está hecha para separar "lo que habilita vender"
@@ -276,15 +387,29 @@ avisa con un 503 amigable; el login por correo/contraseña funciona sin ellas), 
 |---|---|---|
 | **P0 — Fundación (antes de abrir a clientes)** | **3.1 Catálogo + fotos + ficha + alérgenos** | Sin ficha con fotos e ingredientes no hay venta; es la carta del negocio. |
 | **P0** | **3.2 Stock (etiquetas + bajo pedido + auto-desactivación)** | Evita vender lo que no hay; bajo pedido es el modelo de producción artesanal. |
-| **P0** | **3.3 Agenda (día + franja, bloqueo de días, zonas San Javier/Talca)** | Es el diferenciador clave del negocio y el módulo que condiciona al resto (checkout, stock, pagos). |
+| **P0** | **3.3 Agenda (día + franja, bloqueo de días, puntos de retiro de San Javier/Talca)** | Es el diferenciador clave del negocio y el módulo que condiciona al resto (checkout, stock, pagos). |
 | **P1 — Operación** | **3.4 Pagos (transferencia primero, Webpay después) + persistencia real de pedidos** | Sin cobro no hay negocio; pero Webpay (dependencia externa) puede ir en fase 2. |
 | **P1** | **3.5 Panel móvil + contenido editable (conectar `store_settings`)** | Habilita el "panel auto-gestionable" prometido. |
 | **P2 — Al final** | **WhatsApp: botón flotante** (rápido) y **notificación automática** (depende de proveedor externo) | El botón es barato y de alto valor; la notificación automática depende de decisión de proveedor. |
+| **P1** | **3.6 Confirmación de cuenta por correo (D14)** | Evita correos falsos y da la bienvenida de marca; requiere proveedor de correo y dominio verificado. |
 | **P2** | **Feed de Instagram, sección de comentarios, reportes/analítica avanzada** | Nice-to-have de marca y retención; no bloquean la venta. |
 
 **Resumen para el dueño:** *primero* catálogo con fotos/ficha/alérgenos + stock + agenda;
 *al final* Instagram, comentarios y la notificación automática de WhatsApp (y posiblemente Webpay si se
 quiere partir con transferencia).
+
+**Ajustes del dueño v5 (§1.4):** la **confirmación por correo** (§3.6, D14) es el único bloque “de fondo”;
+el resto son correcciones y ajustes acotados (botón de WhatsApp redondo, bug del carrito, CRUD de
+categorías, footer sin accesos de cuenta y ficha/checkout dentro del layout con la referencia
+simplysweet.cl) que **no reordenan el plan**: entran en las fases F1/F2 ya planificadas.
+
+**Ajustes del dueño v6 (§1.5):** acotan el alcance de la entrega (sin despacho a domicilio: **D16**),
+eliminan la nota del pedido (**D17**) y corrigen el layout móvil del checkout. No cambian el orden de las
+fases: actualizan **F1.8** y **F2.1** (ver PLAN §0.7).
+
+**Ajustes del dueño v7 (§1.6):** hacen la agenda **precisa y didáctica**: franjas que cuelgan del punto y
+declaran sus **días** (**D18**) y cierres **semanales** además de los de fecha (**D19**). Tampoco reordenan
+el plan: actualizan **F1.6**, **F1.7**, **F1.8** y **F2.4** (ver PLAN §0.8).
 
 ---
 
@@ -297,7 +422,7 @@ quiere partir con transferencia).
 | D3 | Regla de stock | Estado automático derivado de inventario vs. manual con umbrales | Lógica + schema |
 | D4 | "Bajo pedido" | **RESUELTA (v4, ver §1.3):** solo `allow_backorder`, sin días de anticipación ni `lead_time_days` | Schema + agenda |
 | D5 | Slots horarios | Franjas fijas configurables vs. horario libre del cliente | Schema agenda |
-| D6 | Zonas de entrega | Radio San Javier, Talca solo presencial, tarifas | Schema + checkout |
+| D6 | Puntos de retiro | **RESUELTA (v6, §1.5):** no hay despacho a domicilio; retiro presencial y puntos de encuentro en San Javier y Talca, cada uno con ubicación y horario, sin tarifa. Ver D16 | Schema + checkout |
 | D7 | Fuente de verdad única | ~~Supabase~~ **RESUELTA: API FastAPI dockerizada en AWS** | Arquitectura; ver §1.1 |
 | D8 | Orden de pagos | Transferencia primero (manual) + Webpay en fase 2 | Esfuerzo, credenciales |
 | D9 | WhatsApp automático | API Meta Cloud vs. enlace `wa.me` manual | Costo, cuenta Business |
@@ -305,6 +430,12 @@ quiere partir con transferencia).
 | D11 | Instagram | Embed real (token) vs. enlace/gráfica estática | Mantención |
 | D12 | Alcance del panel móvil | Drawer/bottom-nav en admin | Trabajo transversal |
 | D13 | Protección del panel de administración | **RESUELTA E IMPLEMENTADA** (ver §1.2): sesión server-side en cookie httpOnly + `proxy.ts` por rol admin; login por correo/contraseña + Google | Arquitectura + seguridad |
+| D14 | Confirmación de cuenta | **RESUELTA E IMPLEMENTADA** (ver §1.4): código temporal de 6 dígitos por correo (Resend) | Schema `profiles`, auth, `/login` |
+| D15 | Referencia de diseño | **RESUELTA** (ver §1.4): https://simplysweet.cl para la ficha de producto y el checkout | Ficha, checkout |
+| D16 | Entrega | **RESUELTA E IMPLEMENTADA** (ver §1.5): no hay despacho a domicilio; solo retiro presencial y puntos de encuentro (San Javier / Talca) con ubicación y horario, en una ventana de 2 semanas | Schema `shipping_zones`, checkout, admin |
+| D17 | Nota del pedido | **RESUELTA E IMPLEMENTADA** (ver §1.5): eliminada del checkout, del admin y del schema | Checkout, admin, `orders.notes` |
+| D18 | Franjas horarias | **RESUELTA E IMPLEMENTADA** (ver §1.6): cada franja pertenece a un **punto** y declara los **días de la semana** en que atiende; el punto ya no tiene un horario en texto libre | Schema `time_slots`, checkout, agenda del admin |
+| D19 | Días cerrados | **RESUELTA E IMPLEMENTADA** (ver §1.6): cierres **semanales recurrentes** (p. ej. lunes de producción; domingo por defecto) **y** fechas puntuales | Nueva tabla `closed_weekdays`, checkout, agenda del admin |
 
 ---
 
@@ -318,6 +449,8 @@ quiere partir con transferencia).
 4. **Fase 2 (P1):** checkout real (persistir órdenes), transferencia con confirmación manual, panel móvil,
    contenido editable desde `store_settings`.
 5. **Fase 3 (P2):** Webpay, WhatsApp (botón + notificación), Instagram, comentarios, reportes.
+6. **Ajustes v5 (§1.4):** incorporados al PLAN en F1.9, F2.6, F2.7, F2.8, F2.9 y F2.10, más la
+   referencia **simplysweet.cl** (D15, PLAN §9).
 
 ---
 
@@ -338,3 +471,11 @@ quiere partir con transferencia).
 | `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
 | `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (GOOGLE_*, ADMIN_EMAILS, AUTH_JWT_SECRET) |
 | `backend/tests/*` | Tests de la API local |
+| `backend/app/emails.py` | Correo transaccional con **Resend** y plantilla del código de confirmación (D14, PLAN F2.9) |
+| `components/checkout-shell.tsx` | Header/footer mínimos del checkout según simplysweet.cl (D15, PLAN §9 / F2.1) |
+| `lib/cart.ts`, `lib/account.ts` | Carrito único compartido y enlace de cuenta del header |
+| `components/store-shell.tsx` | Header y footer compartidos por carta, ficha y checkout (sin accesos de cuenta en el footer) |
+| `https://simplysweet.cl` | **Referencia de diseño/UX** para la ficha de producto y el checkout (D15, PLAN §9) |
+| `backend/app/models.py` › `ShippingZone` | Puntos de retiro y encuentro con `location`; sus franjas cuelgan de él (D16/D18, PLAN §0.7–§0.8) |
+| `components/admin-agenda.tsx` | Agenda didáctica del panel: una tarjeta por punto con sus franjas, más los cierres semanales y por fecha (D18/D19, PLAN §0.8) |
+| `lib/schedule.ts` | Días de la semana compartidos y formato compacto de franjas (D18) |

@@ -7,32 +7,42 @@ import { clearSessionTokenCache } from "@/lib/api";
 import { storeConfig } from "@/lib/store-config";
 
 type Mode = "login" | "register";
+type Step = "form" | "verify";
 
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
+  const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [googleError, setGoogleError] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const error = new URLSearchParams(window.location.search).get("error");
-      if (error === "google-no-config") {
+      const value = new URLSearchParams(window.location.search).get("error");
+      if (value === "google-no-config") {
         setGoogleError("El login con Google aún no está configurado. Usa correo y contraseña, o agrega GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en el backend.");
-      } else if (error) {
+      } else if (value) {
         setGoogleError("No se pudo iniciar sesión con Google. Intenta nuevamente.");
       }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
+  function goAfterLogin(role: string) {
+    const next = new URLSearchParams(window.location.search).get("next");
+    router.push(role === "admin" ? "/admin" : next && next.startsWith("/") && !next.startsWith("//") ? next : "/cuenta");
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
+    setError("");
     setLoading(true);
     try {
       const res = await fetch("/api/auth/login", {
@@ -42,17 +52,108 @@ export default function LoginPage() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setMessage(data?.error ?? "No se pudo iniciar sesión. Intenta nuevamente.");
+        setError(data?.error ?? "No se pudo iniciar sesión. Intenta nuevamente.");
+        // La cuenta existe pero el correo no está confirmado: pasamos al paso del código.
+        if (data?.needs_verification) setStep("verify");
+        setLoading(false);
+        return;
+      }
+      if (data?.verification_required) {
+        setMessage(data.message || `Te enviamos un código de 6 dígitos a ${data.email ?? email}.`);
+        setStep("verify");
         setLoading(false);
         return;
       }
       clearSessionTokenCache();
-      const next = new URLSearchParams(window.location.search).get("next");
-      router.push(data.role === "admin" ? "/admin" : next && next.startsWith("/") && !next.startsWith("//") ? next : "/cuenta");
+      goAfterLogin(data.role);
     } catch {
-      setMessage("No se pudo conectar. Intenta nuevamente.");
+      setError("No se pudo conectar. Intenta nuevamente.");
       setLoading(false);
     }
+  }
+
+  async function confirmCode(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, code }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(data?.error ?? "No se pudo confirmar el código.");
+        setLoading(false);
+        return;
+      }
+      clearSessionTokenCache();
+      goAfterLogin(data.role);
+    } catch {
+      setError("No se pudo conectar. Intenta nuevamente.");
+      setLoading(false);
+    }
+  }
+
+  async function resend() {
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/auth/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(data?.error ?? "No se pudo reenviar el código.");
+        return;
+      }
+      setMessage(data?.message ?? "Te enviamos un código nuevo.");
+    } catch {
+      setError("No se pudo conectar. Intenta nuevamente.");
+    }
+  }
+
+  if (step === "verify") {
+    return (
+      <main className="grid min-h-screen place-items-center px-5">
+        <section className="w-full max-w-md">
+          <Link href="/" className="display text-3xl">{storeConfig.name}</Link>
+          <p className="mt-8 text-xs tracking-[.18em] text-[#56745c] uppercase">Confirma tu correo</p>
+          <h1 className="display mt-3 text-4xl">Revisa tu correo</h1>
+          <p className="mt-3 leading-7 text-[#647167]">
+            Enviamos un código temporal de 6 dígitos a <strong>{email}</strong>. Escríbelo aquí para activar tu cuenta.
+          </p>
+          <form onSubmit={confirmCode} className="mt-8 space-y-4">
+            <label className="block text-sm">Código de 6 dígitos
+              <input
+                required
+                autoFocus
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                pattern="\d{6}"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                className="mt-2 w-full border border-[#c7ccc3] bg-white px-4 py-3 text-center text-2xl tracking-[.4em] outline-[#56745c]"
+              />
+            </label>
+            <button disabled={loading || code.length !== 6} className="w-full bg-[#243128] py-3.5 text-sm text-white disabled:opacity-50">
+              {loading ? "Un momento..." : "Confirmar cuenta"}
+            </button>
+          </form>
+          {error && <p className="mt-4 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{error}</p>}
+          {message && <p className="mt-4 rounded-lg bg-[#edf0e8] p-3 text-sm">{message}</p>}
+          <button onClick={resend} className="mt-3 w-full text-center text-sm text-[#56745c] underline underline-offset-4">Reenviar código</button>
+          <button onClick={() => { setStep("form"); setCode(""); setError(""); setMessage(""); }} className="mt-2 w-full text-center text-sm text-[#647167] underline underline-offset-4">
+            Cambiar de correo
+          </button>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -63,7 +164,7 @@ export default function LoginPage() {
         <h1 className="display mt-3 text-4xl">{mode === "register" ? "Crea tu cuenta" : "Bienvenido de vuelta"}</h1>
         <p className="mt-3 leading-7 text-[#647167]">
           {mode === "register"
-            ? "Regístrate con tu correo para agendar pedidos más rápido. Tu correo autorizado también da acceso al panel de administración."
+            ? "Regístrate con tu correo para agendar pedidos más rápido. Te enviaremos un código para confirmar tu cuenta."
             : "Inicia sesión para agendar tus pedidos más rápido y llevar tu historial."}
         </p>
 
@@ -84,9 +185,10 @@ export default function LoginPage() {
             {loading ? "Un momento..." : mode === "register" ? "Crear cuenta" : "Entrar"}
           </button>
         </form>
-        <button onClick={() => setMode(mode === "register" ? "login" : "register")} className="mt-3 w-full text-center text-sm text-[#56745c] underline underline-offset-4">
+        <button onClick={() => { setMode(mode === "register" ? "login" : "register"); setError(""); setMessage(""); }} className="mt-3 w-full text-center text-sm text-[#56745c] underline underline-offset-4">
           {mode === "register" ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
         </button>
+        {error && <p className="mt-4 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{error}</p>}
         {message && <p className="mt-4 rounded-lg bg-[#edf0e8] p-3 text-sm">{message}</p>}
 
         <div className="mt-8 flex items-center gap-3 text-xs text-[#748077]"><span className="h-px flex-1 bg-[#e2e5df]"/>o continúa con<span className="h-px flex-1 bg-[#e2e5df]"/></div>

@@ -19,7 +19,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://store:store@db:5432/store
       API_ADMIN_TOKEN: change-me-in-development
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       UPLOAD_DIR: /app/uploads
       # Login con Google (dejar vacío hasta tener credenciales en Google Cloud Console)
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -28,6 +28,12 @@ services:
       ADMIN_EMAILS: ${ADMIN_EMAILS:-alvaro.dario09@gmail.com}
       # Secreto compartido con Next.js para firmar la sesión (cambiar en producción)
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-change-me-in-development}
+      # Confirmación de cuentas por correo (Resend). Sin estas dos variables la
+      # verificación queda desactivada y las cuentas nuevas entran activas.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_EMAIL_FROM: ${RESEND_EMAIL_FROM:-}
+      STORE_NAME: ${STORE_NAME:-BOSQUE}
+      STORE_URL: ${STORE_URL:-http://localhost:3000}
     ports:
       - "8000:8000"
     volumes:

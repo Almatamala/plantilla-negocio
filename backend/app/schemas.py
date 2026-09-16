@@ -1,10 +1,10 @@
 from datetime import date, datetime
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 ProductStatus = Literal["draft", "active", "sold_out", "preorder"]
 OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded"]
-FulfillmentType = Literal["retiro", "domicilio"]
+FulfillmentType = Literal["retiro", "encuentro"]
 ReviewStatus = Literal["pending", "approved", "rejected"]
 
 
@@ -18,6 +18,7 @@ class ProfileOut(ORMModel):
     phone: str | None
     email: str
     role: str
+    email_verified: bool = False
     created_at: datetime
 
 
@@ -35,6 +36,16 @@ class RegisterIn(BaseModel):
 class LoginIn(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(min_length=1, max_length=200)
+
+
+class VerifyEmailIn(BaseModel):
+    """Código temporal de 6 dígitos que llega por correo al crear la cuenta."""
+    email: str = Field(max_length=254)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class ResendCodeIn(BaseModel):
+    email: str = Field(max_length=254)
 
 
 class CategoryIn(BaseModel):
@@ -86,19 +97,47 @@ class ProductOut(ProductIn, ORMModel):
 
 
 class TimeSlotIn(BaseModel):
+    # La franja pertenece a un punto de retiro (D18) y solo aplica los días de `weekdays`
+    # (0 domingo … 6 sábado, convención de JavaScript).
+    zone_id: str
     label: str = Field(min_length=1, max_length=120)
     start_time: str = Field(min_length=4, max_length=10)
     end_time: str = Field(min_length=4, max_length=10)
+    # Toda franja debe decir al menos un día: sin días no se puede agendar nada con ella.
+    weekdays: list[int] = Field(min_length=1, max_length=7)
     enabled: bool = True
+
+    @field_validator("weekdays")
+    @classmethod
+    def valid_weekdays(cls, value: list[int]) -> list[int]:
+        if any(day < 0 or day > 6 for day in value):
+            raise ValueError("Los días deben estar entre 0 (domingo) y 6 (sábado).")
+        return sorted(set(value))
 
 
 class TimeSlotPatch(BaseModel):
-    enabled: bool
+    """Edición parcial: solo se aplican los campos enviados."""
+    zone_id: str | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    start_time: str | None = Field(default=None, min_length=4, max_length=10)
+    end_time: str | None = Field(default=None, min_length=4, max_length=10)
+    weekdays: list[int] | None = Field(default=None, min_length=1, max_length=7)
+    enabled: bool | None = None
+
+    @field_validator("weekdays")
+    @classmethod
+    def valid_weekdays(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return value
+        if any(day < 0 or day > 6 for day in value):
+            raise ValueError("Los días deben estar entre 0 (domingo) y 6 (sábado).")
+        return sorted(set(value))
 
 
 class TimeSlotOut(TimeSlotIn, ORMModel):
     id: str
     created_at: datetime
+    zone_name: str | None = None
 
 
 class ClosedDayIn(BaseModel):
@@ -111,15 +150,30 @@ class ClosedDayOut(ClosedDayIn, ORMModel):
     created_at: datetime
 
 
+class ClosedWeekdayIn(BaseModel):
+    """Cierre que se repite todas las semanas (0 domingo … 6 sábado, D19)."""
+    weekday: int = Field(ge=0, le=6)
+    reason: str | None = Field(default=None, max_length=240)
+
+
+class ClosedWeekdayOut(ClosedWeekdayIn, ORMModel):
+    id: str
+    created_at: datetime
+
+
 class ShippingZoneIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     type: FulfillmentType = "retiro"
-    areas: list[str] = Field(default_factory=list)
+    location: str | None = Field(default=None, max_length=300)
     active: bool = True
 
 
 class ShippingZonePatch(BaseModel):
-    active: bool
+    """Edición parcial del punto: solo se aplican los campos enviados."""
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    type: FulfillmentType | None = None
+    location: str | None = Field(default=None, max_length=300)
+    active: bool | None = None
 
 
 class ShippingZoneOut(ShippingZoneIn, ORMModel):
@@ -165,7 +219,6 @@ class OrderIn(BaseModel):
     fulfillment: FulfillmentType | None = None
     shipping_zone_id: str | None = None
     location: str | None = None
-    notes: str | None = None
     items: list[OrderItemIn] = Field(min_length=1)
 
 
@@ -192,7 +245,6 @@ class OrderOut(ORMModel):
     fulfillment: FulfillmentType | None
     shipping_zone_id: str | None
     location: str | None
-    notes: str | None
     created_at: datetime
     items: list[OrderItemOut] = Field(default_factory=list)
     time_slot_label: str | None = None

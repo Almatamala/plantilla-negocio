@@ -120,7 +120,7 @@ export default function CuentaPage() {
                       <p className="flex items-center gap-2 font-medium"><Package size={14} className="text-[#56745c]"/>{order.id.slice(0, 8).toUpperCase()}</p>
                       <p className="mt-0.5 text-xs text-[#748077]">
                         {order.scheduled_date ? `${order.scheduled_date}${order.time_slot_label ? ` · ${order.time_slot_label}` : ""}` : "Sin fecha agendada"}
-                        {order.fulfillment ? ` · ${order.fulfillment === "domicilio" ? "A domicilio" : "Retiro"}` : ""}
+                        {order.fulfillment ? ` · ${order.fulfillment === "encuentro" ? "Punto de encuentro" : "Retiro presencial"}` : ""}
                       </p>
                       <p className="mt-0.5 text-xs text-[#748077]">{order.items.map((i) => `${i.quantity} × ${i.name}`).join(", ")}</p>
                     </div>

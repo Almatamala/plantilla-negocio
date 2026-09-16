@@ -1,3 +1,12 @@
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app import main
+from app.database import get_db
+
+
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
@@ -19,6 +28,23 @@ def test_create_product_with_variants_and_public_catalog(client, admin_headers):
     public_catalog = client.get("/api/products")
     assert public_catalog.status_code == 200
     assert len(public_catalog.json()) == 1
+
+
+def test_categories_can_be_renamed_and_removed(client, admin_headers):
+    category = client.post("/api/categories", headers=admin_headers, json={"name": "Tortas", "slug": "tortas"}).json()
+    product = client.post("/api/products", headers=admin_headers, json={"name": "Torta de chocolate", "slug": "torta-de-chocolate", "price": 1000, "category_id": category["id"]}).json()
+
+    renamed = client.put(f"/api/categories/{category['id']}", headers=admin_headers, json={"name": "Tortas y kuchen", "slug": "tortas-y-kuchen"})
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Tortas y kuchen"
+    assert client.put(f"/api/categories/{category['id']}", json={"name": "Otra", "slug": "otra"}).status_code == 401
+
+    assert client.delete(f"/api/categories/{category['id']}").status_code == 401
+    assert client.delete(f"/api/categories/{category['id']}", headers=admin_headers).status_code == 204
+    assert client.get("/api/categories").json() == []
+    # El producto no se elimina: queda sin categoría.
+    assert client.get(f"/api/products/{product['id']}").json()["category_id"] is None
+    assert client.delete(f"/api/categories/{category['id']}", headers=admin_headers).status_code == 404
 
 
 def test_invalid_product_is_rejected(client, admin_headers):
@@ -70,13 +96,118 @@ def test_backorder_keeps_preorder_status(client, admin_headers):
     assert updated["status"] == "preorder"
 
 
-def test_schedule_and_shipping_zone_in_order(client, admin_headers):
-    slot = client.post("/api/time-slots", headers=admin_headers, json={"label": "Mañana", "start_time": "09:00", "end_time": "12:00"}).json()
-    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "San Javier", "type": "domicilio", "areas": ["Centro"]}).json()
-    order = client.post("/api/orders", json={"customer_name": "Luis", "scheduled_date": "2026-09-15", "time_slot_id": slot["id"], "fulfillment": "domicilio", "shipping_zone_id": zone["id"], "location": "Calle 1", "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]})
+def test_pickup_point_with_slot_in_order(client, admin_headers):
+    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Punto de encuentro Talca", "type": "encuentro", "location": "Plaza de Armas, Talca"}).json()
+    assert zone["location"] == "Plaza de Armas, Talca"
+    # 2026-09-15 es martes (2 en la convención 0 = domingo).
+    slot = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": zone["id"], "label": "Martes de encuentro", "start_time": "11:00", "end_time": "13:00", "weekdays": [2]}).json()
+    assert slot["weekdays"] == [2]
+    assert slot["zone_name"] == "Punto de encuentro Talca"
+    payload = {"customer_name": "Luis", "scheduled_date": "2026-09-15", "time_slot_id": slot["id"], "fulfillment": "encuentro", "shipping_zone_id": zone["id"], "location": zone["location"], "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]}
+    order = client.post("/api/orders", json=payload)
     assert order.status_code == 201
-    assert order.json()["shipping_zone_name"] == "San Javier"
-    assert order.json()["time_slot_label"] == "Mañana"
+    body = order.json()
+    assert body["shipping_zone_name"] == "Punto de encuentro Talca"
+    assert body["time_slot_label"] == "Martes de encuentro"
+    assert body["fulfillment"] == "encuentro"
+    # La nota del pedido se retiró (D17).
+    assert "notes" not in body
+    # La franja pertenece a un día: el 2026-09-16 es miércoles.
+    assert client.post("/api/orders", json={**payload, "scheduled_date": "2026-09-16"}).status_code == 409
+    # El despacho a domicilio ya no es un tipo de entrega válido (D16).
+    assert client.post("/api/orders", json={**payload, "fulfillment": "domicilio"}).status_code == 422
+    assert client.post("/api/shipping-zones", headers=admin_headers, json={"name": "A domicilio", "type": "domicilio"}).status_code == 422
+
+
+def test_time_slots_belong_to_a_pickup_point(client, admin_headers):
+    first = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Retiro presencial San Javier", "type": "retiro", "location": "Av. Principal 123"}).json()
+    second = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Punto de encuentro Talca", "type": "encuentro"}).json()
+    base = {"label": "Tarde", "start_time": "16:00", "end_time": "19:00", "weekdays": [1]}
+    # Una franja sin punto (o sin días) no se acepta, y el punto debe existir.
+    assert client.post("/api/time-slots", headers=admin_headers, json=base).status_code == 422
+    assert client.post("/api/time-slots", headers=admin_headers, json={**base, "zone_id": first["id"], "weekdays": []}).status_code == 422
+    assert client.post("/api/time-slots", headers=admin_headers, json={**base, "zone_id": "00000000-0000-0000-0000-000000000000"}).status_code == 404
+    assert client.post("/api/time-slots", headers=admin_headers, json={**base, "zone_id": first["id"], "weekdays": [7]}).status_code == 422
+    created = client.post("/api/time-slots", headers=admin_headers, json={**base, "zone_id": first["id"], "weekdays": [6, 1, 1]})
+    assert created.status_code == 201
+    assert created.json()["weekdays"] == [1, 6]  # ordenados y sin repetir
+    slot_id = created.json()["id"]
+    assert [slot["id"] for slot in client.get(f"/api/time-slots?zone_id={first['id']}").json()] == [slot_id]
+    assert client.get(f"/api/time-slots?zone_id={second['id']}").json() == []
+    # Edición parcial: cambia los días y el horario, sin tocar la etiqueta.
+    updated = client.patch(f"/api/time-slots/{slot_id}", headers=admin_headers, json={"weekdays": [5], "start_time": "10:00"})
+    assert updated.status_code == 200
+    assert updated.json()["weekdays"] == [5]
+    assert updated.json()["start_time"] == "10:00"
+    assert updated.json()["label"] == "Tarde"
+    assert client.patch(f"/api/time-slots/{slot_id}", json={"enabled": False}).status_code == 401
+    # Deshabilitada: fuera del listado público y tampoco sirve para un pedido.
+    assert client.patch(f"/api/time-slots/{slot_id}", headers=admin_headers, json={"enabled": False}).status_code == 200
+    assert client.get(f"/api/time-slots?zone_id={first['id']}").json() == []
+    assert len(client.get(f"/api/time-slots?zone_id={first['id']}&include_disabled=true").json()) == 1
+    order = {"customer_name": "Luis", "scheduled_date": "2026-09-18", "time_slot_id": slot_id, "shipping_zone_id": first["id"], "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]}
+    assert client.post("/api/orders", json=order).status_code == 409
+    # Y una franja de otro punto se rechaza aunque el día calce.
+    other = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": second["id"], "label": "Sábado", "start_time": "11:00", "end_time": "13:00", "weekdays": [6]}).json()
+    assert client.post("/api/orders", json={**order, "time_slot_id": other["id"], "scheduled_date": "2026-09-19"}).status_code == 409
+    assert client.post("/api/orders", json={**order, "time_slot_id": "00000000-0000-0000-0000-000000000000"}).status_code == 409
+    # Al eliminar el punto se van sus franjas.
+    assert client.delete(f"/api/shipping-zones/{first['id']}", headers=admin_headers).status_code == 204
+    assert client.get(f"/api/time-slots?include_disabled=true").json() == [other]
+
+
+def test_pickup_point_can_be_edited(client, admin_headers):
+    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "San Javier", "type": "retiro", "location": "Av. Principal 123"}).json()
+    assert client.patch(f"/api/shipping-zones/{zone['id']}", json={"name": "Otro"}).status_code == 401
+    updated = client.patch(f"/api/shipping-zones/{zone['id']}", headers=admin_headers, json={"name": "Retiro presencial San Javier", "type": "encuentro", "location": "Plaza de San Javier"})
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Retiro presencial San Javier"
+    assert updated.json()["type"] == "encuentro"
+    assert updated.json()["location"] == "Plaza de San Javier"
+    assert updated.json()["active"] is True
+    # `location: null` la borra y el resto del punto no cambia.
+    cleared = client.patch(f"/api/shipping-zones/{zone['id']}", headers=admin_headers, json={"location": None}).json()
+    assert cleared["location"] is None
+    assert cleared["name"] == "Retiro presencial San Javier"
+    assert client.patch(f"/api/shipping-zones/{zone['id']}", headers=admin_headers, json={"name": ""}).status_code == 422
+
+
+def test_fresh_install_creates_tables_and_closes_sunday(monkeypatch):
+    """Instalación nueva (sin tablas): la API las crea y deja el domingo cerrado todas las semanas."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(main, "engine", engine)
+
+    def override_db():
+        db = Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    main.app.dependency_overrides[get_db] = override_db
+    try:
+        with TestClient(main.app) as fresh:
+            assert [day["weekday"] for day in fresh.get("/api/closed-weekdays").json()] == [0]
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_weekly_closed_days(client, admin_headers, db_session):
+    # Instalación nueva: el domingo queda cerrado por defecto y no se duplica (D19).
+    assert main.seed_default_closed_weekday(db_session) is True
+    assert main.seed_default_closed_weekday(db_session) is False
+    assert [day["weekday"] for day in client.get("/api/closed-weekdays").json()] == [0]
+    assert client.post("/api/closed-weekdays", json={"weekday": 1}).status_code == 401
+    assert client.post("/api/closed-weekdays", headers=admin_headers, json={"weekday": 9}).status_code == 422
+    created = client.post("/api/closed-weekdays", headers=admin_headers, json={"weekday": 1, "reason": "Solo producción"})
+    assert created.status_code == 201
+    assert client.post("/api/closed-weekdays", headers=admin_headers, json={"weekday": 1}).status_code == 409
+    rows = client.get("/api/closed-weekdays").json()
+    assert [day["weekday"] for day in rows] == [0, 1]
+    assert next(day for day in rows if day["weekday"] == 1)["reason"] == "Solo producción"
+    assert client.delete(f"/api/closed-weekdays/{created.json()['id']}", headers=admin_headers).status_code == 204
+    assert [day["weekday"] for day in client.get("/api/closed-weekdays").json()] == [0]
 
 
 def test_reviews_are_moderated(client, admin_headers):

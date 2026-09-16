@@ -1,20 +1,22 @@
 import os
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jwt import decode as jwt_decode, encode as jwt_encode
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
 from authlib.integrations.httpx_client import OAuth2Client
 from .config import get_settings
 from .database import Base, engine, get_db
-from .models import Category, ClosedDay, Order, OrderItem, Page, Product, ProductVariant, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch
+from .emails import send_verification_code
+from .models import Category, ClosedDay, ClosedWeekday, Order, OrderItem, Page, Product, ProductVariant, Profile, Review, ShippingZone, StoreSettings, TimeSlot
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, ClosedWeekdayIn, ClosedWeekdayOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 
@@ -41,14 +43,71 @@ def google_client() -> OAuth2Client:
 # quitamos estas columnas al arrancar para que los INSERT no fallen por NOT NULL.
 LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days")
 
+# Puntos de retiro (D16): se retiró el despacho a domicilio (no existe el servicio) y la cobertura
+# por áreas; cada punto se define por **ubicación**. La **nota del pedido** también se retiró (D17).
+# Agenda por punto (D18): las franjas cuelgan del punto y guardan sus días; el horario en texto libre
+# del punto se retira (se deriva de sus franjas) y las franjas globales viejas se eliminan, porque
+# ahora toda franja pertenece a un punto. Los cierres semanales (D19) viven en `closed_weekdays`,
+# que `create_all` crea por ser tabla nueva.
+# Como `create_all` no altera tablas existentes, se aplica al arrancar en PostgreSQL.
+AGENDA_COLUMNS = (
+    "ALTER TABLE shipping_zones ADD COLUMN IF NOT EXISTS location TEXT",
+    "ALTER TABLE shipping_zones DROP COLUMN IF EXISTS areas",
+    "ALTER TABLE shipping_zones DROP COLUMN IF EXISTS schedule",
+    "ALTER TABLE time_slots ADD COLUMN IF NOT EXISTS zone_id VARCHAR(36) REFERENCES shipping_zones(id) ON DELETE CASCADE",
+    "ALTER TABLE time_slots ADD COLUMN IF NOT EXISTS weekdays JSON NOT NULL DEFAULT '[]'",
+    "DELETE FROM time_slots WHERE zone_id IS NULL",
+    "ALTER TABLE orders DROP COLUMN IF EXISTS notes",
+)
+
+# Día de la semana que queda cerrado en una instalación nueva (0 domingo … 6 sábado, D19).
+DEFAULT_CLOSED_WEEKDAY = 0
+
+# Columnas agregadas después de la primera versión del schema (`create_all` no altera tablas
+# existentes). `email_verified` entra con DEFAULT TRUE para que las cuentas ya creadas queden
+# confirmadas y solo las nuevas pidan el código de 6 dígitos.
+PROFILE_VERIFICATION_COLUMNS = (
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE profiles ALTER COLUMN email_verified SET DEFAULT FALSE",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_code_hash VARCHAR(255)",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMPTZ",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_sent_at TIMESTAMPTZ",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_sends INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
+)
+
+VERIFICATION_TTL_MINUTES = 15
+VERIFICATION_RESEND_SECONDS = 60
+VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
+VERIFICATION_MAX_ATTEMPTS = 5
+
+
+def seed_default_closed_weekday(db: Session) -> bool:
+    """Cierra el domingo en una instalación nueva. Devuelve `True` si lo agregó."""
+    if db.scalar(select(ClosedWeekday).where(ClosedWeekday.weekday == DEFAULT_CLOSED_WEEKDAY)):
+        return False
+    db.add(ClosedWeekday(weekday=DEFAULT_CLOSED_WEEKDAY, reason="Cerrado todas las semanas"))
+    db.commit()
+    return True
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    fresh_closed_weekdays = not inspect(engine).has_table("closed_weekdays")
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
             for column in LEGACY_PRODUCT_COLUMNS:
                 connection.execute(text(f"ALTER TABLE products DROP COLUMN IF EXISTS {column}"))
+            for statement in PROFILE_VERIFICATION_COLUMNS:
+                connection.execute(text(statement))
+            for statement in AGENDA_COLUMNS:
+                connection.execute(text(statement))
+    if fresh_closed_weekdays:
+        # Instalación nueva: el domingo queda cerrado por defecto (el panel lo puede reabrir).
+        # Se siembra solo cuando la tabla se creó recién, para no volver a cerrarlo si el dueño lo quitó.
+        with Session(engine) as session:
+            seed_default_closed_weekday(session)
     yield
 
 
@@ -93,6 +152,60 @@ def verify_password(password: str, hashed: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except ValueError:
         return False
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def is_expired(moment: datetime | None) -> bool:
+    """Compara fechas sin importar si la base las devuelve con o sin zona horaria."""
+    if not moment:
+        return True
+    reference = now_utc().replace(tzinfo=None) if moment.tzinfo is None else now_utc()
+    return moment < reference
+
+
+def seconds_since(moment: datetime | None) -> float | None:
+    if not moment:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (now_utc() - moment).total_seconds()
+
+
+def generate_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def hash_code(code: str) -> str:
+    return bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verification_required() -> bool:
+    """Solo se exige confirmar el correo si hay proveedor de correo configurado (Resend)."""
+    return settings.email_verification_enabled
+
+
+def start_email_verification(profile: Profile, db: Session) -> bool:
+    """Genera un código nuevo, lo guarda hasheado y envía el correo de confirmación."""
+    code = generate_verification_code()
+    profile.verification_code_hash = hash_code(code)
+    profile.verification_expires_at = now_utc() + timedelta(minutes=VERIFICATION_TTL_MINUTES)
+    profile.verification_sent_at = now_utc()
+    profile.verification_sends = (profile.verification_sends or 0) + 1
+    profile.verification_attempts = 0
+    db.commit()
+    return send_verification_code(
+        to=profile.email,
+        name=profile.name or "",
+        code=code,
+        store_name=settings.store_name,
+        store_url=settings.store_url,
+        api_key=settings.resend_api_key,
+        sender=settings.resend_email_from,
+        api_url=settings.resend_api_url,
+    )
 
 
 def require_admin(
@@ -170,7 +283,7 @@ def google_callback(code: str, state: str | None = None, db: Session = Depends(g
     profile = db.scalar(select(Profile).where(Profile.email == email))
     if profile is None:
         role = "admin" if email in settings.admin_email_list else "customer"
-        profile = Profile(email=email, name=userinfo.get("name"), google_sub=userinfo.get("sub"), role=role)
+        profile = Profile(email=email, name=userinfo.get("name"), google_sub=userinfo.get("sub"), role=role, email_verified=True)
         db.add(profile)
         db.commit()
         db.refresh(profile)
@@ -192,11 +305,80 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     if db.scalar(select(Profile).where(Profile.email == email)):
         raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese correo.")
     role = "admin" if email in settings.admin_email_list else "customer"
-    profile = Profile(email=email, name=payload.name.strip(), password_hash=hash_password(payload.password), role=role)
+    needs_verification = verification_required()
+    profile = Profile(
+        email=email,
+        name=payload.name.strip(),
+        password_hash=hash_password(payload.password),
+        role=role,
+        email_verified=not needs_verification,
+    )
     db.add(profile)
     db.commit()
     db.refresh(profile)
+    if not needs_verification:
+        # Sin proveedor de correo configurado no hay forma de verificar: la cuenta entra
+        # activa para no dejar la tienda sin acceso (ver PLAN F2.9).
+        return {
+            "token": session_token(profile),
+            "user": ProfileOut.model_validate(profile),
+            "verification_required": False,
+            "message": "Cuenta creada. La confirmación por correo está desactivada (falta configurar Resend).",
+        }
+    sent = start_email_verification(profile, db)
+    return {
+        "verification_required": True,
+        "email": profile.email,
+        "sent": sent,
+        "message": (
+            f"Te enviamos un código de 6 dígitos a {profile.email}."
+            if sent
+            else "Creamos tu cuenta, pero no pudimos enviar el correo de confirmación. Pide un código nuevo en unos minutos."
+        ),
+    }
+
+
+@app.post("/api/auth/verify-email")
+def verify_email(payload: VerifyEmailIn, db: Session = Depends(get_db)):
+    """Confirma la cuenta con el código temporal de 6 dígitos y emite la sesión."""
+    profile = db.scalar(select(Profile).where(Profile.email == payload.email.strip().lower()))
+    invalid = HTTPException(status_code=400, detail="El código es incorrecto o ya venció. Pide uno nuevo.")
+    if not profile or not profile.verification_code_hash:
+        raise invalid
+    if profile.email_verified:
+        return {"token": session_token(profile), "user": ProfileOut.model_validate(profile)}
+    if (profile.verification_attempts or 0) >= VERIFICATION_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Demasiados intentos con este código. Pide uno nuevo.")
+    if is_expired(profile.verification_expires_at):
+        raise invalid
+    if not verify_password(payload.code, profile.verification_code_hash):
+        profile.verification_attempts = (profile.verification_attempts or 0) + 1
+        db.commit()
+        raise invalid
+    profile.email_verified = True
+    profile.verification_code_hash = None
+    profile.verification_expires_at = None
+    profile.verification_attempts = 0
+    db.commit()
+    db.refresh(profile)
     return {"token": session_token(profile), "user": ProfileOut.model_validate(profile)}
+
+
+@app.post("/api/auth/resend-code")
+def resend_code(payload: ResendCodeIn, db: Session = Depends(get_db)):
+    """Reenvía el código (máx. 3 reenvíos y con una espera mínima entre envíos)."""
+    profile = db.scalar(select(Profile).where(Profile.email == payload.email.strip().lower()))
+    generic = {"ok": True, "message": "Si el correo está registrado, te enviamos un código nuevo."}
+    if not profile or profile.email_verified or not verification_required():
+        return generic
+    elapsed = seconds_since(profile.verification_sent_at)
+    if elapsed is not None and elapsed < VERIFICATION_RESEND_SECONDS:
+        wait = int(VERIFICATION_RESEND_SECONDS - elapsed) + 1
+        raise HTTPException(status_code=429, detail=f"Espera {wait} segundos antes de pedir otro código.")
+    if (profile.verification_sends or 0) >= VERIFICATION_MAX_SENDS:
+        raise HTTPException(status_code=429, detail="Alcanzaste el máximo de códigos. Escríbenos por WhatsApp y te ayudamos.")
+    sent = start_email_verification(profile, db)
+    return {**generic, "sent": sent}
 
 
 @app.post("/api/auth/login")
@@ -205,6 +387,8 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
     profile = db.scalar(select(Profile).where(Profile.email == email))
     if not profile or not profile.password_hash or not verify_password(payload.password, profile.password_hash):
         raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos.")
+    if not profile.email_verified and verification_required():
+        raise HTTPException(status_code=403, detail="Tu correo aún no está confirmado. Revisa el código que te enviamos.")
     return {"token": session_token(profile), "user": ProfileOut.model_validate(profile)}
 
 
@@ -244,6 +428,25 @@ def list_categories(db: Session = Depends(get_db)): return db.scalars(select(Cat
 
 @app.post("/api/categories", response_model=CategoryOut, status_code=201, dependencies=[Depends(require_admin)])
 def create_category(payload: CategoryIn, db: Session = Depends(get_db)): return commit(db, Category(**payload.model_dump()))
+
+
+@app.put("/api/categories/{category_id}", response_model=CategoryOut, dependencies=[Depends(require_admin)])
+def update_category(category_id: str, payload: CategoryIn, db: Session = Depends(get_db)):
+    category = find_or_404(db, Category, category_id)
+    for field, value in payload.model_dump().items():
+        setattr(category, field, value)
+    return commit(db, category)
+
+
+@app.delete("/api/categories/{category_id}", status_code=204, dependencies=[Depends(require_admin)])
+def delete_category(category_id: str, db: Session = Depends(get_db)):
+    """Elimina la categoría; sus productos quedan «Sin categoría» (category_id = NULL)."""
+    category = find_or_404(db, Category, category_id)
+    for product in db.scalars(select(Product).where(Product.category_id == category_id)).all():
+        product.category_id = None
+    db.delete(category)
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.get("/api/products", response_model=list[ProductOut])
@@ -294,22 +497,59 @@ def delete_product(product_id: str, db: Session = Depends(get_db)):
 
 # ── Agenda de pedidos ───────────────────────────────────────────────────────
 
+def slot_out(slot: TimeSlot) -> TimeSlotOut:
+    data = TimeSlotOut.model_validate(slot)
+    data.zone_name = slot.zone.name if slot.zone else None
+    return data
+
+
 @app.get("/api/time-slots", response_model=list[TimeSlotOut])
-def list_time_slots(db: Session = Depends(get_db)): return db.scalars(select(TimeSlot).order_by(TimeSlot.start_time)).all()
+def list_time_slots(zone_id: str | None = None, include_disabled: bool = False, db: Session = Depends(get_db)):
+    """Franjas horarias por punto de retiro (D18). Sin `zone_id` devuelve las de todos los puntos."""
+    query = select(TimeSlot).options(selectinload(TimeSlot.zone)).order_by(TimeSlot.start_time)
+    if zone_id: query = query.where(TimeSlot.zone_id == zone_id)
+    if not include_disabled: query = query.where(TimeSlot.enabled.is_(True))
+    return [slot_out(slot) for slot in db.scalars(query).all()]
 
 
 @app.post("/api/time-slots", response_model=TimeSlotOut, status_code=201, dependencies=[Depends(require_admin)])
-def create_time_slot(payload: TimeSlotIn, db: Session = Depends(get_db)): return commit(db, TimeSlot(**payload.model_dump()))
+def create_time_slot(payload: TimeSlotIn, db: Session = Depends(get_db)):
+    find_or_404(db, ShippingZone, payload.zone_id)  # la franja siempre cuelga de un punto
+    return slot_out(commit(db, TimeSlot(**payload.model_dump())))
 
 
 @app.patch("/api/time-slots/{slot_id}", response_model=TimeSlotOut, dependencies=[Depends(require_admin)])
 def update_time_slot(slot_id: str, payload: TimeSlotPatch, db: Session = Depends(get_db)):
-    slot = find_or_404(db, TimeSlot, slot_id); slot.enabled = payload.enabled; return commit(db, slot)
+    """Edición parcial: solo se aplican los campos enviados (los `null` se ignoran)."""
+    slot = find_or_404(db, TimeSlot, slot_id)
+    changes = {key: value for key, value in payload.model_dump(exclude_unset=True).items() if value is not None}
+    if changes.get("zone_id"): find_or_404(db, ShippingZone, changes["zone_id"])
+    for key, value in changes.items():
+        setattr(slot, key, value)
+    return slot_out(commit(db, slot))
 
 
 @app.delete("/api/time-slots/{slot_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_time_slot(slot_id: str, db: Session = Depends(get_db)):
     db.delete(find_or_404(db, TimeSlot, slot_id)); db.commit(); return Response(status_code=204)
+
+
+@app.get("/api/closed-weekdays", response_model=list[ClosedWeekdayOut])
+def list_closed_weekdays(db: Session = Depends(get_db)):
+    """Días de la semana cerrados todas las semanas (0 domingo … 6 sábado, D19)."""
+    return db.scalars(select(ClosedWeekday).order_by(ClosedWeekday.weekday)).all()
+
+
+@app.post("/api/closed-weekdays", response_model=ClosedWeekdayOut, status_code=201, dependencies=[Depends(require_admin)])
+def create_closed_weekday(payload: ClosedWeekdayIn, db: Session = Depends(get_db)):
+    if db.scalar(select(ClosedWeekday).where(ClosedWeekday.weekday == payload.weekday)):
+        raise HTTPException(status_code=409, detail="Ese día de la semana ya está cerrado todas las semanas.")
+    return commit(db, ClosedWeekday(**payload.model_dump()))
+
+
+@app.delete("/api/closed-weekdays/{weekday_id}", status_code=204, dependencies=[Depends(require_admin)])
+def delete_closed_weekday(weekday_id: str, db: Session = Depends(get_db)):
+    db.delete(find_or_404(db, ClosedWeekday, weekday_id)); db.commit(); return Response(status_code=204)
 
 
 @app.get("/api/closed-days", response_model=list[ClosedDayOut])
@@ -338,7 +578,15 @@ def create_shipping_zone(payload: ShippingZoneIn, db: Session = Depends(get_db))
 
 @app.patch("/api/shipping-zones/{zone_id}", response_model=ShippingZoneOut, dependencies=[Depends(require_admin)])
 def update_shipping_zone(zone_id: str, payload: ShippingZonePatch, db: Session = Depends(get_db)):
-    zone = find_or_404(db, ShippingZone, zone_id); zone.active = payload.active; return commit(db, zone)
+    """Edición parcial: solo se aplican los campos enviados (los `null` se ignoran, salvo
+    `location`, que se puede vaciar enviándola en `null`)."""
+    zone = find_or_404(db, ShippingZone, zone_id)
+    changes = payload.model_dump(exclude_unset=True)
+    if "location" in changes and not changes["location"]:
+        zone.location = None
+    for key, value in changes.items():
+        if value is not None: setattr(zone, key, value)
+    return commit(db, zone)
 
 
 @app.delete("/api/shipping-zones/{zone_id}", status_code=204, dependencies=[Depends(require_admin)])
@@ -390,8 +638,30 @@ def list_orders(db: Session = Depends(get_db)):
     return [order_out(o) for o in rows]
 
 
+def validate_schedule(db: Session, payload: OrderIn) -> None:
+    """Verifica que la franja exista, esté habilitada, sea del punto elegido y aplique a ese día.
+
+    Los cierres (D19) son una regla de disponibilidad de la tienda: el checkout no ofrece esos días,
+    pero el admin puede registrar un pedido fuera de agenda (p. ej. una excepción acordada).
+    """
+    if not payload.time_slot_id:
+        return
+    slot = db.get(TimeSlot, payload.time_slot_id)
+    if not slot:
+        raise HTTPException(status_code=409, detail="La franja horaria elegida no existe.")
+    if not slot.enabled:
+        raise HTTPException(status_code=409, detail="La franja horaria elegida no está disponible.")
+    if payload.shipping_zone_id and slot.zone_id != payload.shipping_zone_id:
+        raise HTTPException(status_code=409, detail="La franja horaria no pertenece al punto de retiro elegido.")
+    if payload.scheduled_date:
+        weekday = (payload.scheduled_date.weekday() + 1) % 7  # 0 domingo … 6 sábado
+        if weekday not in (slot.weekdays or []):
+            raise HTTPException(status_code=409, detail="La franja horaria no está disponible ese día de la semana.")
+
+
 @app.post("/api/orders", response_model=OrderOut, status_code=201)
 def create_order(payload: OrderIn, db: Session = Depends(get_db)):
+    validate_schedule(db, payload)
     total = sum(item.unit_price * item.quantity for item in payload.items)
     customer_profile = None
     if payload.customer_email:

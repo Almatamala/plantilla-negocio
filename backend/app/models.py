@@ -23,6 +23,13 @@ class Profile(Base):
     google_sub: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="customer")
+    # Confirmación de cuenta por correo: código temporal de 6 dígitos, guardado hasheado.
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verification_code_hash: Mapped[Optional[str]] = mapped_column(String(255))
+    verification_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    verification_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    verification_sends: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    verification_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -72,14 +79,22 @@ class ProductVariant(Base):
 
 
 class TimeSlot(Base):
-    """Franjas horarias configurables para agendar pedidos."""
+    """Franja horaria **de un punto de retiro** (D18): a qué horas y qué días atiende ese punto.
+
+    `weekdays` usa la convención de JavaScript (`Date.getDay()`): `0` domingo … `6` sábado. La
+    franja solo se ofrece los días listados, así un punto de encuentro que funciona solo los
+    sábados no permite agendar un miércoles.
+    """
     __tablename__ = "time_slots"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
+    zone_id: Mapped[str] = mapped_column(ForeignKey("shipping_zones.id", ondelete="CASCADE"), nullable=False)
     label: Mapped[str] = mapped_column(String(120), nullable=False)
     start_time: Mapped[str] = mapped_column(String(10), nullable=False)
     end_time: Mapped[str] = mapped_column(String(10), nullable=False)
+    weekdays: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    zone: Mapped["ShippingZone"] = relationship(back_populates="slots")
 
 
 class ClosedDay(Base):
@@ -92,13 +107,34 @@ class ClosedDay(Base):
 
 
 class ShippingZone(Base):
-    """Zonas de entrega: domicilio solo en San Javier; retiro en San Javier y Talca."""
+    """Puntos donde el cliente retira su pedido (no hay despacho a domicilio, D16).
+
+    `type` distingue **retiro presencial** (en el local) de **punto de encuentro** (Talca o San
+    Javier). Cada punto se define por su **ubicación** y sus **franjas horarias** (tabla
+    `time_slots`, que cuelga de este punto — D18); el cliente elige cuál y qué día/franja ir a
+    buscarlo dentro de las dos semanas siguientes (ver `closed_days` y `closed_weekdays`).
+    """
     __tablename__ = "shipping_zones"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False, default="retiro")
-    areas: Mapped[list] = mapped_column(JSON, default=list)
+    location: Mapped[Optional[str]] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Al eliminar un punto se eliminan sus franjas (misma semántica que la FK ON DELETE CASCADE).
+    slots: Mapped[list["TimeSlot"]] = relationship(back_populates="zone", cascade="all, delete-orphan")
+
+
+class ClosedWeekday(Base):
+    """Día de la semana cerrado **todas las semanas** (p. ej. lunes de producción, D19).
+
+    `weekday` sigue la convención de JavaScript: `0` domingo … `6` sábado. El domingo viene
+    cargado por defecto en una instalación nueva.
+    """
+    __tablename__ = "closed_weekdays"
+    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
+    weekday: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(240))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -130,7 +166,6 @@ class Order(Base):
     fulfillment: Mapped[Optional[str]] = mapped_column(String(20))
     shipping_zone_id: Mapped[Optional[str]] = mapped_column(ForeignKey("shipping_zones.id", ondelete="SET NULL"))
     location: Mapped[Optional[str]] = mapped_column(Text)
-    notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     time_slot: Mapped[Optional[TimeSlot]] = relationship()

@@ -1,8 +1,29 @@
 import "server-only";
+import { NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
 /** Nombre de la cookie httpOnly donde vive la sesión (JWT emitido por la API). */
 export const SESSION_COOKIE = "bosque_session";
+
+/** 30 días, igual que la expiración del JWT en la API. */
+export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+/** Adjunta la sesión a la respuesta como cookie httpOnly, Secure y SameSite=Strict. */
+export function withSessionCookie(response: NextResponse, token: string): NextResponse {
+  response.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: SESSION_MAX_AGE,
+    path: "/",
+  });
+  return response;
+}
+
+export function withoutSessionCookie(response: NextResponse): NextResponse {
+  response.cookies.delete(SESSION_COOKIE);
+  return response;
+}
 
 export type SessionUser = { id: string; role: string };
 

@@ -1,58 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, AtSign, Menu, MessageCircle, Minus, Package, Plus, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowRight, Package, Plus, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { formatPrice, stockLabel, type Product, type ProductStatus } from "@/lib/products";
-import { storeConfig, type StoreConfig } from "@/lib/store-config";
+import { useCart } from "@/lib/cart";
+import { formatPrice, mapApiProduct, stockLabel, type ApiProduct, type Product } from "@/lib/products";
+import { mergeSettings, storeConfig, type ApiSettings, type StoreConfig } from "@/lib/store-config";
+import { CartDrawer } from "@/components/cart-drawer";
+import { StoreFooter, StoreHeader } from "@/components/store-shell";
+import { WhatsAppButton } from "@/components/whatsapp-button";
 
-type Cart = Record<string, number>;
-type ApiProduct = { id: string; slug: string; name: string; price: number; description: string | null; status: ProductStatus; inventory: number; allow_backorder: boolean; images: string[]; image_url: string | null; allergens: string[]; category_id: string | null };
-type ApiSettings = { name: string; announcement: string | null; hero_title: string | null; hero_description: string | null; story_headline: string | null; story_description: string | null; contact_phone: string | null; whatsapp_phone: string | null; instagram_url: string | null; bank_account_info: string | null };
+/** Lee el catálogo de la API. No toca estado: se aplica en un callback. */
+async function fetchCatalog(): Promise<Product[]> {
+  const [rows, cats] = await Promise.all([
+    apiFetch<ApiProduct[]>("/api/products"),
+    apiFetch<{ id: string; name: string }[]>("/api/categories"),
+  ]);
+  const categories = new Map(cats.map((category) => [category.id, category.name]));
+  return rows.map((row, index) => mapApiProduct(row, index, categories));
+}
 
 export function Storefront({ products }: { products: Product[] }) {
   const [catalog, setCatalog] = useState(products);
   const [config, setConfig] = useState<StoreConfig>(storeConfig);
-  const [role, setRole] = useState<string | null>(null);
-  useEffect(() => {
-    fetch("/api/auth/me").then((r) => r.json()).then((data) => setRole(data?.user?.role ?? null)).catch(() => undefined);
-  }, []);
-  const signedIn = role !== null;
-  // El admin no usa la vista de cuenta: su botón lleva directo al panel.
-  const accountHref = role === "admin" ? "/admin" : signedIn ? "/cuenta" : "/login";
-  const accountLabel = role === "admin" ? "Panel admin" : signedIn ? "Mi cuenta" : "Iniciar sesión";
-  useEffect(() => {
-    apiFetch<ApiSettings>("/api/settings").then((data) => { setConfig((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, headline: data.hero_title ?? current.headline, description: data.hero_description ?? current.description, storyHeadline: data.story_headline ?? current.storyHeadline, storyDescription: data.story_description ?? current.storyDescription, contact_phone: data.contact_phone ?? current.contact_phone, whatsapp_phone: data.whatsapp_phone ?? current.whatsapp_phone, instagram_url: data.instagram_url ?? current.instagram_url, bank_account_info: data.bank_account_info ?? current.bank_account_info })); }).catch(() => undefined);
-    apiFetch<ApiProduct[]>("/api/products").then((rows) => { if (!rows.length) return; apiFetch<{ id: string; name: string }[]>("/api/categories").then((cats) => { const map = new Map(cats.map((c) => [c.id, c.name])); setCatalog(rows.map((p, index) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Productos", tone: (["warm", "light", "deep", "classic"] as const)[index % 4], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, images: p.images ?? [], image_url: p.image_url, allergens: p.allergens ?? [] }))); }); }).catch(() => undefined);
-  }, []);
-  const [cart, setCart] = useState<Cart>({});
   const [drawer, setDrawer] = useState(false);
   const [search, setSearch] = useState("");
-  const [menu, setMenu] = useState(false);
-  useEffect(() => { const saved = localStorage.getItem("store-cart"); const timer = window.setTimeout(() => { if (saved) setCart(JSON.parse(saved)); }, 0); return () => window.clearTimeout(timer); }, []);
-  useEffect(() => localStorage.setItem("store-cart", JSON.stringify(cart)), [cart]);
-  const count = Object.values(cart).reduce((a, b) => a + b, 0);
-  const total = catalog.reduce((sum, product) => sum + product.price * (cart[product.id] ?? 0), 0);
+  const { cart, add, change, count } = useCart();
+
+  useEffect(() => {
+    apiFetch<ApiSettings>("/api/settings")
+      .then((data) => setConfig((current) => mergeSettings(current, data)))
+      .catch(() => undefined);
+  }, []);
+
+  // Los productos demo solo son el punto de partida: si la API responde, manda la API.
+  const applyCatalog = useCallback((items: Product[]) => {
+    if (items.length) setCatalog(items);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchCatalog()
+      .then((items) => { if (active) applyCatalog(items); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [applyCatalog]);
+
   const visible = catalog.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.category.toLowerCase().includes(search.toLowerCase()));
-  const add = (id: string) => { setCart((c) => ({ ...c, [id]: (c[id] ?? 0) + 1 })); setDrawer(true); };
-  const change = (id: string, delta: number) => setCart((c) => { const next = Math.max(0, (c[id] ?? 0) + delta); const copy = { ...c }; if (!next) delete copy[id]; else copy[id] = next; return copy; });
+  const addToCart = (id: string) => { add(id); setDrawer(true); };
 
   return <main className="min-h-screen overflow-hidden">
-    <div className="bg-[#243128] px-4 py-2 text-center text-[11px] tracking-[.16em] text-[#f7f4ec] uppercase">{config.announcement} · Plantilla demo</div>
-    <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6 md:px-10">
-      <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="Abrir menú"><Menu size={22}/></button>
-      <nav className={`${menu ? "flex" : "hidden"} absolute top-28 left-5 right-5 z-20 flex-col gap-4 rounded-2xl bg-white p-6 shadow-lg md:static md:flex md:flex-row md:bg-transparent md:p-0 md:shadow-none`}><a href="#coleccion">Productos</a><a href="#beneficios">Beneficios</a><a href="#historia">Nosotros</a></nav>
-      <a href="#inicio" className="display text-3xl tracking-tight md:absolute md:left-1/2 md:-translate-x-1/2">{config.name}</a>
-      <div className="flex items-center gap-4"><button onClick={() => document.getElementById("buscador")?.focus()} aria-label="Buscar"><Search size={20}/></button><Link href={accountHref} aria-label={accountLabel} title={accountLabel}><UserRound size={20}/></Link><button className="relative" onClick={() => setDrawer(true)} aria-label="Carrito"><ShoppingBag size={21}/>{count > 0 && <span className="absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full bg-[#d88480] text-[10px] text-white">{count}</span>}</button></div>
-    </header>
-    <section id="inicio" className="mx-auto grid max-w-7xl grid-cols-1 px-5 pb-16 md:grid-cols-[1.05fr_.95fr] md:px-10"><div className="flex min-h-[430px] flex-col justify-center py-14 md:py-20"><p className="mb-5 text-xs tracking-[.2em] text-[#56745c] uppercase">{config.eyebrow}</p><h1 className="display max-w-xl text-5xl leading-[.96] md:text-7xl">{config.headline}</h1><p className="mt-7 max-w-md leading-7 text-[#526058]">{config.description}</p><a href="#coleccion" className="mt-9 inline-flex w-fit items-center gap-3 border-b border-[#243128] pb-2 text-sm font-medium">Ver productos <ArrowRight size={16}/></a></div><div className="hero-visual relative min-h-[410px] overflow-hidden rounded-t-full md:rounded-none"><div className="absolute bottom-7 left-7 bg-white/90 px-5 py-4 text-sm backdrop-blur"><span className="block text-xs tracking-wider text-[#56745c] uppercase">Destacado</span><span className="display text-xl">{config.featuredCollection}</span></div></div></section>
-    <section id="coleccion" className="bg-[#edf0e8] px-5 py-20 md:px-10"><div className="mx-auto max-w-7xl"><div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs tracking-[.18em] text-[#56745c] uppercase">Catálogo</p><h2 className="display mt-2 text-4xl md:text-5xl">Explora lo que tenemos para ti</h2></div><label className="flex items-center gap-2 border-b border-[#a7b2a3] pb-2 text-sm"><Search size={16}/><input id="buscador" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar productos" className="w-44 bg-transparent outline-none placeholder:text-[#748077]"/></label></div><div className="mb-8 flex flex-wrap gap-2">{["Todos", ...Array.from(new Set(catalog.map((product) => product.category)))].map((category) => <button key={category} onClick={() => setSearch(category === "Todos" ? "" : category)} className="rounded-full border border-[#a7b2a3] px-4 py-2 text-sm transition hover:border-[#243128] hover:bg-[#243128] hover:text-white">{category}</button>)}</div><div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">{visible.map((product) => { const stock = stockLabel(product); const photo = product.images?.[0] ?? product.image_url; return <article key={product.id} className="group"><Link href={`/producto/${product.slug}`} className="relative block"><div data-tone={product.tone} className="product-visual relative aspect-[.83] overflow-hidden">{photo ? <img src={photo} alt={product.name} className="absolute inset-0 h-full w-full object-cover"/> : null}<span className={`absolute left-3 top-3 px-2 py-1 text-[10px] tracking-wider uppercase ${stock.className}`}>{stock.label}</span>{product.badge && <span className="absolute left-3 bottom-3 bg-[#faf7f0] px-2 py-1 text-[10px] tracking-wider uppercase">{product.badge}</span>}<button onClick={(e) => { e.preventDefault(); add(product.id); }} disabled={!stock.available} className="absolute right-3 bottom-3 grid h-10 w-10 place-items-center rounded-full bg-white opacity-100 transition disabled:cursor-not-allowed disabled:opacity-40 md:translate-y-2 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100" aria-label={`Agregar ${product.name}`}><Plus size={18}/></button></div></Link><div className="flex justify-between gap-3 pt-4"><div><p className="text-xs tracking-wider text-[#56745c] uppercase">{product.category}</p><h3 className="display mt-1 text-xl">{product.name}</h3><p className="mt-1 text-sm text-[#647167]">{product.description}</p></div><span className="whitespace-nowrap text-sm">{formatPrice(product.price)}</span></div></article>; })}</div>{visible.length === 0 && <p className="py-12 text-center text-[#647167]">No encontramos productos con esa búsqueda.</p>}</div></section>
-    <section id="beneficios" className="mx-auto grid max-w-7xl gap-8 px-5 py-20 md:grid-cols-3 md:px-10">{[["Compra con confianza", "Destaca tus garantías, materiales, soporte o cualquier beneficio importante."], ["Una experiencia simple", "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra."], ["Tu negocio, tu estilo", "Cambia textos, precios, fotos y colecciones desde el CMS incluido."]].map(([title, text]) => <div key={title}><Package className="mb-5 text-[#56745c]"/><h3 className="display text-2xl">{title}</h3><p className="mt-3 leading-7 text-[#647167]">{text}</p></div>)}</section>
+    <StoreHeader config={config} cartCount={count} onSearch={() => document.getElementById("buscador")?.focus()} onCartOpen={() => setDrawer(true)}/>
+    <section id="inicio" className="mx-auto grid max-w-7xl grid-cols-1 px-5 pb-16 md:grid-cols-[1.05fr_.95fr] md:px-10"><div className="flex min-h-[430px] flex-col justify-center py-14 md:py-20"><p className="mb-5 text-xs tracking-[.2em] text-[#56745c] uppercase">{config.eyebrow}</p><h1 className="display max-w-xl text-5xl leading-[.96] md:text-7xl">{config.headline}</h1><p className="mt-7 max-w-md leading-7 text-[#526058]">{config.description}</p><Link href="/#coleccion" className="mt-9 inline-flex w-fit items-center gap-3 border-b border-[#243128] pb-2 text-sm font-medium">Ver productos <ArrowRight size={16}/></Link></div><div className="hero-visual relative min-h-[410px] overflow-hidden rounded-t-full md:rounded-none"><div className="absolute bottom-7 left-7 bg-white/90 px-5 py-4 text-sm backdrop-blur"><span className="block text-xs tracking-wider text-[#56745c] uppercase">Destacado</span><span className="display text-xl">{config.featuredCollection}</span></div></div></section>
+    <section id="coleccion" className="bg-[#edf0e8] px-5 py-20 md:px-10"><div className="mx-auto max-w-7xl"><div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs tracking-[.18em] text-[#56745c] uppercase">Catálogo</p><h2 className="display mt-2 text-4xl md:text-5xl">Explora lo que tenemos para ti</h2></div><label className="flex items-center gap-2 border-b border-[#a7b2a3] pb-2 text-sm"><Search size={16}/><input id="buscador" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar productos" className="w-44 bg-transparent outline-none placeholder:text-[#748077]"/></label></div><div className="mb-8 flex flex-wrap gap-2">{["Todos", ...Array.from(new Set(catalog.map((product) => product.category)))].map((category) => <button key={category} onClick={() => setSearch(category === "Todos" ? "" : category)} className="rounded-full border border-[#a7b2a3] px-4 py-2 text-sm transition hover:border-[#243128] hover:bg-[#243128] hover:text-white">{category}</button>)}</div><div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">{visible.map((product) => { const stock = stockLabel(product); const photo = product.images?.[0] ?? product.image_url; return <article key={product.id} className="group"><Link href={`/producto/${product.slug}`} className="relative block"><div data-tone={product.tone} className="product-visual relative aspect-[.83] overflow-hidden">{photo ? <img src={photo} alt={product.name} className="absolute inset-0 h-full w-full object-cover"/> : null}<span className={`absolute left-3 top-3 px-2 py-1 text-[10px] tracking-wider uppercase ${stock.className}`}>{stock.label}</span>{product.badge && <span className="absolute left-3 bottom-3 bg-[#faf7f0] px-2 py-1 text-[10px] tracking-wider uppercase">{product.badge}</span>}<button onClick={(e) => { e.preventDefault(); addToCart(product.id); }} disabled={!stock.available} className="absolute right-3 bottom-3 grid h-10 w-10 place-items-center rounded-full bg-white opacity-100 transition disabled:cursor-not-allowed disabled:opacity-40 md:translate-y-2 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100" aria-label={`Agregar ${product.name}`}><Plus size={18}/></button></div></Link><div className="flex justify-between gap-3 pt-4"><div><p className="text-xs tracking-wider text-[#56745c] uppercase">{product.category}</p><h3 className="display mt-1 text-xl">{product.name}</h3><p className="mt-1 text-sm text-[#647167]">{product.description}</p></div><span className="whitespace-nowrap text-sm">{formatPrice(product.price)}</span></div></article>; })}</div>{visible.length === 0 && <p className="py-12 text-center text-[#647167]">No encontramos productos con esa búsqueda.</p>}</div></section>
+    <section id="beneficios" className="mx-auto grid max-w-7xl gap-8 px-5 py-20 md:grid-cols-3 md:px-10">{[[ "Compra con confianza", "Destaca tus garantías, materiales, soporte o cualquier beneficio importante."], ["Una experiencia simple", "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra."], ["Tu negocio, tu estilo", "Cambia textos, precios, fotos y colecciones desde el CMS incluido."]].map(([title, text]) => <div key={title}><Package className="mb-5 text-[#56745c]"/><h3 className="display text-2xl">{title}</h3><p className="mt-3 leading-7 text-[#647167]">{text}</p></div>)}</section>
     <section id="historia" className="bg-[#d9cbb7] px-5 py-20 md:px-10"><div className="mx-auto max-w-3xl text-center"><p className="text-xs tracking-[.18em] uppercase">{config.storyEyebrow}</p><h2 className="display mt-4 text-4xl md:text-5xl">{config.storyHeadline}</h2><p className="mx-auto mt-6 max-w-xl leading-7">{config.storyDescription}</p></div></section>
-    <footer className="bg-[#243128] px-5 py-12 text-[#f8f5ee] md:px-10"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row"><div><p className="display text-3xl">{config.name}</p><p className="mt-3 text-sm text-[#c8d1c4]">Una base para crear marcas con vida.</p></div><div className="flex gap-6 text-sm">{config.instagram_url && <a href={config.instagram_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-white"><AtSign size={15}/>Instagram</a>}<Link href={accountHref}>{role === "admin" ? "Panel admin" : signedIn ? "Mi cuenta" : "Cuenta"}</Link></div></div></footer>
-    {config.whatsapp_phone && <a href={`https://wa.me/${config.whatsapp_phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" aria-label="Dudas por WhatsApp" className="fixed right-5 bottom-5 z-30 inline-flex items-center gap-2 rounded-full bg-[#25d366] px-4 py-3 text-sm font-medium text-white shadow-lg"><MessageCircle size={18}/>WhatsApp</a>}
-    <AnimatePresence>{drawer && <><motion.button aria-label="Cerrar carrito" onClick={() => setDrawer(false)} className="fixed inset-0 z-30 bg-[#243128]/25" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} /><motion.aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-[#faf7f0] p-6 shadow-2xl" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", stiffness: 330, damping: 32 }}><div className="flex items-center justify-between"><h2 className="display text-3xl">Tu carrito</h2><button onClick={() => setDrawer(false)} aria-label="Cerrar"><X/></button></div><div className="mt-8 flex-1 space-y-5 overflow-auto">{Object.entries(cart).length === 0 ? <p className="text-[#647167]">Aún no agregas productos a tu carrito.</p> : catalog.filter(p => cart[p.id]).map(p => <div key={p.id} className="flex gap-4 border-b border-[#d9d6cd] pb-5"><div data-tone={p.tone} className="product-visual h-20 w-16 shrink-0"/><div className="flex-1"><div className="flex justify-between"><p className="display text-lg">{p.name}</p><span>{formatPrice(p.price * cart[p.id])}</span></div><div className="mt-3 flex items-center gap-3"><button onClick={() => change(p.id, -1)}><Minus size={15}/></button><span className="text-sm">{cart[p.id]}</span><button onClick={() => change(p.id, 1)}><Plus size={15}/></button></div></div></div>)}</div>{count > 0 && <div className="border-t border-[#243128] pt-5"><div className="mb-4 flex justify-between"><span>Total</span><span className="display text-xl">{formatPrice(total)}</span></div><Link href="/checkout" className="block w-full bg-[#243128] py-4 text-center text-sm text-white">Continuar al checkout</Link><p className="mt-3 text-center text-xs text-[#647167]">Elige día, horario, zona de entrega y forma de pago.</p></div>}</motion.aside></>}</AnimatePresence>
+    <StoreFooter config={config}/>
+    <WhatsAppButton phone={config.whatsapp_phone}/>
+    <CartDrawer open={drawer} onClose={() => setDrawer(false)} cart={cart} products={catalog} onChange={change}/>
   </main>;
 }

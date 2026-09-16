@@ -47,6 +47,45 @@ export const products: Product[] = [
   },
 ];
 
+/** Producto tal como lo devuelve la API (`/api/products`). */
+export type ApiProduct = {
+  id: string;
+  slug: string;
+  name: string;
+  price: number;
+  description: string | null;
+  status: ProductStatus;
+  inventory: number;
+  allow_backorder: boolean;
+  images: string[];
+  image_url: string | null;
+  ingredients?: string | null;
+  allergens: string[];
+  category_id: string | null;
+};
+
+export const productTones = ["warm", "light", "deep", "classic"] as const;
+
+/** Normaliza un producto de la API al modelo que usan las pantallas. */
+export function mapApiProduct(row: ApiProduct, index: number, categories: Map<string, string> = new Map()): Product {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    price: row.price,
+    category: categories.get(row.category_id ?? "") ?? "Productos",
+    tone: productTones[index % productTones.length],
+    description: row.description ?? "",
+    images: row.images ?? [],
+    image_url: row.image_url,
+    ingredients: row.ingredients ?? undefined,
+    allergens: row.allergens ?? [],
+    status: row.status,
+    inventory: row.inventory,
+    allow_backorder: row.allow_backorder ?? false,
+  };
+}
+
 export const formatPrice = (price: number) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(price);
 
 export function stockLabel(product: Pick<Product, "inventory" | "status" | "allow_backorder">): { label: string; className: string; available: boolean } {
