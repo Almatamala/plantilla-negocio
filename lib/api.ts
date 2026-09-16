@@ -5,50 +5,57 @@
  * JWT de sesión (Authorization: Bearer) de la sesión iniciada; como respaldo,
  * la clave `API_ADMIN_TOKEN` en localStorage (X-Admin-Token) para acceso directo.
  */
+import { getSession, resetSession } from "@/lib/session-client";
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ADMIN_TOKEN_KEY = "bosque-admin-token";
 
-let sessionTokenCache = "";
-
 /**
- * Devuelve el JWT de sesión (si hay login con Google) leyéndolo desde la cookie
- * httpOnly a través del route handler /api/auth/me. Solo corre en el navegador.
+ * Devuelve el JWT de sesión leyéndolo desde la cookie httpOnly a través del route handler
+ * /api/auth/me. La respuesta es compartida por todos los componentes (ver `lib/session-client.ts`),
+ * así que esta llamada no genera peticiones repetidas. Solo corre en el navegador.
  */
-export async function getSessionToken(): Promise<string> {
+async function getSessionToken(): Promise<string> {
   if (typeof window === "undefined") return "";
-  if (sessionTokenCache) return sessionTokenCache;
-  try {
-    const res = await fetch("/api/auth/me", { cache: "no-store" });
-    const data = await res.json();
-    if (data?.token) sessionTokenCache = data.token;
-    return data?.token ?? "";
-  } catch {
-    return "";
-  }
+  const session = await getSession();
+  return session.token;
 }
 
-export function clearSessionTokenCache() {
-  sessionTokenCache = "";
-}
-
-export function getAdminToken(): string {
+function getAdminToken(): string {
   if (typeof localStorage === "undefined") return "";
   return localStorage.getItem(ADMIN_TOKEN_KEY) ?? "";
 }
 
-export function clearAdminToken() {
+function clearAdminToken() {
+  if (typeof localStorage === "undefined") return;
   localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+/**
+ * Cabeceras para todo lo que la API protege con `require_admin`: el JWT de la sesión (`Bearer`) y, solo
+ * como respaldo para acceso directo a la API, la clave legacy `X-Admin-Token`.
+ *
+ * **Toda** petición administrativa debe pasar por acá: la subida de imágenes mandaba únicamente la
+ * clave legacy, así que con el login por sesión (D13) respondía 401 y no se podían subir fotos desde
+ * el panel (PLAN §0.9, A19).
+ */
+async function adminHeaders(): Promise<Record<string, string>> {
+  const sessionToken = await getSessionToken();
+  if (sessionToken) return { Authorization: `Bearer ${sessionToken}` };
+  const token = getAdminToken();
+  return token ? { "X-Admin-Token": token } : {};
 }
 
 /** Cierra la sesión: borra la cookie httpOnly y limpia las cachés del cliente. */
 export async function endSession() {
   await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-  clearSessionTokenCache();
+  resetSession();
   clearAdminToken();
 }
 
-export function absoluteUrl(path: string): string {
+/** Convierte una ruta relativa de la API (p. ej. `/uploads/foto.jpg`) en URL absoluta. */
+function absoluteUrl(path: string): string {
   if (!path) return path;
   if (/^https?:\/\//.test(path)) return path;
   return `${API_URL}${path}`;
@@ -65,15 +72,7 @@ async function errorDetail(response: Response): Promise<string> {
 
 export async function apiFetch<T>(path: string, options: { method?: string; body?: unknown; admin?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (options.admin) {
-    const sessionToken = await getSessionToken();
-    if (sessionToken) {
-      headers["Authorization"] = `Bearer ${sessionToken}`;
-    } else {
-      const token = getAdminToken();
-      if (token) headers["X-Admin-Token"] = token;
-    }
-  }
+  if (options.admin) Object.assign(headers, await adminHeaders());
   const res = await fetch(`${API_URL}${path}`, {
     method: options.method ?? "GET",
     headers,
@@ -85,10 +84,9 @@ export async function apiFetch<T>(path: string, options: { method?: string; body
 }
 
 export async function uploadImage(file: File): Promise<string> {
-  const token = getAdminToken();
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_URL}/api/upload`, { method: "POST", headers: token ? { "X-Admin-Token": token } : {}, body: form });
+  const res = await fetch(`${API_URL}/api/upload`, { method: "POST", headers: await adminHeaders(), body: form });
   if (!res.ok) throw new Error(await errorDetail(res));
   const data = (await res.json()) as { url: string };
   return absoluteUrl(data.url);

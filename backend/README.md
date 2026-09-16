@@ -109,8 +109,8 @@ uvicorn app.main:app --reload
 pytest
 ```
 
-Las pruebas usan SQLite en memoria y cubren: token administrativo (clave y JWT), catálogo con
-variantes, CRUD de categorías, reglas de entrada, cálculo de órdenes, **decremento de stock con
+Las pruebas usan SQLite en memoria y cubren: token administrativo (clave y JWT), catálogo,
+CRUD de categorías, reglas de entrada, cálculo de órdenes, **decremento de stock con
 auto-desactivación**, bajo pedido, agenda por punto (**franjas con días de la semana**: la API rechaza
 franjas deshabilitadas, de otro punto o de un día que no corresponde), **puntos de retiro con ubicación**
 (el tipo `domicilio` se rechaza), **cierres semanales** con domingo por defecto, moderación de reviews y

@@ -57,25 +57,10 @@ class Product(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     inventory: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     allow_backorder: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    seo_title: Mapped[Optional[str]] = mapped_column(String(160))
-    seo_description: Mapped[Optional[str]] = mapped_column(String(320))
-    sku: Mapped[Optional[str]] = mapped_column(String(80), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     category: Mapped[Optional[Category]] = relationship(back_populates="products")
-    variants: Mapped[list["ProductVariant"]] = relationship(back_populates="product", cascade="all, delete-orphan")
     reviews: Mapped[list["Review"]] = relationship(back_populates="product", cascade="all, delete-orphan")
-
-
-class ProductVariant(Base):
-    __tablename__ = "product_variants"
-    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    price: Mapped[Optional[int]] = mapped_column(Integer)
-    inventory: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    sku: Mapped[Optional[str]] = mapped_column(String(80), unique=True)
-    product: Mapped[Product] = relationship(back_populates="variants")
 
 
 class TimeSlot(Base):
@@ -177,22 +162,10 @@ class OrderItem(Base):
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
     product_id: Mapped[Optional[str]] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
-    variant_id: Mapped[Optional[str]] = mapped_column(ForeignKey("product_variants.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     order: Mapped[Order] = relationship(back_populates="items")
-
-
-class Page(Base):
-    __tablename__ = "pages"
-    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
-    slug: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
-    title: Mapped[str] = mapped_column(String(180), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    seo_title: Mapped[Optional[str]] = mapped_column(String(160))
-    seo_description: Mapped[Optional[str]] = mapped_column(String(320))
-    published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class StoreSettings(Base):

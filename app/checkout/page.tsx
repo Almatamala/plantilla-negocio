@@ -4,40 +4,22 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Banknote, Clock, CreditCard, MapPin, Store } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
+import { loadCached } from "@/lib/offline-cache";
 import { formatPrice, mapApiProduct, products as demoProducts, type ApiProduct, type Product } from "@/lib/products";
-import { mergeSettings, storeConfig, type ApiSettings, type StoreConfig } from "@/lib/store-config";
+import { useStoreSettings } from "@/lib/use-store-settings";
 import { CheckoutFooter, CheckoutHeader } from "@/components/checkout-shell";
-import { formatSlot, weekdayFromIso } from "@/lib/schedule";
+import { WEEKDAY_LONG, formatSlot, weekdayFromIso } from "@/lib/schedule";
+import { zoneTypeOf, type Slot, type Zone, type ZoneType } from "@/lib/agenda";
+import { MONTHS_SHORT } from "@/lib/months";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
-type Slot = { id: string; zone_id: string; label: string; start_time: string; end_time: string; weekdays: number[] };
-/** Punto donde el cliente retira: retiro presencial o punto de encuentro (D16). */
-type Zone = { id: string; name: string; type: "retiro" | "encuentro"; location: string | null; schedule: string | null };
 type PaymentMethod = "transferencia" | "webpay";
 type PlacedOrder = { id: string; total: number; items: { name: string; quantity: number; price: number }[]; place: string; zone: string; date: string; slot: string; payment: string };
 
-const WEEKDAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
-const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-const DEMO_SLOTS: Slot[] = [
-  { id: "demo-1", zone_id: "demo-sj", label: "Mañana", start_time: "10:00", end_time: "13:00", weekdays: [1, 2, 3, 4, 5, 6] },
-  { id: "demo-2", zone_id: "demo-sj", label: "Tarde", start_time: "16:00", end_time: "19:00", weekdays: [1, 2, 3, 4, 5, 6] },
-  { id: "demo-3", zone_id: "demo-tl", label: "Encuentro sábado", start_time: "11:00", end_time: "13:00", weekdays: [6] },
-  { id: "demo-4", zone_id: "demo-en", label: "Encuentro de tarde", start_time: "18:00", end_time: "19:30", weekdays: [3, 5] },
-];
-const DEMO_ZONES: Zone[] = [
-  { id: "demo-sj", name: "Retiro presencial · San Javier", type: "retiro", location: "San Javier centro (dirección por confirmar)", schedule: "Lunes a sábado, 10:00–19:00" },
-  { id: "demo-tl", name: "Punto de encuentro · Talca", type: "encuentro", location: "Talca centro (punto por confirmar)", schedule: "Sábados, 11:00–13:00" },
-  { id: "demo-en", name: "Punto de encuentro · San Javier", type: "encuentro", location: "San Javier centro (punto por confirmar)", schedule: "Miércoles y viernes, 18:00–19:30" },
-];
-
-/** Días de un horario; si viniera sin días (dato antiguo) se interpreta como «cualquier día». */
-function slotDays(slot: Slot): number[] {
-  return slot.weekdays.length > 0 ? slot.weekdays : [0, 1, 2, 3, 4, 5, 6];
-}
-
 /** Tipo de retiro tal como se muestra al cliente y se guarda en la orden. */
-const FULFILLMENT_LABEL: Record<Zone["type"], string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
+const FULFILLMENT_LABEL: Record<ZoneType, string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
 /** El cliente puede agendar hasta dos semanas de anticipación (D16). */
 const SCHEDULE_WINDOW_DAYS = 14;
 
@@ -57,40 +39,68 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export default function CheckoutPage() {
   const { cart, clear: clearCart } = useCart();
   const [catalog, setCatalog] = useState<Product[]>(demoProducts);
-  const [config, setConfig] = useState<StoreConfig>(storeConfig);
-  const [slots, setSlots] = useState<Slot[]>(DEMO_SLOTS);
+  const config = useStoreSettings();
+  /** Puntos y franjas reales de la API. Si no responden, el checkout avisa en vez de inventarlos. */
+  const [slots, setSlots] = useState<Slot[]>([]);
   const [closedDays, setClosedDays] = useState<string[]>([]);
   /** Días de la semana cerrados todas las semanas (0 domingo … 6 sábado); el domingo es el default. */
   const [closedWeekdays, setClosedWeekdays] = useState<number[]>([0]);
-  const [zones, setZones] = useState<Zone[]>(DEMO_ZONES);
-  const [bankInfo, setBankInfo] = useState("");
+  const [zones, setZones] = useState<Zone[]>([]);
   const [zoneId, setZoneId] = useState("");
   const [date, setDate] = useState("");
   const [slotId, setSlotId] = useState("");
   const [payment, setPayment] = useState<PaymentMethod>("transferencia");
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "" });
-  const [user, setUser] = useState<{ name?: string | null; email?: string | null; phone?: string | null } | null>(null);
+  const session = useSession();
+  const user = session.user;
   const [message, setMessage] = useState("");
   const [placedOrder, setPlacedOrder] = useState<PlacedOrder | null>(null);
+  /** La API no respondió en alguna lectura clave (catálogo o agenda): no se puede pedir. */
+  const [catalogOk, setCatalogOk] = useState(true);
+  const [scheduleOk, setScheduleOk] = useState(true);
   /** Alto real disponible para la columna de resumen (lo mide `useEffect` más abajo). */
   const [summaryMaxHeight, setSummaryMaxHeight] = useState<number | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
+  // Acá la última versión conocida sólo cubre el **catálogo** (para que el carrito no muestre precios
+  // falsos) y los **ajustes** (nombre de la tienda y datos de transferencia, vía `useStoreSettings`).
+  // Puntos de retiro, franjas y cierres **no** se respaldan: con la API caída no se puede registrar el
+  // pedido igual, así que es más honesto avisar que ofrecer horarios que quizá ya no existen
+  // (PLAN §0.9, D20).
   useEffect(() => {
-    apiFetch<ApiProduct[]>("/api/products").then((rows) => { if (rows.length) setCatalog(rows.map((row, index) => mapApiProduct(row, index))); }).catch(() => undefined);
-    apiFetch<Slot[]>("/api/time-slots").then((rows) => { if (rows.length) setSlots(rows.map((slot) => ({ ...slot, weekdays: Array.isArray(slot.weekdays) ? slot.weekdays : [] }))); }).catch(() => undefined);
-    apiFetch<{ date: string }[]>("/api/closed-days").then((rows) => setClosedDays(rows.map((d) => d.date))).catch(() => undefined);
+    void loadCached("catalog", () => apiFetch<ApiProduct[]>("/api/products").then((rows) => rows.map((row, index) => mapApiProduct(row, index))))
+      .then(({ value, fromCache }) => {
+        setCatalogOk(!fromCache);
+        if (value?.length) setCatalog(value);
+      });
+    apiFetch<Slot[]>("/api/time-slots").then((rows) => {
+      if (!rows.length) return;
+      setSlots(rows.map((slot) => ({ ...slot, weekdays: Array.isArray(slot.weekdays) ? slot.weekdays : [] })));
+    }).catch(() => setScheduleOk(false));
+    apiFetch<{ date: string }[]>("/api/closed-days")
+      .then((rows) => setClosedDays(rows.map((d) => d.date)))
+      .catch(() => setScheduleOk(false));
     // `type` se normaliza porque los puntos creados antes de D16 podían traer otros valores.
-    apiFetch<Zone[]>("/api/shipping-zones").then((rows) => { if (rows.length) setZones(rows.map((zone) => ({ ...zone, type: zone.type === "encuentro" ? "encuentro" : "retiro" }))); }).catch(() => undefined);
-    apiFetch<{ weekday: number }[]>("/api/closed-weekdays").then((rows) => setClosedWeekdays(rows.map((row) => row.weekday))).catch(() => undefined);
-    apiFetch<ApiSettings>("/api/settings").then((data) => { setConfig((current) => mergeSettings(current, data)); if (data.bank_account_info) setBankInfo(data.bank_account_info); }).catch(() => undefined);
-    fetch("/api/auth/me").then((r) => r.json()).then((data) => {
-      if (data?.user) {
-        setUser(data.user);
-        setCustomer((c) => ({ ...c, name: c.name || data.user.name || "", email: c.email || data.user.email || "", phone: c.phone || data.user.phone || "" }));
-      }
-    }).catch(() => undefined);
+    apiFetch<Zone[]>("/api/shipping-zones").then((rows) => {
+      if (!rows.length) return;
+      setZones(rows.map((zone) => ({ ...zone, type: zoneTypeOf(zone.type) })));
+    }).catch(() => setScheduleOk(false));
+    apiFetch<{ weekday: number }[]>("/api/closed-weekdays")
+      .then((rows) => setClosedWeekdays(rows.map((row) => row.weekday)))
+      .catch(() => setScheduleOk(false));
   }, []);
+
+  /** Sin catálogo o sin agenda no hay forma de agendar ni de registrar el pedido. */
+  const unavailable = !catalogOk || !scheduleOk;
+  const whatsappDigits = (config.whatsapp_phone ?? "").replace(/\D/g, "");
+
+  // Si hay sesión, el contacto se completa con sus datos. Se deriva en el render (no en un efecto)
+  // para no pisar lo que el cliente ya haya escrito; el flujo de invitado sigue igual.
+  const contact = {
+    name: customer.name || user?.name || "",
+    phone: customer.phone || user?.phone || "",
+    email: customer.email || user?.email || "",
+  };
 
   const lines = useMemo(() => Object.entries(cart).flatMap(([id, qty]) => { const p = catalog.find((c) => c.id === id); return p ? [{ product: p, qty }] : []; }), [cart, catalog]);
   const total = lines.reduce((sum, { product, qty }) => sum + product.price * qty, 0);
@@ -99,15 +109,16 @@ export default function CheckoutPage() {
   /** Franjas del punto elegido (D18): cada una declara los días de la semana en que atiende. */
   const zoneSlots = useMemo(() => slots.filter((slot) => slot.zone_id === selectedZone?.id), [slots, selectedZone?.id]);
   /** Franjas que aplican al día elegido; el cliente solo puede elegir entre ellas. */
-  const daySlots = useMemo(() => (date ? zoneSlots.filter((slot) => slotDays(slot).includes(weekdayFromIso(date))) : []), [date, zoneSlots]);
+  const daySlots = useMemo(() => (date ? zoneSlots.filter((slot) => slot.weekdays.includes(weekdayFromIso(date))) : []), [date, zoneSlots]);
   const selectedSlot = daySlots.find((slot) => slot.id === slotId) ?? null;
   // Un día se puede agendar si el punto atiende ese día de la semana y no está cerrado.
-  const days = useMemo(() => Array.from({ length: SCHEDULE_WINDOW_DAYS }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; const weekday = d.getDay(); const closed = closedWeekdays.includes(weekday) || closedDays.includes(iso); const attends = zoneSlots.some((slot) => slotDays(slot).includes(weekday)); return { iso, day: d.getDate(), month: MONTHS[d.getMonth()], weekday: WEEKDAYS[weekday], closed, available: Boolean(selectedZone) && !closed && attends }; }), [closedDays, closedWeekdays, zoneSlots, selectedZone]);
+  const days = useMemo(() => Array.from({ length: SCHEDULE_WINDOW_DAYS }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; const weekday = d.getDay(); const closed = closedWeekdays.includes(weekday) || closedDays.includes(iso); const attends = zoneSlots.some((slot) => slot.weekdays.includes(weekday)); return { iso, day: d.getDate(), month: MONTHS_SHORT[d.getMonth()], weekday: WEEKDAY_LONG[weekday].toLowerCase(), closed, available: Boolean(selectedZone) && !closed && attends }; }), [closedDays, closedWeekdays, zoneSlots, selectedZone]);
 
   async function confirm() {
     setMessage("");
+    if (unavailable) { setMessage("No podemos conectar con la tienda. Vuelve a intentarlo en unos minutos."); return; }
     if (!selectedZone || !date || !selectedSlot) { setMessage("Elige punto de retiro, día y horario."); return; }
-    if (!customer.name || !customer.phone) { setMessage("Completa tu nombre y teléfono."); return; }
+    if (!contact.name || !contact.phone) { setMessage("Completa tu nombre y teléfono."); return; }
     const zone = selectedZone;
     const slot = selectedSlot;
     const items = lines.map(({ product, qty }) => ({ product_id: product.id, name: product.name, unit_price: product.price, quantity: qty }));
@@ -115,7 +126,7 @@ export default function CheckoutPage() {
       const order = await apiFetch<{ id: string }>("/api/orders", {
         method: "POST",
         body: {
-          customer_name: customer.name, customer_phone: customer.phone, customer_email: customer.email || null,
+          customer_name: contact.name, customer_phone: contact.phone, customer_email: contact.email || null,
           payment_method: payment === "transferencia" ? "Transferencia" : "Webpay",
           scheduled_date: date, time_slot_id: slotId, fulfillment: zone.type, shipping_zone_id: zone.id,
           location: zone.location || zone.name,
@@ -134,7 +145,7 @@ export default function CheckoutPage() {
       });
       clearCart();
       if (process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL) {
-        fetch(process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, customer: customer.name, total, date, slot: `${slot.start_time}–${slot.end_time}`, zone: zone.name, payment }) }).catch(() => undefined);
+        fetch(process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, customer: contact.name, total, date, slot: `${slot.start_time}–${slot.end_time}`, zone: zone.name, payment }) }).catch(() => undefined);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo registrar el pedido. Intenta nuevamente.");
@@ -224,7 +235,7 @@ export default function CheckoutPage() {
         <div className="flex justify-between gap-3"><span className="text-[#647167]">Agenda</span><span className="text-right">{date ? `${date}${selectedSlot ? ` · ${selectedSlot.start_time}–${selectedSlot.end_time}` : ""}` : "Por elegir"}</span></div>
         <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
       </div>
-      <button onClick={confirm} disabled={lines.length === 0} className="mt-4 w-full shrink-0 rounded-full bg-[#243128] py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40">Confirmar pedido</button>
+      <button onClick={confirm} disabled={lines.length === 0 || unavailable} className="mt-4 w-full shrink-0 rounded-full bg-[#243128] py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40">{unavailable ? "Sin conexión con la tienda" : "Confirmar pedido"}</button>
       {message && <p className="mt-3 shrink-0 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{message}</p>}
       <p className="mt-2 shrink-0 text-xs leading-5 text-[#748077]">Al confirmar reservamos tu pedido. {config.name} te confirmará el pago por WhatsApp.</p>
     </>
@@ -241,6 +252,18 @@ export default function CheckoutPage() {
           <h1 className="display text-2xl md:text-3xl">Agenda tu pedido</h1>
           <p className="text-sm text-[#526058]">Elige dónde retiras tu pedido y el día y horario en que lo necesitas.</p>
         </div>
+
+        {/* Sin API no hay disponibilidad real ni forma de registrar el pedido: se dice de frente en
+            lugar de mostrar puntos y horarios que podrían no existir (PLAN §0.9, D20). */}
+        {unavailable && (
+          <div className="mt-4 rounded-xl border border-[#e8c9c1] bg-[#fdf3f1] p-4 text-sm text-[#8a4a44]">
+            <p className="font-medium">No podemos conectar con la tienda en este momento.</p>
+            <p className="mt-1 leading-6">
+              No es posible registrar pedidos ahora mismo. Vuelve a intentarlo en unos minutos
+              {whatsappDigits ? <> o escríbenos por <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noreferrer" className="underline underline-offset-4">WhatsApp</a> y lo coordinamos a mano</> : null}.
+            </p>
+          </div>
+        )}
 
         {/* En móvil el resumen va plegado arriba, como en la referencia. */}
         <details className="mt-6 border-y border-[#e2e5df] py-4 lg:hidden">
@@ -259,24 +282,28 @@ export default function CheckoutPage() {
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <Field label="Correo electrónico" hint="Opcional: lo usamos para avisarte del pedido.">
-                    <input type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} placeholder="tucorreo@ejemplo.cl" className={FIELD}/>
+                    <input type="email" value={contact.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} placeholder="tucorreo@ejemplo.cl" className={FIELD}/>
                   </Field>
                 </div>
                 <Field label="Nombre y apellido">
-                  <input required value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Camila Pérez" className={FIELD}/>
+                  <input required value={contact.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Camila Pérez" className={FIELD}/>
                 </Field>
                 <Field label="Teléfono (WhatsApp)">
-                  <input required value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} placeholder="+569 1234 5678" className={FIELD}/>
+                  <input required value={contact.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} placeholder="+569 1234 5678" className={FIELD}/>
                 </Field>
               </div>
             </section>
 
             <section className={SECTION}>
               <h2 className="text-sm font-semibold">2 · Punto de retiro</h2>
+              {unavailable ? (
+                <p className="mt-2 text-sm text-[#8a4a44]">La disponibilidad de puntos de retiro se habilita cuando vuelva la conexión con la tienda.</p>
+              ) : (
+              <>
               <p className="mt-2 text-xs text-[#647167]">Elige dónde irás a buscar tu pedido. No tenemos despacho a domicilio.</p>
               <div className="mt-3 space-y-2">
                 {zones.map((zone) => {
-                  const slotSummary = slots.filter((slot) => slot.zone_id === zone.id).map((slot) => formatSlot({ ...slot, weekdays: slotDays(slot) }));
+                  const slotSummary = slots.filter((slot) => slot.zone_id === zone.id).map((slot) => formatSlot(slot));
                   return (
                     <label key={zone.id} className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm transition ${zoneId === zone.id ? "border-[#243128]" : "border-[#e2e5df] hover:border-[#a7b2a3]"}`}>
                       <input type="radio" name="zone" checked={zoneId === zone.id} onChange={() => { setZoneId(zone.id); setDate(""); setSlotId(""); }} className="mt-0.5 h-4 w-4 shrink-0 accent-[#243128]"/>
@@ -297,11 +324,15 @@ export default function CheckoutPage() {
                 })}
                 {zones.length === 0 && <p className="text-xs text-[#748077]">Aún no hay puntos de retiro configurados.</p>}
               </div>
+              </>
+              )}
             </section>
 
             <section className={SECTION}>
               <h2 className="text-sm font-semibold">3 · Día y horario</h2>
-              {!selectedZone ? (
+              {unavailable ? (
+                <p className="mt-2 text-sm text-[#8a4a44]">La agenda se habilita cuando vuelva la conexión con la tienda.</p>
+              ) : !selectedZone ? (
                 <p className="mt-2 text-xs text-[#647167]">Elige primero el punto de retiro para ver los días disponibles.</p>
               ) : zoneSlots.length === 0 ? (
                 <p className="mt-2 text-sm text-[#8a4a44]">Ese punto todavía no tiene horarios publicados. Escríbenos por WhatsApp y lo coordinamos.</p>
@@ -332,7 +363,7 @@ export default function CheckoutPage() {
                   <span className="flex-1"><span className="flex items-center gap-2 text-sm font-medium"><CreditCard size={15} className="text-[#56745c]"/>Webpay Plus (débito/crédito)</span><span className="mt-0.5 block text-xs text-[#647167]">{webpayEnabled ? "Pago en línea con tarjeta" : "Disponible próximamente"}</span></span>
                 </label>
               </div>
-              {payment === "transferencia" && <div className="mt-4 rounded-xl bg-[#edf0e8] p-4"><p className="text-xs tracking-[.16em] text-[#56745c] uppercase">Datos para transferir</p><p className="mt-2 break-words text-sm whitespace-pre-line text-[#526058]">{bankInfo || "Transferencia a confirmar — te enviaremos los datos por WhatsApp tras agendar."}</p></div>}
+              {payment === "transferencia" && <div className="mt-4 rounded-xl bg-[#edf0e8] p-4"><p className="text-xs tracking-[.16em] text-[#56745c] uppercase">Datos para transferir</p><p className="mt-2 break-words text-sm whitespace-pre-line text-[#526058]">{config.bank_account_info || "Transferencia a confirmar — te enviaremos los datos por WhatsApp tras agendar."}</p></div>}
             </section>
 
           </div>

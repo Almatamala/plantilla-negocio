@@ -16,15 +16,14 @@ def test_admin_token_is_required(client):
     assert response.status_code == 401
 
 
-def test_create_product_with_variants_and_public_catalog(client, admin_headers):
+def test_create_product_and_public_catalog(client, admin_headers):
     category = client.post("/api/categories", headers=admin_headers, json={"name": "Accesorios", "slug": "accesorios"}).json()
     response = client.post("/api/products", headers=admin_headers, json={
         "name": "Producto demo", "slug": "producto-demo", "price": 19990, "status": "active", "inventory": 5,
-        "category_id": category["id"], "variants": [{"name": "Pequeño", "price": 15990, "inventory": 2}],
+        "category_id": category["id"],
     })
     assert response.status_code == 201
-    product = response.json()
-    assert product["variants"][0]["name"] == "Pequeño"
+    assert response.json()["name"] == "Producto demo"
     public_catalog = client.get("/api/products")
     assert public_catalog.status_code == 200
     assert len(public_catalog.json()) == 1

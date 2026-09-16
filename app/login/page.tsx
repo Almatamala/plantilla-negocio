@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { clearSessionTokenCache } from "@/lib/api";
+import { refreshSession } from "@/lib/session-client";
 import { storeConfig } from "@/lib/store-config";
 
 type Mode = "login" | "register";
@@ -64,7 +64,9 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      clearSessionTokenCache();
+      // Se vuelve a leer la sesión (la cookie httpOnly ya está puesta) para que las pantallas
+      // siguientes —tienda, cuenta o panel— la tengan sin volver a pedirla.
+      void refreshSession();
       goAfterLogin(data.role);
     } catch {
       setError("No se pudo conectar. Intenta nuevamente.");
@@ -88,7 +90,9 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      clearSessionTokenCache();
+      // Se vuelve a leer la sesión (la cookie httpOnly ya está puesta) para que las pantallas
+      // siguientes —tienda, cuenta o panel— la tengan sin volver a pedirla.
+      void refreshSession();
       goAfterLogin(data.role);
     } catch {
       setError("No se pudo conectar. Intenta nuevamente.");

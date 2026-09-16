@@ -3,20 +3,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { MapPin, Pencil, Plus, Store, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { zoneTypeOf, type Slot, type Zone } from "@/lib/agenda";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, formatSlot, weekdayFromIso } from "@/lib/schedule";
 
-/** Fila de la API: punto de retiro o encuentro (D16). */
-export type ZoneRow = { id: string; name: string; type: "retiro" | "encuentro"; location: string | null; active: boolean };
-/** Fila de la API: franja horaria de un punto (D18). */
-export type SlotRow = { id: string; zone_id: string; label: string; start_time: string; end_time: string; weekdays: number[]; enabled: boolean; zone_name?: string | null };
-/** Fila de la API: fecha cerrada puntual. */
-export type ClosedDayRow = { id: string; date: string; reason: string | null };
-/** Fila de la API: día de la semana cerrado todas las semanas (D19). */
-export type ClosedWeekdayRow = { id: string; weekday: number; reason: string | null };
+/** Punto de retiro o encuentro tal como lo devuelve el panel (`active` siempre viene). */
+export type ZoneRow = Zone & { active: boolean };
+/** Franja horaria de un punto tal como la devuelve el panel (`enabled` siempre viene). */
+export type SlotRow = Slot & { enabled: boolean };
+/** Fecha cerrada puntual. */
+type ClosedDayRow = { id: string; date: string; reason: string | null };
+/** Día de la semana cerrado todas las semanas (D19). */
+type ClosedWeekdayRow = { id: string; weekday: number; reason: string | null };
 
-export const zoneTypeLabel: Record<ZoneRow["type"], string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
-/** Tipo normalizado: los puntos creados antes de D16 (p. ej. `domicilio`) se tratan como retiro. */
-export const zoneTypeOf = (type: string): ZoneRow["type"] => (type === "encuentro" ? "encuentro" : "retiro");
+const zoneTypeLabel: Record<ZoneRow["type"], string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
 
 type ZoneDraft = { name: string; type: ZoneRow["type"]; location: string };
 type SlotDraft = { label: string; start_time: string; end_time: string; weekdays: number[] };
@@ -211,7 +210,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
         <p className="mt-2 text-sm text-[#647167]">No hay despacho a domicilio: el cliente elige un punto y ahí se agenda. Cada punto tiene su <strong>ubicación</strong> y sus <strong>franjas horarias</strong>, y cada franja indica los <strong>días de la semana</strong> en que se atiende (una franja que solo corre los sábados no se puede agendar un miércoles).</p>
         <form onSubmit={addZone} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_1fr_auto]">
           <input required value={zoneForm.name} onChange={(event) => setZoneForm({ ...zoneForm, name: event.target.value })} placeholder="Nombre (ej. Punto de encuentro Talca)" className={FIELD}/>
-          <select value={zoneForm.type} onChange={(event) => setZoneForm({ ...zoneForm, type: event.target.value as ZoneRow["type"] })} className={`${FIELD} bg-white`}>
+          <select value={zoneForm.type} onChange={(event) => setZoneForm({ ...zoneForm, type: event.target.value as ZoneRow["type"] })} className={`${FIELD} select-field bg-white transition hover:border-[#243128]`}>
             <option value="retiro">Retiro presencial</option>
             <option value="encuentro">Punto de encuentro</option>
           </select>
@@ -228,7 +227,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
                 {editZone === zone.id ? (
                   <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr_auto]">
                     <input required value={zoneDraft.name} onChange={(event) => setZoneDraft({ ...zoneDraft, name: event.target.value })} className={FIELD}/>
-                    <select value={zoneDraft.type} onChange={(event) => setZoneDraft({ ...zoneDraft, type: event.target.value as ZoneRow["type"] })} className={`${FIELD} bg-white`}>
+                    <select value={zoneDraft.type} onChange={(event) => setZoneDraft({ ...zoneDraft, type: event.target.value as ZoneRow["type"] })} className={`${FIELD} select-field bg-white transition hover:border-[#243128]`}>
                       <option value="retiro">Retiro presencial</option>
                       <option value="encuentro">Punto de encuentro</option>
                     </select>

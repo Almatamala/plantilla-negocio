@@ -15,8 +15,8 @@ from authlib.integrations.httpx_client import OAuth2Client
 from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_verification_code
-from .models import Category, ClosedDay, ClosedWeekday, Order, OrderItem, Page, Product, ProductVariant, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, ClosedWeekdayIn, ClosedWeekdayOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, PageIn, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .models import Category, ClosedDay, ClosedWeekday, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, ClosedWeekdayIn, ClosedWeekdayOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 
@@ -58,6 +58,21 @@ AGENDA_COLUMNS = (
     "ALTER TABLE time_slots ADD COLUMN IF NOT EXISTS weekdays JSON NOT NULL DEFAULT '[]'",
     "DELETE FROM time_slots WHERE zone_id IS NULL",
     "ALTER TABLE orders DROP COLUMN IF EXISTS notes",
+)
+
+# Contenido retirado del catálogo: los campos SEO y el SKU del producto, las **variantes** (tabla
+# completa, más su columna en `order_items`) y las **páginas editables** (`pages` y `/api/pages`).
+# Ninguno tenía pantalla en el panel ni consumidor en la tienda: el «contenido editable» del plan es
+# `store_settings` (F2.5) y el producto no usa variantes (el panel siempre enviaba una lista vacía).
+# `create_all` no elimina lo que ya existe, así que se quitan al arrancar en PostgreSQL para que una
+# base ya creada quede igual que una nueva. El orden importa: primero la columna que apunta a la tabla.
+RETIRED_CATALOG_OBJECTS = (
+    "ALTER TABLE order_items DROP COLUMN IF EXISTS variant_id",
+    "DROP TABLE IF EXISTS product_variants",
+    "ALTER TABLE products DROP COLUMN IF EXISTS sku",
+    "ALTER TABLE products DROP COLUMN IF EXISTS seo_title",
+    "ALTER TABLE products DROP COLUMN IF EXISTS seo_description",
+    "DROP TABLE IF EXISTS pages",
 )
 
 # Día de la semana que queda cerrado en una instalación nueva (0 domingo … 6 sábado, D19).
@@ -102,6 +117,8 @@ async def lifespan(_: FastAPI):
             for statement in PROFILE_VERIFICATION_COLUMNS:
                 connection.execute(text(statement))
             for statement in AGENDA_COLUMNS:
+                connection.execute(text(statement))
+            for statement in RETIRED_CATALOG_OBJECTS:
                 connection.execute(text(statement))
     if fresh_closed_weekdays:
         # Instalación nueva: el domingo queda cerrado por defecto (el panel lo puede reabrir).
@@ -451,7 +468,7 @@ def delete_category(category_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/products", response_model=list[ProductOut])
 def list_products(include_drafts: bool = False, db: Session = Depends(get_db)):
-    query = select(Product).options(selectinload(Product.variants)).order_by(Product.created_at.desc())
+    query = select(Product).order_by(Product.created_at.desc())
     if not include_drafts:
         query = query.where(Product.status.in_(PUBLIC_STATUSES))
     return db.scalars(query).all()
@@ -459,7 +476,7 @@ def list_products(include_drafts: bool = False, db: Session = Depends(get_db)):
 
 @app.get("/api/products/slug/{slug}", response_model=ProductOut)
 def get_product_by_slug(slug: str, db: Session = Depends(get_db)):
-    item = db.scalar(select(Product).options(selectinload(Product.variants)).where(Product.slug == slug))
+    item = db.scalar(select(Product).where(Product.slug == slug))
     if not item:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
     return item
@@ -467,26 +484,24 @@ def get_product_by_slug(slug: str, db: Session = Depends(get_db)):
 
 @app.get("/api/products/{product_id}", response_model=ProductOut)
 def get_product(product_id: str, db: Session = Depends(get_db)):
-    item = db.scalar(select(Product).options(selectinload(Product.variants)).where(Product.id == product_id))
+    item = db.scalar(select(Product).where(Product.id == product_id))
     if not item: raise HTTPException(status_code=404, detail="Producto no encontrado.")
     return item
 
 
 @app.post("/api/products", response_model=ProductOut, status_code=201, dependencies=[Depends(require_admin)])
 def create_product(payload: ProductIn, db: Session = Depends(get_db)):
-    data = payload.model_dump(exclude={"variants"})
+    data = payload.model_dump()
     if data["category_id"]: find_or_404(db, Category, data["category_id"])
-    product = Product(**data, variants=[ProductVariant(**variant.model_dump()) for variant in payload.variants])
-    return commit(db, product)
+    return commit(db, Product(**data))
 
 
 @app.put("/api/products/{product_id}", response_model=ProductOut, dependencies=[Depends(require_admin)])
 def update_product(product_id: str, payload: ProductIn, db: Session = Depends(get_db)):
     product = find_or_404(db, Product, product_id)
-    data = payload.model_dump(exclude={"variants"})
+    data = payload.model_dump()
     if data["category_id"]: find_or_404(db, Category, data["category_id"])
     for key, value in data.items(): setattr(product, key, value)
-    product.variants = [ProductVariant(**variant.model_dump()) for variant in payload.variants]
     return commit(db, product)
 
 
@@ -744,10 +759,6 @@ async def upload_image(file: UploadFile = File(...)):
 
 
 # ── Contenido y ajustes ─────────────────────────────────────────────────────
-
-@app.post("/api/pages", status_code=201, dependencies=[Depends(require_admin)])
-def create_page(payload: PageIn, db: Session = Depends(get_db)): return commit(db, Page(**payload.model_dump()))
-
 
 @app.get("/api/settings", response_model=SettingsOut)
 def get_store_settings(db: Session = Depends(get_db)):

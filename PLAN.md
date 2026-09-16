@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Basado en:** RPD.md v1.2
-**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-15 (ajustes del dueño: ver §0.6, §0.7, §0.8 y §9)
+**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-16 (ajustes del dueño: ver §0.6, §0.7, §0.8, §0.9, §0.10 y §9)
 **Estado:** Propuesta para aprobación del dueño
 
 ---
@@ -354,6 +354,93 @@ administre los puntos «de forma didáctica y precisa»: **fusionar la franja ho
 
 ---
 
+## 0.9 Actualización — Ajustes del dueño (2026-09-16)
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores; la API no se tocó, así que no hace falta reconstruir la imagen). Cinco puntos sobre el código actual, con dos decisiones nuevas (**D20** y **D21**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A13** | Al arrancar (`npm run dev`) la app hace **dos `GET /api/auth/me`** | El header (`useAccountLink`), el checkout, la cuenta y el panel pedían la sesión **cada uno por su cuenta**, y en desarrollo React monta los efectos dos veces: se veía la petición duplicada al arrancar y otra más en cada navegación | `lib/session-client.ts` (nuevo): la sesión es una **promesa compartida** con store externo; `lib/account.ts` expone `useSession()` / `useAccountLink()` y `lib/api.ts` toma el token de ahí. **Una sola lectura por carga de página**, pida quien pida | **F2.11** |
+| **A14** | La vista `/cuenta` debe mostrar **header y footer** | Era un `<main>` propio con un enlace «Volver a la tienda», justo lo que se corrigió en la ficha (A6 / D15) | `app/cuenta/page.tsx` usa `StoreHeader`/`StoreFooter` y el botón de WhatsApp; se quitan el enlace «Volver a la tienda» y el nombre de tienda suelto del final | **F2.12** |
+| **A15** | Con la API y la base de datos caídas la página carga **valores por defecto**; se pide mostrar **los últimos valores guardados**, de forma poco costosa | El catálogo, los ajustes, los puntos de retiro, las franjas y los cierres caían a datos demo/plantilla (el RPD §1.1 lo registraba como riesgo asumido) | **D20.** `lib/offline-cache.ts` (nuevo): cada lectura pública guarda su última respuesta buena en `localStorage` (vence a los 7 días, claves con versión) y **solo se usa si la petición falla**; cuando la API responde, manda la API. **Alcance recortado tras el análisis de costo/beneficio (ver abajo):** vidriera (tienda y ficha) y ajustes; en el **checkout** se avisa explícitamente en vez de disimular. **El panel no lo usa**: un stock o un pedido viejos inducirían a editar sobre datos desactualizados | **F2.13** |
+| **A16** | Analizar y agregar los datos con **más valor para el negocio** (ventas por período, más y menos vendidos, etc.) y **consultar antes** de agregarlos | La sección Reportes mostraba tres métricas y un ranking simple calculado al vuelo. La API **ya entregaba todo lo necesario** (`GET /api/orders` con `created_at`, líneas, punto de retiro, día y franja) | **D21.** `components/admin-reports.tsx` (nuevo) con el **selector de período** que pidió el dueño (ver **A18**) y las métricas aprobadas: ventas + ticket promedio, más/menos vendidos, puntos de retiro, día y franja, categorías + reposición. Pagos pendientes y clientes recurrentes quedaron **fuera** por decisión del dueño | **F3.4 (ampliada)** |
+| **A18** | En Reportes, reemplazar el filtro «Este mes» por uno **más completo**: elegir períodos de **un mes, varios meses, hasta un año** | El filtro tenía un preset fijo «Este mes» (mes calendario en curso) sin forma de mirar, por ejemplo, mayo–julio. El dueño aclaró que el rango no busca comparar: **es el tramo de datos que alimentan las tablas** del reporte | Dos `select` de mes/año (**desde → hasta**, meses enteros) que aparecen al elegir «Personalizado»; el rango parte en el mes en curso (lo que hacía «Este mes»), se recorta solo para **no pasar de 12 meses ni invertirse**, y **no muestra comparación** (el % vs. período anterior queda solo en los presets de 7 y 30 días). La lógica de meses vive en `lib/months.ts` (nuevo) | **F3.4 (ampliada)** |
+| **A17** | Los **selects del panel** brillan en azul al pasar el mouse y ese brillo se sale de las esquinas redondeadas | Eran `<select>` nativos: Chrome dibuja su propia flecha y la resalta al pasar el mouse, fuera del `border-radius` | `app/globals.css` gana la clase `select-field` (`appearance: none` + flecha propia de la marca) y los campos del panel usan `SELECT_FIELD`, con **hover/focus marcados en el borde** como el botón del filtro de precio. También el select de estrellas de la ficha | **F2.14** |
+
+### Decisiones nuevas
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D20** | Modo sin conexión con la API | **Última versión conocida en el navegador:** caché en `localStorage` (sin service worker, sin PWA, sin copia en el servidor) que respalda la **vidriera** cuando la API o su base de datos no responden. La API siempre gana cuando responde y lo guardado vence a los 7 días. **No se aplica al panel ni al formulario del checkout** (ahí se avisa que no se pueden registrar pedidos) | Tienda, ficha de producto (y los ajustes del header en `/cuenta`) |
+| **D21** | Reportes del negocio | Métricas aprobadas por el dueño: **ventas + ticket promedio; productos más y menos vendidos (unidades e ingresos) y los sin ventas; ventas por punto de retiro; pedidos por día y franja; ingresos por categoría y alerta de reposición**, más el **rango personalizado por meses enteros (hasta un año)** que define el tramo de datos de las tablas. Nada de esto requiere cambios de schema | Sección **Reportes** del panel |
+
+### Estado: IMPLEMENTADO (2026-09-16)
+
+- **A13 (F2.11):** `lib/session-client.ts` (promesa compartida + snapshot estable), `lib/account.ts` (`useSession`, `useAccountLink`), `lib/api.ts` (`getSessionToken` reusa la misma lectura; `endSession` reinicia la caché) y `app/login/page.tsx` (refresca la sesión al entrar). Ya no queda ningún `fetch("/api/auth/me")` suelto en componentes.
+- **A14 (F2.12):** `app/cuenta/page.tsx` con `StoreHeader`/`StoreFooter` (ajustes desde `/api/settings`, con respaldo cacheado), contador del carrito y botón de WhatsApp.
+- **A15 (F2.13):** `lib/offline-cache.ts` + uso en `components/storefront.tsx` (catálogo y ajustes), `components/product-detail.tsx` (ficha por slug, sin duplicar el catálogo) y `app/cuenta/page.tsx` (ajustes del header). Cada lectura guarda lo bueno y, **solo si falla**, restaura lo último guardado en vez del demo.
+- **A16 (F3.4):** `components/admin-reports.tsx`, montado desde `components/admin-dashboard.tsx`; el tipo de orden del panel ahora conserva `createdAt` (`orders.created_at`, que la API ya devolvía).
+- **A18 (F3.4):** `lib/months.ts` (nuevo: claves `YYYY-MM`, etiquetas y `moveRange` con el tope de un año) y el bloque «Personalizado» en Reportes con los dos `select` de mes/año.
+- **A17 (F2.14):** `select-field` en `app/globals.css`; `SELECT_FIELD`/`SELECT_FIELD_SM` en el panel (productos, pedidos, agenda, formulario de pedido) y el select de estrellas de la ficha.
+
+### Recorte del caché tras el análisis de costo/beneficio (2026-09-16)
+
+Se midió el alcance real y se ajustó lo implementado primero (el costo sigue anotado en **D20**):
+
+- **Se queda en la vidriera** (tienda, ficha y ajustes del header): con la API caída el cliente ve **su**
+  catálogo, precios, fotos y textos en vez de «Producto Uno / Producto Dos» y los textos de plantilla.
+  Costo medido: **2,7 KB** con los datos actuales y ~53 KB con un catálogo de 120 productos (~1 % de los
+  5 MB de `localStorage`), ~50 líneas de módulo y ningún proceso que mantener.
+- **Se retira del checkout:** con la API caída `POST /api/orders` falla igual, así que el caché no salvaba
+  ninguna venta: solo hacía que el formulario se viera normal hasta el último clic. Ahora el checkout
+  muestra un **aviso explícito** («no es posible registrar pedidos ahora mismo», con enlace a WhatsApp),
+  oculta los puntos y horarios que podrían no existir y deshabilita la confirmación. Solo el catálogo y
+  los ajustes conservan respaldo, para que el carrito no muestre precios falsos.
+- **Ficha sin duplicar:** la clave `product:<slug>` guarda la ficha y sus comentarios; el catálogo vive en
+  su propia clave, compartida con la tienda (antes cada ficha visitada duplicaba el catálogo completo).
+- **Claves con versión (`bosque-cache:v1:`):** si cambia la forma de los datos de la API, subir la versión
+  invalida todo lo guardado; las entradas de versiones anteriores se borran en la primera lectura.
+- **Límite reconocido:** el respaldo **solo cubre a quien ya visitó la tienda** antes de la caída; una
+  primera visita durante la caída sigue viendo los valores por defecto.
+
+**Pendientes de esta tanda:**
+
+1. **Mirar los Reportes con datos reales** (hoy el panel local tiene pocos pedidos): al cargar pedidos de prueba conviene revisar que los períodos y la comparación se lean como espera el dueño, y ajustar qué métrica va arriba.
+2. El caché público se llena solo al navegar: la primera visita sin API sigue mostrando los valores demo (no hay nada guardado todavía). Es esperable y queda documentado en D20.
+
+---
+
+## 0.10 Actualización — Limpieza del código y del modelo (2026-09-16)
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`pytest`: 40 pruebas en verde; `npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores; la migración de limpieza se ensayó contra el PostgreSQL del contenedor dentro de una transacción revertida). Tres puntos sobre el código actual, con una decisión nueva (**D22**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A19** | Revisar si hay **código duplicado o que ya no se use** (con permiso de arreglar lo que aparezca) | Apareció **un bug real**: `lib/api.ts › uploadImage` mandaba solo `X-Admin-Token`, y desde D13 ese token ya no se guarda en la UI, así que **subir fotos desde el panel fallaba con 401** con login por sesión. Además: `DEMO_ZONES`/`DEMO_SLOTS` (inalcanzables desde el recorte de A15), `payment_method` en el tipo `MyOrder` sin pintarse nunca y helpers exportados que solo se usaban dentro de su propio módulo | `uploadImage` pasa a usar el **Bearer de la sesión** (verificado: 401 sin cabeceras, 422 «autorizado, falta el archivo» con el Bearer). Se retiran los datos demo del checkout, el campo sin uso y los `export` internos (`absoluteUrl`, `getAdminToken`, `clearAdminToken`, `getSessionToken`, `WhatsAppIcon`, `formatWeekdays`, `WEEKDAY_SHORT`, `productTones`, `MONTHS_ES`) | **F2.15** |
+| **A20** | Hay **componentes que se repiten mucho**: convertirlos en piezas compartidas | Cuatro pantallas repetían el mismo efecto de ajustes (fetch + `mergeSettings` + caché) y seis bloques `fetch`+`writeCache`+`readCache`; el checkout, la agenda y el formulario de pedidos declaraban **sus propios tipos** de punto y franja (con `zoneTypeOf` metido en un componente del panel); los nombres de meses y días estaban copiados en el checkout; el panel tenía su propia copia del tipo `ApiProduct` | `lib/use-store-settings.ts` (nuevo: hook único de ajustes con respaldo), `loadCached()` en `lib/offline-cache.ts` (lectura con respaldo en un paso, con la señal `fromCache` que usa el checkout para avisar), `lib/agenda.ts` (nuevo: `Zone`, `Slot`, `ZoneType` y `zoneTypeOf`), `MONTHS_SHORT` en `lib/months.ts` y el `ApiProduct` de `lib/products.ts`. La ficha conserva su caché propia: guarda `{ product, reviews }` bajo `product:<slug>` **sin** duplicar el catálogo | **F2.16** |
+| **A21** | Borrar del backend lo que **ya no se va a utilizar definitivamente** (avisando de lo que pueda tener uso futuro) | Se revisó cada caso con consumidores, pruebas y plan: `pages` + `POST /api/pages` (sin GET, sin pantalla, sin pruebas; el «contenido editable» de F2.5 es `store_settings`), las **variantes** (`product_variants`, `variants` en los schemas, `variant_id` en `order_items` y el `variants: []` que enviaba el panel) y las columnas `products.sku` / `seo_title` / `seo_description` (nadie las lee ni hay editor). El dueño pidió retirar los tres bloques | Se quitan del modelo, de los schemas y de la API, y **una lista idempotente** (`RETIRED_CATALOG_OBJECTS`) los borra al arrancar en PostgreSQL (`DROP COLUMN` de `order_items.variant_id` antes de `DROP TABLE product_variants`, más `pages`), para que una base ya creada quede igual que una nueva. El panel deja de enviar `variants`; la prueba de variantes pasa a cubrir **producto + catálogo público** | **F0.5** |
+
+### Decisión nueva
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D22** | Alcance del modelo de datos | El producto es **uno solo por publicación**: sin variantes, sin SKU y sin campos SEO propios, y la tienda **no tiene páginas editables**. El contenido editable vive en `store_settings` (F2.5) y la ficha de producto (`/producto/[slug]`, D1) existe por su URL propia. Retirar estos bloques fue aprobado por el dueño al revisar qué no se usará | `backend/app/models.py`, `schemas.py` y `main.py`; panel (payload del producto) |
+
+### Estado: IMPLEMENTADO (2026-09-16)
+
+- **A19 (F2.15):** `lib/api.ts › uploadImage` con Bearer de sesión; `app/checkout/page.tsx` sin datos demo de agenda ni tipo `Zone.schedule`; `app/cuenta/page.tsx` sin el campo `payment_method` que no se pintaba; exports internos recortados en `lib/api.ts`, `lib/schedule.ts`, `lib/products.ts`, `lib/months.ts` y `components/whatsapp-button.tsx`.
+- **A20 (F2.16):** `lib/use-store-settings.ts` y `lib/agenda.ts` (nuevos); `loadCached()` en `lib/offline-cache.ts`; tienda, ficha, cuenta y checkout usan el hook y ya no repiten el efecto de ajustes; el checkout importa `Zone`/`Slot`/`zoneTypeOf` y `MONTHS_SHORT` en vez de declararlos; `components/admin-dashboard.tsx` importa el `ApiProduct` compartido y `zoneTypeOf` desde `lib/agenda.ts`.
+- **A21 (F0.5):** `backend/app/models.py` (fuera `Page`, `ProductVariant`, `variant_id`, `variants`, `sku`, `seo_*`), `backend/app/schemas.py` (fuera `VariantIn`/`VariantOut`/`PageIn` y los campos), `backend/app/main.py` (fuera el endpoint `/api/pages`, el manejo de variantes y `selectinload(Product.variants)`, más `RETIRED_CATALOG_OBJECTS`), `components/admin-dashboard.tsx` (deja de mandar `variants`), `backend/tests/test_api.py` y `backend/README.md`.
+
+### Verificación de la limpieza del backend
+
+- `pytest` (SQLite en memoria): **40 pruebas en verde** después de retirar los tres bloques.
+- **Ensayado contra la base real** (PostgreSQL del contenedor, `BEGIN … ROLLBACK`): las seis sentencias de `RETIRED_CATALOG_OBJECTS` corren sin error en ese orden y la base queda intacta tras revertir.
+- **Sin pérdida de datos:** al momento de la limpieza, `pages`, `product_variants`, `order_items.variant_id`, `products.sku` y los campos SEO estaban **vacíos** (0 filas).
+- ⚠️ **Requiere reconstruir la imagen de la API** (el Dockerfile copia el código; no hay volumen montado). El frontend no necesita nada del backend retirado: nunca leyó esos campos.
+
+---
+
 ## 1. Resumen de fases
 
 | Fase | Nombre | Entregable | Estimación | Decisiones requeridas |
@@ -655,10 +742,50 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 ### F2.10 — Quitar del footer el acceso a cuenta / panel (A5)
 - **Archivos:** `components/store-shell.tsx`, `lib/account.ts` (nuevo).
 - **Pasos:** eliminar del **footer** el enlace «Cuenta»/«Mi cuenta»/«Panel admin»; **mantener el botón del
-  header**, que resuelve `/admin` para el admin, `/cuenta` para el cliente y `/login` para el invitado.
-- **Criterio:** el footer no ofrece accesos de cuenta ni de panel; el botón del header sigue llevando al
-  panel del admin.
+  header**, que resuelve `/admin` para el admin, `/cuenta` para el cliente y `/login` para el invitado.- **Criterio:** el footer no ofrece accesos de cuenta ni de panel; el botón del header sigue llevando al panel del admin.
 - **Estado:** IMPLEMENTADO (ver §0.6).
+
+### F2.11 — Sesión compartida: un solo `GET /api/auth/me` (A13)
+- **Archivos:** `lib/session-client.ts` (nuevo), `lib/account.ts`, `lib/api.ts`, `app/login/page.tsx`,
+  `app/checkout/page.tsx`, `app/cuenta/page.tsx`, `components/admin-dashboard.tsx`.
+- **Causa:** cada pantalla pedía la sesión por su cuenta y, en desarrollo, React monta los efectos dos
+  veces → dos llamadas idénticas al arrancar y una nueva en cada navegación.
+- **Pasos:** dejar la sesión en una **promesa compartida** con snapshot estable y exponerla con
+  `useSyncExternalStore` (`useSession()`); el token sigue viviendo solo en la cookie httpOnly; al iniciar
+  sesión se refresca y al cerrarla se reinicia.
+- **Criterio:** en cualquier pantalla se ve **una** lectura de `/api/auth/me` por carga, y el header, la
+  cuenta, el checkout y el panel comparten la misma sesión.
+- **Estado:** IMPLEMENTADO (ver §0.9).
+
+### F2.12 — `/cuenta` dentro del layout de la tienda (A14)
+- **Archivos:** `app/cuenta/page.tsx`, `components/store-shell.tsx`.
+- **Pasos:** usar `StoreHeader`/`StoreFooter` (mismos que carta, ficha y checkout) con los ajustes de
+  `/api/settings`; quitar el «Volver a la tienda» y el nombre de tienda suelto del final; contador del
+  carrito y botón de WhatsApp.
+- **Criterio:** la cuenta mantiene header y footer idénticos a la tienda y no queda ningún enlace
+  redundante de vuelta.
+- **Estado:** IMPLEMENTADO (ver §0.9).
+
+### F2.13 — Última versión conocida cuando la API no responde (A15, D20)
+- **Archivos:** `lib/offline-cache.ts` (nuevo), `components/storefront.tsx`, `components/product-detail.tsx`,
+  `app/cuenta/page.tsx`, `app/checkout/page.tsx`.
+- **Pasos:** guardar en `localStorage` la última respuesta buena de la **vidriera** (catálogo, ajustes y
+  ficha por slug) con claves versionadas, y usarla **solo cuando la petición falla**. En el **checkout** no
+  se respalda la agenda: si la API no responde se muestra un aviso y se deshabilita la confirmación.
+- **Criterio:** con la API o la base de datos caídas, el cliente ve la **última** carta y la última ficha
+  (no los demo); cuando la API responde, manda la API; en el checkout el cliente sabe que no se pueden
+  registrar pedidos en vez de descubrirlo al final. El panel mantiene su error explícito.
+- **Dependencias:** ninguna de backend.
+- **Estado:** IMPLEMENTADO (ver §0.9).
+
+### F2.14 — Selects del panel sin el brillo nativo (A17)
+- **Archivos:** `app/globals.css`, `components/admin-dashboard.tsx`, `components/admin-agenda.tsx`,
+  `components/product-detail.tsx`.
+- **Pasos:** clase `select-field` (`appearance: none` + flecha propia del mismo verde de la marca) y uso
+  en los `<select>` del panel, con el estado marcado en el borde (`hover`/`focus`).
+- **Criterio:** ningún select muestra el resaltado azul del navegador al pasar el mouse; el campo se
+  comporta como el botón del filtro de precio (borde que se oscurece).
+- **Estado:** IMPLEMENTADO (ver §0.9).
 
 > **Gate F2:** flujo completo de compra probado (transferencia y, si aplica, Webpay en TBK) + panel en
 > celular + `npm run build` OK.
@@ -691,11 +818,18 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 - **Estimación:** 2–3 días.
 
 ### F3.4 — Reportes y analítica
+- **Archivos:** `components/admin-reports.tsx` (nuevo), `components/admin-dashboard.tsx`.
 - **Pasos:** conectar la sección "Reportes" del admin a datos reales (ventas, ticket promedio, más
-  vendidos desde `orders`/`order_items`), reemplazando los placeholders actuales.
-- **Criterio:** el admin muestra métricas reales del período.
+  vendidos desde `orders`/`order_items`), reemplazando los placeholders actuales. **Ampliada (2026-09-16,
+  D21):** las métricas que el dueño aprobó en §0.9 — ventas + ticket promedio, más y menos vendidos, sin
+  ventas, ventas por punto de retiro, pedidos por día y franja, ingresos por categoría y alerta de
+  reposición — con un **selector de período**: presets de **7 días** y **30 días** (que sí comparan contra
+  el período anterior) y **rango personalizado por meses enteros** (A18), más «Todo».
+- **Criterio:** el admin muestra métricas reales del período elegido; con el rango personalizado puede
+  mirar desde un mes hasta un año de datos y todas las tablas se calculan sobre ese tramo.
 - **Dependencias:** F2.1.
 - **Estimación:** 2 días.
+- **Estado:** IMPLEMENTADO (2026-09-16, ver §0.9).
 
 ---
 
@@ -745,6 +879,11 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
    `RESEND_API_KEY` / `RESEND_EMAIL_FROM` en el entorno de la API para activar el código de 6 dígitos.
 8. **Revisar con simplysweet.cl abierto (§9):** comparar ficha y checkout en móvil y escritorio y anotar
    los ajustes finos que falten.
+9. **Ajustes de §0.9 (2026-09-16):** ya implementados (sesión compartida, cuenta dentro del layout,
+   caché de última versión conocida, reportes del negocio y selects del panel). Falta **cargar pedidos de
+   prueba y mirar los Reportes en pantalla** para decidir si el orden de las métricas es el que espera el
+   dueño, y confirmar en el navegador que el panel sigue mostrando su error explícito cuando la API se
+   cae (D20 no lo cubre a propósito).
 
 ---
 

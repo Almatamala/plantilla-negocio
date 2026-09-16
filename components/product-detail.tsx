@@ -5,17 +5,25 @@ import { useCallback, useEffect, useState } from "react";
 import { Minus, Plus, ShoppingBag, Star } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useCart } from "@/lib/cart";
+import { readCache, writeCache } from "@/lib/offline-cache";
 import { formatPrice, mapApiProduct, stockLabel, type ApiProduct, type Product } from "@/lib/products";
-import { mergeSettings, storeConfig, type ApiSettings, type StoreConfig } from "@/lib/store-config";
+import { useStoreSettings } from "@/lib/use-store-settings";
 import { allergenInfo } from "@/lib/allergens";
 import { CartDrawer } from "@/components/cart-drawer";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
 type Review = { id: string; product_id: string; author: string; rating: number; comment: string; created_at: string };
+type Detail = { product: Product; catalog: Product[]; reviews: Review[] };
+/**
+ * Lo que se guarda por producto: la ficha y sus comentarios.
+ * El catálogo **no** se repite acá: vive en la clave `catalog`, compartida con la tienda, y se lee de
+ * ahí si hace falta (es lo que usa el carrito lateral).
+ */
+type CachedProduct = { product: Product; reviews: Review[] };
 
 /** Lee producto, catálogo y comentarios de la API. Sin estado: se aplica en callbacks. */
-async function fetchDetail(slug: string): Promise<{ product: Product; catalog: Product[]; reviews: Review[] }> {
+async function fetchDetail(slug: string): Promise<Detail> {
   const [data, cats, rows] = await Promise.all([
     apiFetch<ApiProduct>(`/api/products/slug/${slug}`),
     apiFetch<{ id: string; name: string }[]>("/api/categories"),
@@ -34,7 +42,7 @@ export function ProductDetail({ slug }: { slug: string }) {
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
   const [catalog, setCatalog] = useState<Product[]>([]);
-  const [config, setConfig] = useState<StoreConfig>(storeConfig);
+  const config = useStoreSettings();
   const [drawer, setDrawer] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [author, setAuthor] = useState("");
@@ -43,24 +51,35 @@ export function ProductDetail({ slug }: { slug: string }) {
   const [reviewMsg, setReviewMsg] = useState("");
   const { cart, add, change, count } = useCart();
 
-  useEffect(() => {
-    apiFetch<ApiSettings>("/api/settings")
-      .then((data) => setConfig((current) => mergeSettings(current, data)))
-      .catch(() => undefined);
-  }, []);
-
-  const applyDetail = useCallback((data: { product: Product; catalog: Product[]; reviews: Review[] }) => {
+  const applyDetail = useCallback((data: Detail) => {
     setProduct(data.product);
     setImage(data.product.images?.[0] ?? data.product.image_url ?? null);
     setCatalog(data.catalog);
     setReviews(data.reviews);
   }, []);
 
+  // Última versión conocida de la ficha: si la API no responde, se muestra esto en lugar de
+  // «Producto no encontrado» (ver `lib/offline-cache.ts`).
   useEffect(() => {
+    const key = `product:${slug}`;
     let active = true;
     fetchDetail(slug)
-      .then((data) => { if (active) applyDetail(data); })
-      .catch(() => { if (active) setProduct(null); });
+      .then((data) => {
+        if (!active) return;
+        applyDetail(data);
+        writeCache(key, { product: data.product, reviews: data.reviews } satisfies CachedProduct);
+        writeCache("catalog", data.catalog);
+      })
+      .catch(() => {
+        if (!active) return;
+        const cached = readCache<CachedProduct>(key);
+        if (!cached) { setProduct(null); return; }
+        setProduct(cached.product);
+        setImage(cached.product.images?.[0] ?? cached.product.image_url ?? null);
+        setReviews(cached.reviews);
+        const catalog = readCache<Product[]>("catalog");
+        if (catalog?.length) setCatalog(catalog);
+      });
     return () => { active = false; };
   }, [slug, applyDetail]);
 
@@ -157,7 +176,7 @@ export function ProductDetail({ slug }: { slug: string }) {
               <h3 className="text-sm font-medium">Deja tu comentario</h3>
               <div className="grid gap-3 sm:grid-cols-2">
                 <input required value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Tu nombre" className="rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-                <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="rounded-lg border border-[#d9ddd5] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#243128]">{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} {n === 1 ? "estrella" : "estrellas"}</option>)}</select>
+                <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="select-field rounded-lg border border-[#d9ddd5] bg-white px-3 py-2.5 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128]">{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} {n === 1 ? "estrella" : "estrellas"}</option>)}</select>
               </div>
               <textarea required value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Cuéntanos qué te pareció…" rows={3} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
               <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">Enviar comentario</button>

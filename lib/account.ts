@@ -1,28 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import {
+  getServerSessionSnapshot,
+  getSession,
+  getSessionSnapshot,
+  subscribeSession,
+  type SessionState,
+} from "@/lib/session-client";
 
 export type AccountLink = { href: string; label: string };
 
 /**
- * Enlace de cuenta del header: el admin va directo al panel, el cliente a su
- * cuenta y quien no ha iniciado sesión al login. Devuelve `null` mientras se
- * resuelve la sesión para no parpadear con el enlace equivocado.
+ * Sesión del navegador (usuario + token). Todos los componentes que la necesitan —header, cuenta,
+ * checkout y panel— comparten la misma respuesta de `GET /api/auth/me` en lugar de pedirla cada uno
+ * (ver `lib/session-client.ts`).
  */
-export function useAccountLink(): AccountLink | null {
-  const [role, setRole] = useState<string | null>();
+export function useSession(): SessionState {
+  const session = useSyncExternalStore(subscribeSession, getSessionSnapshot, getServerSessionSnapshot);
 
   useEffect(() => {
-    let active = true;
-    fetch("/api/auth/me")
-      .then((response) => response.json())
-      .then((data) => { if (active) setRole(data?.user?.role ?? null); })
-      .catch(() => { if (active) setRole(null); });
-    return () => { active = false; };
+    // En desarrollo el efecto se monta dos veces: la promesa compartida evita la segunda petición.
+    void getSession();
   }, []);
 
-  if (role === undefined) return null;
-  if (role === "admin") return { href: "/admin", label: "Panel admin" };
-  if (role) return { href: "/cuenta", label: "Mi cuenta" };
+  return session;
+}
+
+/**
+ * Enlace de cuenta del header: el admin va directo al panel, el cliente a su cuenta y quien no ha
+ * iniciado sesión al login. Devuelve `null` mientras se resuelve la sesión para no parpadear con el
+ * enlace equivocado.
+ */
+export function useAccountLink(): AccountLink | null {
+  const session = useSession();
+
+  if (session.status === "loading") return null;
+  if (session.user?.role === "admin") return { href: "/admin", label: "Panel admin" };
+  if (session.user) return { href: "/cuenta", label: "Mi cuenta" };
   return { href: "/login", label: "Iniciar sesión" };
 }

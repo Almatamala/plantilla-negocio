@@ -1,8 +1,8 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.4
-**Fecha:** 2026-09-15
+**Versión del documento:** 1.6
+**Fecha:** 2026-09-16
 **Estado:** Borrador para revisión del dueño del producto
 
 ---
@@ -194,13 +194,96 @@ pidió que el panel pueda administrar los puntos «de forma didáctica y precisa
 
 ---
 
+## 1.7 Actualización v8 — Ajustes del dueño (2026-09-16)
+
+**Implementado y verificado** (`tsc`, `lint`, `build`; la API no se modificó, así que no hace falta
+reconstruir la imagen). El detalle por tarea está en **PLAN §0.9**; aquí el análisis frente a este
+documento:
+
+1. **Dos lecturas de sesión al arrancar (§1.2, §3.5).** El header, el checkout, la cuenta y el panel
+   pedían `GET /api/auth/me` cada uno por su cuenta; en desarrollo React monta los efectos dos veces, de
+   modo que al arrancar se veían **dos** llamadas idénticas (y una más en cada navegación). La sesión pasa
+   a ser una **promesa compartida** (`lib/session-client.ts`) expuesta con `useSyncExternalStore`; ahora
+   hay **una sola** lectura por carga de página sin importar cuántos componentes la pidan. El token sigue
+   viviendo solo en la cookie httpOnly.
+2. **La cuenta dentro del layout de la tienda (§3.5).** `/cuenta` era un `<main>` propio con «Volver a la
+   tienda», exactamente el patrón que se corrigió en la ficha con **D15**. Ahora usa `StoreHeader` y
+   `StoreFooter` (mismos que carta, ficha y checkout) con los ajustes de `/api/settings`.
+3. **Modo sin conexión: última versión conocida en vez de valores por defecto (§3.1 y §3.3).** Este
+   documento registraba como riesgo asumido que «sin la API levantada… el catálogo demo queda como
+   fallback visual» (§1.1, punto 7). Se cierra con **D20**: cada lectura de la **vidriera** guarda su última
+   respuesta buena en `localStorage` (clave con versión) y la usa **solo si la petición falla**, sin service
+   worker ni PWA (la opción más barata: no hay copia en el servidor ni proceso que mantener). La API siempre
+   gana cuando responde y lo guardado vence a los 7 días. **El panel queda fuera** por decisión del dueño:
+   ahí un stock o un pedido viejos inducirían a editar sobre datos desactualizados. **El formulario del
+   checkout también queda fuera** (ver el recorte en PLAN §0.9): con la API caída el pedido no se puede
+   registrar de todas formas, así que el checkout muestra un aviso explícito con enlace a WhatsApp y solo
+   conserva el respaldo del catálogo y los ajustes, para que el carrito no muestre precios falsos.
+4. **Reportes del negocio (§3.5, panel).** La sección mostraba tres métricas y un ranking simple. Se
+   implementa **D21** con las métricas que el dueño aprobó: ventas con **comparación contra el período
+   anterior** (solo en los presets de 7 y 30 días) y ticket promedio, productos más y menos vendidos
+   (unidades e ingresos) y los sin ventas, ventas por punto de retiro, pedidos por día y franja, e ingresos
+   por categoría con alerta de reposición. El filtro fijo «Este mes» se reemplaza por un **rango
+   personalizado de meses enteros (de un mes hasta un año)** que define el tramo de datos de las tablas —
+   el dueño precisó que ese rango **no** busca comparar, sino acotar la información que alimenta cada
+   tabla. **Nada requirió cambios de schema**: `GET /api/orders` ya devolvía `created_at`, las líneas, el
+   punto de retiro y la agenda. Los **cobros pendientes** y los **clientes recurrentes** se propusieron y
+   quedaron fuera de esta tanda.
+5. **Selects del panel (§3.5, panel).** Los `<select>` nativos mostraban la flecha del navegador
+   resaltada en azul al pasar el mouse, fuera de las esquinas redondeadas. Se oculta el widget nativo
+   (`appearance: none`), se dibuja una flecha propia y el estado se marca **en el borde**, como el botón
+   del filtro de precio.
+
+**Nota de datos:** sin migraciones. Lo único que cambió de forma es que el panel ahora conserva
+`created_at` de cada orden para poder agrupar por período.
+
+---
+
+## 1.8 Actualización v9 — Limpieza de código y del modelo de datos (2026-09-16)
+
+**Implementado y verificado** (`pytest` 40/40, `tsc`, `lint`, `build`, y la migración ensayada contra el
+PostgreSQL del contenedor dentro de una transacción revertida). Detalle por tarea en **PLAN §0.10**.
+
+1. **Bug encontrado en la revisión (§1.2, D13).** `lib/api.ts › uploadImage` seguía enviando **solo**
+   `X-Admin-Token`, la clave heredada que desde D13 ya no se guarda en la UI: con el login por sesión,
+   **subir fotos desde el panel de productos fallaba con 401**. Ahora usa el `Authorization: Bearer` de la
+   sesión, igual que el resto del cliente HTTP. Este documento daba por resuelta la migración a JWT de
+   sesión; faltaba este endpoint.
+2. **Código sin uso (§2 y §3.5).** Se retiraron los datos demo de agenda del checkout (inalcanzables desde
+   el recorte de D20, y engañosos justo cuando la API responde sin puntos: decían «dirección por
+   confirmar»), el campo `payment_method` del tipo de la cuenta que nunca se pintaba y varios `export`
+   internos que aparentaban ser API pública de sus módulos.
+3. **Duplicación convertida en piezas compartidas (§2).** Cuatro pantallas repetían el mismo efecto de
+   ajustes y seis bloques la misma lectura con respaldo; el checkout, la agenda y el formulario de pedidos
+   declaraban **sus propios** tipos de punto y franja (con la normalización de tipo viviendo dentro de un
+   componente del panel); los meses y días estaban copiados en el checkout. Quedan `lib/use-store-settings.ts`,
+   `loadCached()` en `lib/offline-cache.ts`, `lib/agenda.ts` y `MONTHS_SHORT` en `lib/months.ts`. **No se
+   fusionaron** las etiquetas de entrega ni los estados de pedido del panel con los de la cuenta: son
+   vocabularios distintos a propósito (el admin ve el estado crudo de la API, el cliente la etiqueta
+   derivada) y fusionarlos mezclaría responsabilidades.
+4. **Modelo de datos acotado (D22, §3.1–§3.3).** El schema arrastraba `product_variants` (con `variants`
+   en los schemas, `order_items.variant_id` y un panel que enviaba siempre una lista vacía), las columnas
+   `products.sku`/`seo_title`/`seo_description` y la tabla `pages` con un `POST /api/pages` sin GET, sin
+   pantalla y sin pruebas. Al revisarlo con el dueño se confirmó que **ninguno se va a usar**: el
+   «contenido editable» del plan es `store_settings` (F2.5) y la ficha propia ya da la URL por producto
+   (D1), sin necesidad de campos SEO editables. Se retiraron del modelo, de los schemas y de la API, y una
+   lista idempotente (`RETIRED_CATALOG_OBJECTS`) los borra al arrancar en PostgreSQL. La prueba que cubría
+   variantes pasa a cubrir **producto + catálogo público**.
+
+**Nota de datos:** la limpieza **sí** toca la base existente (borra una tabla, otra tabla y cuatro
+columnas). Al momento de aplicarla, `pages`, `product_variants`, `order_items.variant_id`, `products.sku`
+y los campos SEO estaban **vacíos**, así que no hubo pérdida de información. **Requiere reconstruir la
+imagen de la API**, porque el Dockerfile copia el código en lugar de montarlo.
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
 |---|---|
-| **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`, carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por correo/contraseña + Google en `app/login`, página de cuenta `app/cuenta`, `proxy.ts` protege `/admin` (rol admin). |
+| **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`, carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por correo/contraseña + Google en `app/login`, página de cuenta `app/cuenta` (dentro del layout de la tienda), `proxy.ts` protege `/admin` (rol admin). Sesión compartida en `lib/session-client.ts`, respaldo de lecturas públicas en `lib/offline-cache.ts` y ajustes de tienda en `lib/use-store-settings.ts` (§1.7–§1.8). |
 | **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
-| **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con días de la semana), `closed_days` (fechas), `closed_weekdays` (cierre semanal), `shipping_zones`, `reviews`, `pages`, `store_settings`. Las tablas se crean al arrancar la API. |
+| **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con días de la semana), `closed_days` (fechas), `closed_weekdays` (cierre semanal), `shipping_zones`, `reviews`, `store_settings`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
 | **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (franjas/días cerrados/zonas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
 | **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, zonas, reviews, órdenes con stock server-side, ajustes e imágenes. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
 | **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**. |
@@ -411,6 +494,17 @@ fases: actualizan **F1.8** y **F2.1** (ver PLAN §0.7).
 declaran sus **días** (**D18**) y cierres **semanales** además de los de fecha (**D19**). Tampoco reordenan
 el plan: actualizan **F1.6**, **F1.7**, **F1.8** y **F2.4** (ver PLAN §0.8).
 
+**Ajustes del dueño v8 (§1.7):** corrigen una lectura duplicada de sesión, integran `/cuenta` al layout de
+la tienda, agregan el respaldo de **última versión conocida** cuando la API no responde (**D20**), amplían
+los **reportes** con las métricas de negocio aprobadas (**D21**) y quitan el brillo nativo de los selects
+del panel. Se reparten en **F2.11–F2.14** y **F3.4** sin reordenar las fases.
+
+**Ajustes del dueño v9 (§1.8):** limpian el código **duplicado o sin uso** (con la corrección del bug de
+subida de fotos que apareció en la revisión), convierten en piezas compartidas los patrones repetidos en
+cuatro pantallas (**hooks y tipos**) y **acotan el modelo de datos** retirando del backend lo que no se
+usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se reparten en **F0.5**,
+**F2.15** y **F2.16**.
+
 ---
 
 ## 5. Decisiones abiertas (para resolver por el dueño)
@@ -436,6 +530,9 @@ el plan: actualizan **F1.6**, **F1.7**, **F1.8** y **F2.4** (ver PLAN §0.8).
 | D17 | Nota del pedido | **RESUELTA E IMPLEMENTADA** (ver §1.5): eliminada del checkout, del admin y del schema | Checkout, admin, `orders.notes` |
 | D18 | Franjas horarias | **RESUELTA E IMPLEMENTADA** (ver §1.6): cada franja pertenece a un **punto** y declara los **días de la semana** en que atiende; el punto ya no tiene un horario en texto libre | Schema `time_slots`, checkout, agenda del admin |
 | D19 | Días cerrados | **RESUELTA E IMPLEMENTADA** (ver §1.6): cierres **semanales recurrentes** (p. ej. lunes de producción; domingo por defecto) **y** fechas puntuales | Nueva tabla `closed_weekdays`, checkout, agenda del admin |
+| D20 | Modo sin conexión con la API | **RESUELTA E IMPLEMENTADA** (ver §1.7): **última versión conocida** guardada en el navegador (`localStorage` con clave versionada, 7 días) como respaldo de la **vidriera**; sin service worker ni PWA, **sin aplicarse al panel** y sin respaldar la agenda del checkout (ahí se avisa y se bloquea la confirmación) | Tienda, ficha de producto (y ajustes del header en `/cuenta`) |
+| D21 | Reportes del negocio | **RESUELTA E IMPLEMENTADA** (ver §1.7): métricas aprobadas por el dueño (ventas + ticket promedio, más/menos vendidos, sin ventas, puntos de retiro, día y franja, categorías y reposición) con **rango personalizado por meses enteros hasta un año** en reemplazo del filtro «Este mes»; la comparación con el período anterior queda solo en los presets de 7 y 30 días | Sección **Reportes** del panel |
+| D22 | Alcance del modelo de datos | **RESUELTA E IMPLEMENTADA** (ver §1.8): el producto es **uno por publicación** —sin variantes, sin SKU y sin campos SEO propios— y **no hay páginas editables**; el contenido editable vive en `store_settings` (F2.5). Se retiraron `product_variants` (y `order_items.variant_id`), `products.sku`/`seo_title`/`seo_description`, `pages` y `POST /api/pages` | `backend/app/models.py`, `schemas.py`, `main.py`, panel |
 
 ---
 
@@ -467,13 +564,19 @@ el plan: actualizan **F1.6**, **F1.7**, **F1.8** y **F2.4** (ver PLAN §0.8).
 | `lib/session.ts` | Verificación del JWT de sesión (jose) + nombre de la cookie httpOnly |
 | `proxy.ts` | Protege `/admin` (rol admin) y redirige a logueados fuera de `/login` |
 | `app/api/auth/*` | Route handlers: login/registro, callback de Google, `/me`, logout (cookie httpOnly) |
-| `app/cuenta` | Página de cuenta: datos, teléfono por defecto, historial de pedidos, cerrar sesión |
+| `app/cuenta` | Página de cuenta dentro del layout de la tienda (header/footer): datos, teléfono por defecto, historial de pedidos, cerrar sesión |
 | `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
 | `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (GOOGLE_*, ADMIN_EMAILS, AUTH_JWT_SECRET) |
-| `backend/tests/*` | Tests de la API local |
+| `backend/tests/*` | Tests de la API local (40 pruebas: catálogo, órdenes, agenda, auth y correo) |
 | `backend/app/emails.py` | Correo transaccional con **Resend** y plantilla del código de confirmación (D14, PLAN F2.9) |
 | `components/checkout-shell.tsx` | Header/footer mínimos del checkout según simplysweet.cl (D15, PLAN §9 / F2.1) |
-| `lib/cart.ts`, `lib/account.ts` | Carrito único compartido y enlace de cuenta del header |
+| `lib/cart.ts`, `lib/account.ts` | Carrito único compartido y hooks de sesión/enlace de cuenta del header (`useSession`, `useAccountLink`) |
+| `lib/session-client.ts` | Sesión del navegador como **promesa compartida**: una sola lectura de `/api/auth/me` para toda la app (§1.7, PLAN §0.9) |
+| `lib/offline-cache.ts` | Última versión conocida de la **vidriera** en `localStorage` (claves `bosque-cache:v1:`), usada solo si la API falla (**D20**); expone `loadCached()` (lectura con respaldo y señal `fromCache`) que usan tienda, ficha y checkout (PLAN §0.9–§0.10) |
+| `lib/use-store-settings.ts` | Hook único de **ajustes de tienda** (fetch + `mergeSettings` + respaldo) que comparten tienda, ficha, cuenta y checkout (PLAN §0.10, A20) |
+| `lib/agenda.ts` | Tipos compartidos de **punto de retiro y franja** (`Zone`, `Slot`, `ZoneType`) y `zoneTypeOf`, antes declarados en cada pantalla (PLAN §0.10, A20) |
+| `components/admin-reports.tsx` | Sección **Reportes** del panel con las métricas de negocio y el selector de período (**D21**, PLAN §0.9) |
+| `lib/months.ts` | Claves de mes `YYYY-MM`, etiquetas y rango por meses enteros con tope de un año (`moveRange`) que usa Reportes (PLAN §0.9, A18) |
 | `components/store-shell.tsx` | Header y footer compartidos por carta, ficha y checkout (sin accesos de cuenta en el footer) |
 | `https://simplysweet.cl` | **Referencia de diseño/UX** para la ficha de producto y el checkout (D15, PLAN §9) |
 | `backend/app/models.py` › `ShippingZone` | Puntos de retiro y encuentro con `location`; sus franjas cuelgan de él (D16/D18, PLAN §0.7–§0.8) |

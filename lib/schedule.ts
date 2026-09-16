@@ -6,7 +6,7 @@
  */
 
 export const WEEKDAY_LONG = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-export const WEEKDAY_SHORT = ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sá"];
+const WEEKDAY_SHORT = ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sá"];
 /** Orden de presentación: lunes primero, domingo al final (como se lee una semana laboral). */
 export const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
@@ -17,7 +17,7 @@ export function weekdayFromIso(iso: string): number {
 }
 
 /** Etiqueta compacta de días: `[1,2,3,4,5,6]` → «Lu–Sá», `[1,3,5]` → «Lu, Mi, Vi», los 7 → «Todos los días». */
-export function formatWeekdays(days: number[]): string {
+function formatWeekdays(days: number[]): string {
   const unique = [...new Set(days)].filter((day) => day >= 0 && day <= 6);
   if (unique.length === 0) return "Sin días";
   if (unique.length === 7) return "Todos los días";

@@ -64,7 +64,7 @@ export type ApiProduct = {
   category_id: string | null;
 };
 
-export const productTones = ["warm", "light", "deep", "classic"] as const;
+const productTones = ["warm", "light", "deep", "classic"] as const;
 
 /** Normaliza un producto de la API al modelo que usan las pantallas. */
 export function mapApiProduct(row: ApiProduct, index: number, categories: Map<string, string> = new Map()): Product {

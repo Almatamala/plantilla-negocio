@@ -58,18 +58,6 @@ class CategoryOut(CategoryIn, ORMModel):
     created_at: datetime
 
 
-class VariantIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    price: int | None = Field(default=None, ge=0)
-    inventory: int = Field(default=0, ge=0)
-    sku: str | None = Field(default=None, max_length=80)
-
-
-class VariantOut(VariantIn, ORMModel):
-    id: str
-    product_id: str
-
-
 class ProductIn(BaseModel):
     category_id: str | None = None
     name: str = Field(min_length=1, max_length=180)
@@ -83,17 +71,12 @@ class ProductIn(BaseModel):
     status: ProductStatus = "draft"
     inventory: int = Field(default=0, ge=0)
     allow_backorder: bool = False
-    sku: str | None = Field(default=None, max_length=80)
-    seo_title: str | None = Field(default=None, max_length=160)
-    seo_description: str | None = Field(default=None, max_length=320)
-    variants: list[VariantIn] = Field(default_factory=list)
 
 
 class ProductOut(ProductIn, ORMModel):
     id: str
     created_at: datetime
     updated_at: datetime
-    variants: list[VariantOut] = Field(default_factory=list)
 
 
 class TimeSlotIn(BaseModel):
@@ -201,7 +184,6 @@ class ReviewStatusPatch(BaseModel):
 
 class OrderItemIn(BaseModel):
     product_id: str | None = None
-    variant_id: str | None = None
     name: str = Field(min_length=1, max_length=180)
     unit_price: int = Field(ge=0)
     quantity: int = Field(gt=0)
@@ -249,15 +231,6 @@ class OrderOut(ORMModel):
     items: list[OrderItemOut] = Field(default_factory=list)
     time_slot_label: str | None = None
     shipping_zone_name: str | None = None
-
-
-class PageIn(BaseModel):
-    slug: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=160)
-    title: str = Field(min_length=1, max_length=180)
-    content: str = ""
-    seo_title: str | None = Field(default=None, max_length=160)
-    seo_description: str | None = Field(default=None, max_length=320)
-    published: bool = False
 
 
 class SettingsIn(BaseModel):

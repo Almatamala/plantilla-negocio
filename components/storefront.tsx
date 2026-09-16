@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Package, Plus, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useCart } from "@/lib/cart";
+import { loadCached } from "@/lib/offline-cache";
 import { formatPrice, mapApiProduct, stockLabel, type ApiProduct, type Product } from "@/lib/products";
-import { mergeSettings, storeConfig, type ApiSettings, type StoreConfig } from "@/lib/store-config";
+import { useStoreSettings } from "@/lib/use-store-settings";
 import { CartDrawer } from "@/components/cart-drawer";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
@@ -23,29 +24,20 @@ async function fetchCatalog(): Promise<Product[]> {
 
 export function Storefront({ products }: { products: Product[] }) {
   const [catalog, setCatalog] = useState(products);
-  const [config, setConfig] = useState<StoreConfig>(storeConfig);
+  const config = useStoreSettings();
   const [drawer, setDrawer] = useState(false);
   const [search, setSearch] = useState("");
   const { cart, add, change, count } = useCart();
 
-  useEffect(() => {
-    apiFetch<ApiSettings>("/api/settings")
-      .then((data) => setConfig((current) => mergeSettings(current, data)))
-      .catch(() => undefined);
-  }, []);
-
-  // Los productos demo solo son el punto de partida: si la API responde, manda la API.
-  const applyCatalog = useCallback((items: Product[]) => {
-    if (items.length) setCatalog(items);
-  }, []);
-
+  // Los productos demo solo son el punto de partida: manda la API y, si no responde, lo último
+  // guardado en este navegador (ver `lib/offline-cache.ts`).
   useEffect(() => {
     let active = true;
-    fetchCatalog()
-      .then((items) => { if (active) applyCatalog(items); })
-      .catch(() => undefined);
+    void loadCached("catalog", fetchCatalog).then(({ value }) => {
+      if (active && value?.length) setCatalog(value);
+    });
     return () => { active = false; };
-  }, [applyCatalog]);
+  }, []);
 
   const visible = catalog.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.category.toLowerCase().includes(search.toLowerCase()));
   const addToCart = (id: string) => { add(id); setDrawer(true); };

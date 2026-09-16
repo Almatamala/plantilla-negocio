@@ -4,8 +4,26 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--cream); color: var(--ink); font-family: Arial, sans-serif; }
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 .display { font-family: Georgia, serif; }
+
+/*
+ * Selects de la tienda y del panel.
+ * Chrome dibuja su propia flecha y la resalta en azul al pasar el mouse: ese brillo no respeta las
+ * esquinas redondeadas del campo y desentona con la estética. Acá se oculta el widget nativo
+ * (`appearance: none`), se dibuja una flecha propia del mismo verde de la marca y el estado se
+ * marca en el borde (`hover`/`focus`), igual que el botón del filtro de precio del panel.
+ */
+select.select-field {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23243128' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 0.9rem;
+  padding-right: 2rem;
+  cursor: pointer;
+}
 .hero-visual { background: radial-gradient(circle at 78% 26%, #f4d8c4 0 7%, transparent 7.5%), radial-gradient(circle at 65% 60%, #86a091 0 17%, transparent 17.5%), radial-gradient(circle at 87% 67%, #d49a8d 0 13%, transparent 13.5%), linear-gradient(130deg, #e9ddc9 0%, #bbcabb 100%); }
 .product-visual { background: linear-gradient(145deg, #eee6d7, #c8d6c5); }
 .product-visual[data-tone="warm"] { background: linear-gradient(145deg, #f2d9c8, #d59486); }
