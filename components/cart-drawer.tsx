@@ -32,15 +32,15 @@ export function CartDrawer({
     <AnimatePresence>
       {open && (
         <>
-          <motion.button aria-label="Cerrar carrito" onClick={onClose} className="fixed inset-0 z-30 bg-[#243128]/25" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}/>
-          <motion.aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-[#faf7f0] p-6 shadow-2xl" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", stiffness: 330, damping: 32 }}>
+          <motion.button aria-label="Cerrar carrito" onClick={onClose} className="fixed inset-0 z-30 bg-[#401a04]/25" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}/>
+          <motion.aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-white p-6 text-[#401a04] shadow-2xl" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", stiffness: 330, damping: 32 }}>
             <div className="flex items-center justify-between">
               <h2 className="display text-3xl">Tu carrito</h2>
               <button onClick={onClose} aria-label="Cerrar"><X/></button>
             </div>
             <div className="mt-8 flex-1 space-y-5 overflow-auto">
-              {count === 0 ? <p className="text-[#647167]">Aún no agregas productos a tu carrito.</p> : lines.map((product) => (
-                <div key={product.id} className="flex gap-4 border-b border-[#d9d6cd] pb-5">
+              {count === 0 ? <p className="text-[#846851]">Aún no agregas productos a tu carrito.</p> : lines.map((product) => (
+                <div key={product.id} className="flex gap-4 border-b border-[#d7cdc1] pb-5">
                   <div data-tone={product.tone} className="product-visual h-20 w-16 shrink-0"/>
                   <div className="flex-1">
                     <div className="flex justify-between">
@@ -55,13 +55,13 @@ export function CartDrawer({
                   </div>
                 </div>
               ))}
-              {missing > 0 && <p className="rounded-lg bg-[#fdf6e8] p-3 text-xs text-[#6b5320]">No pudimos mostrar {missing} {missing === 1 ? "producto" : "productos"} del carrito. Vuelve a la tienda e inténtalo nuevamente.</p>}
+              {missing > 0 && <p className="rounded-lg bg-[#f6e3d3] p-3 text-xs text-[#8a5a2c]">No pudimos mostrar {missing} {missing === 1 ? "producto" : "productos"} del carrito. Vuelve a la tienda e inténtalo nuevamente.</p>}
             </div>
             {count > 0 && (
-              <div className="border-t border-[#243128] pt-5">
+              <div className="border-t border-[#808c6d] pt-5">
                 <div className="mb-4 flex justify-between"><span>Total</span><span className="display text-xl">{formatPrice(total)}</span></div>
-                <Link href="/checkout" className="block w-full bg-[#243128] py-4 text-center text-sm text-white">Continuar al checkout</Link>
-                <p className="mt-3 text-center text-xs text-[#647167]">Elige punto de retiro, día, horario y forma de pago.</p>
+                <Link href="/checkout" className="block w-full bg-[#808c6d] py-4 text-center text-sm text-white">Continuar al checkout</Link>
+                <p className="mt-3 text-center text-xs text-[#846851]">Elige punto de retiro, día, horario y forma de pago.</p>
               </div>
             )}
           </motion.aside>

@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Basado en:** RPD.md v1.2
-**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-16 (ajustes del dueño: ver §0.6, §0.7, §0.8, §0.9, §0.10 y §9)
+**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-21 (ajustes del dueño: ver §0.6, §0.7, §0.8, §0.9, §0.10, §0.11 y §9)
 **Estado:** Propuesta para aprobación del dueño
 
 ---
@@ -25,7 +25,7 @@
 | D8 Orden de pagos | Transferencia primero (confirmación manual); Webpay en fase posterior |
 | D9 WhatsApp | v1: enlace `wa.me` (botón flotante); notificación automática se evalúa aparte |
 | D10 Comentarios | Anónimos, con moderación del admin antes de publicar |
-| D11 Instagram | v1: sección con enlace oficial; embed real queda como mejora |
+| D11 Instagram | **RESUELTA (§0.11, D23):** sección al final de la página principal con el **iframe de un widget de terceros** (solo publicaciones, ancho completo) configurable desde el panel; el footer conserva su enlace |
 | D12 Panel móvil | Drawer de navegación en el admin para pantallas pequeñas |
 
 - ⚠️ **Regla del proyecto (AGENTS.md):** antes de escribir cualquier código, el implementador debe leer
@@ -225,7 +225,7 @@ actual, con las dos decisiones nuevas que traen (**D14** y **D15**):
 | # | Decisión | Resolución | Impacto |
 |---|---|---|---|
 | **D14** | Confirmación de cuenta | **Confirmación por correo obligatoria** con **código temporal de 6 dígitos** (vence a los 15 min; máx. 3 reenvíos, espera de 60 s entre envíos y 5 intentos por código). El código se guarda **hasheado**. Las cuentas de **Google entran confirmadas** y las ya existentes también (migración). Proveedor: **Resend** | Schema `profiles`, endpoints de auth, `/login`, `.env` |
-| **D15** | Referencia de diseño | **https://simplysweet.cl** como referencia de estructura/UX para **ficha de producto** (header/footer, sin «Volver a la tienda») y **checkout** (misma estructura, mismos campos). No se copia contenido ni marca | Ficha de producto, checkout |
+| **D15** | Referencia de diseño | **https://simplysweet.cl** como referencia de estructura/UX para **ficha de producto** (header/footer, sin «Volver a la tienda»), **checkout** (misma estructura, mismos campos) y —desde §0.11— su apartado de **productos destacados** en el catálogo de la página principal. **https://www.studiopasacademy.com** es la referencia de la sección de **Instagram**. No se copia contenido ni marca | Ficha de producto, checkout, catálogo |
 
 ### Proveedor de correo para D14
 
@@ -441,6 +441,48 @@ Se midió el alcance real y se ajustó lo implementado primero (el costo sigue a
 
 ---
 
+## 0.11 Actualización — Ajustes del dueño (2026-09-21)
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+`pytest` **41/41**; y probado **de punta a punta contra la API dockerizada** — `docker compose -f
+docker-compose.backend.yml up --build -d`, `ALTER TABLE` de la columna nueva aplicado, `PUT /api/settings`
+con `X-Admin-Token` guardando la URL del widget y el `GET` público devolviéndola). Cuatro puntos sobre el
+código actual, con dos decisiones nuevas (**D23** y **D24**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A22** | Con **más de una foto** en la ficha, poder moverse entre imágenes con **dos botones** (izquierda y derecha) sobre la foto principal | La ficha ya mostraba una **fila de miniaturas** (`components/product-detail.tsx`) para cambiar de foto, pero con varias imágenes obligaba a apuntar a cada miniatura | Se agregan **flechas** superpuestas a la foto principal (`ChevronLeft`/`ChevronRight`) que avanzan y **dan la vuelta** al llegar al final, además de las miniaturas. El índice visible se deriva de la galería, así que las flechas y las miniaturas quedan sincronizadas | **F1.1** |
+| **A23** | Agregar las **últimas historias de Instagram** al final del body, como en https://www.studiopasacademy.com, **a ancho completo** y mostrando **solo las publicaciones** | El plan solo contemplaba la sección v1 de **D11** (enlace oficial en el footer); RPD §3.5 registraba «Feed de Instagram: no existe». El **embed oficial del perfil** muestra un encabezado con el avatar y no se puede ensanchar más allá de su tarjeta (~540 px), y la API pública de Instagram responde **429** al consultarla desde el servidor (probado): el embed oficial no cumple el pedido | **D23.** `components/instagram-feed.tsx` (nuevo): sección al final de la página principal que pinta **solo** el **iframe de un widget de terceros** (solo publicaciones, **de borde a borde** de la pantalla) con el código o la URL que se pega en el panel (Contenido › «Instagram — código o URL del widget»). **Sin encabezado ni enlace al perfil** (el propio widget ya lleva a Instagram). Acepta la URL pelada o el fragmento `<iframe src="…" height="…">` del proveedor y **respeta la altura sugerida** (acotada entre 400 y 1600 px). Sin widget, la sección no se dibuja | **F3.2** |
+| **A24** | Copiar el apartado de **productos destacados/más vendidos** de https://simplysweet.cl al catálogo de la página principal, **manteniendo los filtros arriba** y **quitando** la categoría debajo de la carta y la descripción debajo del `<h3>` | La tarjeta mostraba categoría, nombre, descripción y precio en un bloque; la referencia usa tarjetas limpias (foto, nombre y precio) bajo el título «Productos Destacados» | **D15** (referencia ampliada a la carta). `components/storefront.tsx`: el catálogo pasa a titularse «Productos destacados», los **filtros de categoría se mantienen arriba** del grid y la tarjeta queda **solo con foto, nombre y precio**, sin categoría ni descripción. **Ajuste de espaciado y forma (misma fecha):** más aire entre tarjetas (`gap-x-8 gap-y-10`), foto con **esquinas redondeadas** (`rounded-2xl`) y **precio bajo el nombre**, alineado a la izquierda, en lugar del bloque lateral | **F1.10** |
+| **A25** | Aplicar la **paleta** `#D7CDC1`, `#D9B391`, `#846851`, `#401A04`, `#808C6D` (con blanco/negro de apoyo) a la página para que se vea elegante y armónica, **solo en la página principal y la ficha**, con **#808C6D como color principal de la marca** | La identidad era verde/moss (`--ink #243128`, `--moss #56745c`, `--cream #faf7f0`) y el header/footer (`components/store-shell.tsx`) se **comparten** con `/checkout` y `/cuenta`, que deben quedar fuera del cambio | **D24.** `app/globals.css` gana la clase `theme-bosque` (variables + visuales cálidos de hero/producto, que **no** tocan panel ni checkout). El `<main>` de la tienda y la ficha la usan; `StoreHeader`/`StoreFooter` reciben la prop **`warm`** y `components/cart-drawer.tsx` se retematiza (solo se usa en esas dos vistas). **El verde salvia `#808C6D` es el acento protagónico:** anuncio, botones y enlaces principales, filtros, botón de agregar al carrito, sección de historia y el botón de Instagram; el marrón `#401A04` queda como tinta y bloques oscuros. Los indicadores de stock conservan su semántica verde/ámbar/rojo por ser funcionales | **F2.17** |
+
+### Decisiones nuevas
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D23** | Feed de Instagram | **Widget de terceros con iframe** (SociableKIT, SnapWidget, EmbedSocial…) para mostrar **solo las publicaciones de borde a borde**, con el código o la URL del iframe pegada en el panel (Contenido). Evita el token de Meta y también el scrapeo desde el servidor (la API pública devuelve 429). Actualiza **D11**: el embed oficial del perfil queda descartado (no se puede ensanchar ni ocultar su encabezado) y el feed con token de Meta sigue disponible como alternativa | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `storefront.tsx`, panel (Contenido) |
+| **D24** | Identidad visual (paleta) | La paleta cálida (**#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D**, más blanco y negro de apoyo) viste **solo la página principal y la ficha de producto**. Como el header/footer se comparten con `/checkout` y `/cuenta`, se aplica con la clase `theme-bosque` sobre el `<main>` de esas dos vistas y la prop `warm` del header/footer, de modo que el checkout y la cuenta **no** cambian | `globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
+
+### Estado: IMPLEMENTADO (2026-09-21)
+
+- **A22 (F1.1):** `components/product-detail.tsx` con flechas anterior/siguiente sobre la foto principal (`goTo` con vuelta al inicio) además de las miniaturas.
+- **A23 (F3.2):** `store_settings.instagram_embed_url` (nueva columna, con `ALTER TABLE … ADD COLUMN IF NOT EXISTS` al arrancar en PostgreSQL), campo en Contenido y `components/instagram-feed.tsx` montado antes del footer de la tienda. La sección muestra **solo el iframe del widget** (se quitaron el encabezado y el enlace al perfil que se habían agregado primero, por ser redundantes con el propio widget) y es **puramente el widget**: sin fondo, sin padding y sin contenedores intermedios, para que la grilla llegue de borde a borde.
+- **A24 (F1.10):** `components/storefront.tsx` con el catálogo «Productos destacados»: filtros arriba y tarjeta de foto + nombre + precio.
+- **A25 (F2.17):** `app/globals.css` (`theme-bosque`), `components/store-shell.tsx` (prop `warm`), `components/storefront.tsx`, `components/product-detail.tsx` y `components/cart-drawer.tsx` con la paleta cálida y el salvia como acento principal.
+- **Bug encontrado al probar el campo nuevo (GET `/api/settings`):** en una instalación nueva la fila de `store_settings` no existe y el endpoint devolvía `StoreSettings(id=True)` sin `name` ni `updated_at`, así que **el GET fallaba con 500** hasta que alguien guardara desde el panel. Ahora la primera lectura **crea la fila con sus valores por defecto** (patrón singleton). Cubierto con una prueba en `backend/tests/test_api.py`.
+
+**Nota de mantenimiento (fuera del tema visual):** los `.pyc` de `backend/**/__pycache__` estaban **versionados** en git, así que correr `pytest` ensuciaba el diff. Ya estaban cubiertos por `.gitignore`; se les quitó el seguimiento con `git rm -r --cached` (los archivos siguen en disco).
+
+**Pendientes de esta tanda:**
+
+1. **Widget de Instagram configurado (2026-09-21):** el dueño creó el widget en **SociableKIT** (plan gratis) y su iframe (`instagram-feed/iframe/25715804`, altura sugerida 1000 px) quedó cargado en `store_settings.instagram_embed_url`. Verificado de punta a punta: la API lo devuelve, la sección lo renderiza **de borde a borde** (`block w-full`, sin `max-w-7xl`) y el iframe del proveedor responde 200.
+2. **Reconstruir la imagen de la API antes de desplegar** (ver §0.5): la columna `instagram_embed_url` se agrega con `ALTER TABLE` al arrancar; sin rebuild, guardar el contenido desde el panel falla con 404/422.
+3. **Revisar la paleta contra la referencia** en móvil y escritorio: los tonos cálidos se aplican a la tienda y la ficha, mientras `/checkout` y `/cuenta` conservan el verde anterior; si el dueño prefiere uniformar, es un cambio de una línea por pantalla.
+
+> **Widget de Instagram — costo de los planes gratis:** los planes gratuitos limitan las vistas mensuales (Elfsight 200, Taggbox 500, SociableKIT/CollectSocials 2.000); al agotarlas el widget deja de mostrarse. Si la tienda crece, el salto es a un plan pago (SociableKIT desde ~$10/mes con vistas ilimitadas).
+
+---
+
 ## 1. Resumen de fases
 
 | Fase | Nombre | Entregable | Estimación | Decisiones requeridas |
@@ -631,7 +673,19 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
   maquetar.
 - **Criterio:** desde la carta se entra a la ficha y el header/footer se mantienen idénticos; no queda
   ningún «Volver a la tienda»; el carrito y su contador funcionan entre páginas.
-- **Estado:** IMPLEMENTADO (ver §0.6).
+- **Ajuste A22 (2026-09-21):** con **más de una foto**, la ficha muestra **flechas izquierda/derecha**
+  sobre la foto principal (además de las miniaturas) que avanzan y dan la vuelta al llegar al final.
+- **Estado:** IMPLEMENTADO (ver §0.6; flechas de la galería en §0.11).
+
+### F1.10 — Catálogo «Productos destacados» en la página principal (A24, D15)
+- **Archivos:** `components/storefront.tsx`.
+- **Referencia:** el apartado de **productos destacados/más vendidos** de https://simplysweet.cl (§9).
+- **Pasos:** titular el catálogo «Productos destacados», **mantener los filtros de categoría arriba** del
+  grid y dejar la tarjeta **solo con foto, nombre y precio**: quitar la **categoría** que iba debajo de la
+  carta y la **descripción** que iba debajo del `<h3>`. Es un cambio de presentación, no de datos.
+- **Criterio:** la carta muestra las tarjetas limpias bajo el título, con los filtros y el buscador
+  funcionando igual que antes.
+- **Estado:** IMPLEMENTADO (ver §0.11).
 
 > **Gate F1:** `npx tsc --noEmit`, `npm run lint`, `npm run build` OK + revisión del dueño (flujo
 > cliente completo en móvil y desktop).
@@ -787,6 +841,18 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
   comporta como el botón del filtro de precio (borde que se oscurece).
 - **Estado:** IMPLEMENTADO (ver §0.9).
 
+### F2.17 — Paleta cálida en página principal y ficha (A25, D24)
+- **Archivos:** `app/globals.css`, `components/store-shell.tsx`, `components/storefront.tsx`,
+  `components/product-detail.tsx`, `components/cart-drawer.tsx`.
+- **Pasos:** definir la paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (con blanco y negro de
+  apoyo) en la clase `theme-bosque` de `globals.css` —incluidos los visuales de hero y producto— y
+  aplicarla al `<main>` de la tienda y la ficha. Como el header/footer se comparten con `/checkout` y
+  `/cuenta`, agregar la prop **`warm`** a `StoreHeader`/`StoreFooter` en lugar de cambiar la identidad
+  global. Los indicadores de stock conservan su semántica verde/ámbar/rojo.
+- **Criterio:** la página principal y la ficha se ven en la paleta cálida (header, footer, secciones,
+  tarjetas y carrito lateral) mientras `/checkout` y `/cuenta` mantienen los tonos anteriores.
+- **Estado:** IMPLEMENTADO (ver §0.11).
+
 > **Gate F2:** flujo completo de compra probado (transferencia y, si aplica, Webpay en TBK) + panel en
 > celular + `npm run build` OK.
 
@@ -804,10 +870,17 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 - **Estimación:** 2–4 días (depende del proveedor).
 
 ### F3.2 — Feed de Instagram
-- **Pasos:** según D11: v1 sección estática/enlace en el footer; mejora: embed con token de Meta
-  (considerar caducidad del token).
-- **Criterio:** el footer muestra el enlace oficial (y el embed si se aprueba).
+- **Archivos:** `components/instagram-feed.tsx` (nuevo), `components/storefront.tsx`,
+  `backend/app/models.py`, `backend/app/schemas.py`, `backend/app/main.py`, `components/admin-dashboard.tsx`.
+- **Pasos:** según **D11/D23**: sección al final de la página principal con el **iframe de un widget de
+  terceros** (solo publicaciones, ancho completo), configurado con la URL que se pega en Contenido, más un
+  botón con el glifo de Instagram al perfil. El footer conserva su enlace y el feed con token de Meta queda
+  como alternativa.
+- **Criterio:** con la URL del widget configurada, la página principal muestra «Nuestras últimas historias»
+  con las publicaciones a ancho completo; sin widget, solo el botón al perfil; sin perfil ni widget, la
+  sección no aparece.
 - **Estimación:** 0.5–2 días.
+- **Estado:** IMPLEMENTADO (2026-09-21, ver §0.11).
 
 ### F3.3 — Comentarios de clientes por producto
 - **Pasos:** tabla `reviews` (product_id, autor, rating, comentario, status `pending`/`approved`) + RLS;
@@ -927,6 +1000,15 @@ de Shopify**, y esa es la estructura que se replica.
 4. **Cómo seguir usándola:** abrirla en el navegador (móvil y escritorio) antes de tocar estas pantallas y
    anotar aquí cualquier ajuste fino que falte (orden de los pasos, textos del resumen, tratamiento de las
    fotos en la ficha).
+5. **Catálogo de productos destacados (A24, §0.11):** se adopta su apartado de **productos
+   destacados/más vendidos**: título sobre el grid, **filtros de categoría arriba** y tarjetas **solo con
+   foto, nombre y precio** (sin categoría ni descripción).
+6. **Instagram (A23, §0.11):** la referencia para esa sección es **https://www.studiopasacademy.com**:
+   las últimas publicaciones al final del body, de borde a borde y sin encabezado de perfil, resueltas con
+   el **iframe de un widget de terceros** (D23). **Qué usa la referencia:** sus widgets son de **Elfsight**
+   (`phosphor.utils.elfsightcdn.com` en las imágenes de los posts y en el widget de reseñas de Google); el
+   sitio está hecho en WordPress (Elementor + WooCommerce). Ojo con el plan gratis de Elfsight: tope de
+   ~200 vistas/mes, frente a las ~2.000 de SociableKIT.
 
 > El contenido del sitio se renderiza en el cliente, así que no se puede extraer con herramientas
 > automáticas: lo verificable fue su plataforma (Shopify) y, con eso, la estructura de su checkout.

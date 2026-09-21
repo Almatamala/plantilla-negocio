@@ -29,3 +29,21 @@ select.select-field {
 .product-visual[data-tone="warm"] { background: linear-gradient(145deg, #f2d9c8, #d59486); }
 .product-visual[data-tone="deep"] { background: linear-gradient(145deg, #486454, #263c34); }
 .product-visual[data-tone="light"] { background: linear-gradient(145deg, #f5f0e7, #cbd8cf); }
+
+/*
+ * Paleta cálida de la tienda (página principal y ficha de producto).
+ *
+ * El dueño pidió que estos tonos —#D7CDC1, #D9B391, #846851, #401A04 y #808C6D, con blanco y negro de
+ * apoyo— vistieran la página principal y la ficha, **sin** tocar el checkout ni la cuenta. Como el
+ * header/footer (`store-shell.tsx`) se comparten entre esas pantallas, el tema se aplica con la clase
+ * `theme-bosque` sobre el `<main>` de esas dos vistas y el header/footer recibe la prop `warm`.
+ * Los visuales de relleno (hero y product-visual) se redefinen solo dentro del tema para que el panel
+ * y el checkout conserven los suyos.
+ */
+.theme-bosque { --ink: #401a04; --moss: #846851; --cream: #ffffff; background: var(--cream); color: var(--ink); }
+.theme-bosque .hero-visual { background: radial-gradient(circle at 78% 26%, #d9b391 0 7%, transparent 7.5%), radial-gradient(circle at 65% 60%, #808c6d 0 17%, transparent 17.5%), radial-gradient(circle at 87% 67%, #846851 0 13%, transparent 13.5%), linear-gradient(130deg, #d7cdc1 0%, #d9b391 100%); }
+.theme-bosque .product-visual { background: linear-gradient(145deg, #e7dfd5, #d7cdc1); }
+.theme-bosque .product-visual[data-tone="warm"] { background: linear-gradient(145deg, #e3c3a6, #d9b391); }
+.theme-bosque .product-visual[data-tone="deep"] { background: linear-gradient(145deg, #846851, #401a04); }
+.theme-bosque .product-visual[data-tone="light"] { background: linear-gradient(145deg, #efe9e1, #d7cdc1); }
+.theme-bosque .product-visual[data-tone="classic"] { background: linear-gradient(145deg, #d7cdc1, #808c6d); }

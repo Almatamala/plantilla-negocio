@@ -91,6 +91,13 @@ PROFILE_VERIFICATION_COLUMNS = (
     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
 )
 
+# Contenido de la tienda: la URL del iframe del widget de Instagram (D23) vive junto a los demás
+# ajustes editables de `store_settings`; `create_all` no altera tablas existentes, así que se agrega al
+# arrancar en PostgreSQL.
+STORE_CONTENT_COLUMNS = (
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS instagram_embed_url VARCHAR(500)",
+)
+
 VERIFICATION_TTL_MINUTES = 15
 VERIFICATION_RESEND_SECONDS = 60
 VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
@@ -115,6 +122,8 @@ async def lifespan(_: FastAPI):
             for column in LEGACY_PRODUCT_COLUMNS:
                 connection.execute(text(f"ALTER TABLE products DROP COLUMN IF EXISTS {column}"))
             for statement in PROFILE_VERIFICATION_COLUMNS:
+                connection.execute(text(statement))
+            for statement in STORE_CONTENT_COLUMNS:
                 connection.execute(text(statement))
             for statement in AGENDA_COLUMNS:
                 connection.execute(text(statement))
@@ -762,7 +771,11 @@ async def upload_image(file: UploadFile = File(...)):
 
 @app.get("/api/settings", response_model=SettingsOut)
 def get_store_settings(db: Session = Depends(get_db)):
-    return db.get(StoreSettings, True) or StoreSettings(id=True)
+    # La fila de ajustes es única y puede no existir todavía en una instalación nueva. Si falta se crea
+    # con sus valores por defecto: antes se devolvía un objeto sin `name` ni `updated_at` y el GET
+    # fallaba con 500 hasta que alguien guardara desde el panel.
+    exists = db.get(StoreSettings, True)
+    return exists if exists is not None else commit(db, StoreSettings(id=True))
 
 
 @app.put("/api/settings", response_model=SettingsOut, dependencies=[Depends(require_admin)])

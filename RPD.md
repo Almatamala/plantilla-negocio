@@ -1,8 +1,8 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.6
-**Fecha:** 2026-09-16
+**Versión del documento:** 1.7
+**Fecha:** 2026-09-21
 **Estado:** Borrador para revisión del dueño del producto
 
 ---
@@ -277,6 +277,44 @@ imagen de la API**, porque el Dockerfile copia el código en lugar de montarlo.
 
 ---
 
+## 1.9 Actualización v10 — Ajustes del dueño (2026-09-21)
+
+**Implementado y verificado** (`tsc`, `lint`, `build`, `pytest` 41/41 y prueba de punta a punta contra la
+API dockerizada: `ALTER TABLE` de la columna nueva aplicado y `PUT`/`GET /api/settings` guardando y
+devolviendo la URL del widget). Detalle por tarea en **PLAN §0.11**. Cuatro puntos sobre el código actual,
+con dos decisiones nuevas (**D23** y **D24**):
+
+1. **Ficha — moverse entre fotos con comodidad (F1.1, D1).** La galería ya traía miniaturas, pero con
+   varias fotos obligaba a apuntar a cada una. Se agregan **flechas izquierda/derecha** sobre la foto
+   principal que avanzan y dan la vuelta al llegar al final, en escritorio y en móvil, además de las
+   miniaturas que ya existían.
+2. **Feed de Instagram (D23, §3.5).** Este documento registraba «❌ Feed de Instagram: no existe» y D11
+   dejaba abierto *embed real con token* vs. *enlace/gráfica estática*. El dueño pidió las últimas
+   historias **al final de la página principal**, **de borde a borde** de la pantalla y **solo las
+   publicaciones**, como en la referencia https://www.studiopasacademy.com. El **embed oficial del perfil** no sirve para eso: no se
+   puede ensanchar más allá de su tarjeta (~540 px) ni ocultar el encabezado del perfil, y scrapear la API
+   pública desde el servidor responde **429** (probado). Se resuelve con el **iframe de un widget de
+   terceros** (D23) que se configura con el **código o la URL** en el panel (respeta la altura sugerida).
+   **Solo se pinta el iframe**: sin encabezado ni enlace al perfil, porque el propio widget ya muestra las
+   publicaciones y lleva a Instagram. Sin widget, la sección no se dibuja.
+3. **Catálogo principal como «Productos destacados» (D15, F1.10).** Con https://simplysweet.cl como
+   referencia, la carta de la página principal adopta su apartado de **productos destacados/más vendidos**:
+   se **mantienen los filtros arriba**, la tarjeta queda **solo con foto, nombre y precio** —se quita la
+   **categoría** que iba debajo de la carta y la **descripción** que iba debajo del `<h3>`— y el listado se
+   titula «Productos destacados». Es un cambio de **estructura visual**, no de datos.
+4. **Paleta cálida (D24).** El dueño entregó los tonos **#D7CDC1, #D9B391, #846851, #401A04 y #808C6D**
+   (con blanco/negro de apoyo) para que la página se vea elegante y armónica, **solo en la página
+   principal y la ficha**. Como el header/footer se comparten con `/checkout` y `/cuenta`, el tema se
+   aplica con la clase `theme-bosque` sobre el `<main>` de esas dos vistas y el header/footer recibe una
+   prop `warm`; el checkout y la cuenta **conservan** la identidad anterior. Los indicadores de stock
+   mantienen su semántica (verde/ámbar/rojo) por ser funcionales, no decorativos.
+
+**Nota de mantenimiento:** los `.pyc` de `backend/**/__pycache__` estaban **versionados** en git, así que
+correr `pytest` ensuciaba el diff. Ya estaban cubiertos por `.gitignore`; se les quitó el seguimiento con
+`git rm -r --cached` (los archivos siguen en disco).
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
@@ -417,7 +455,7 @@ imagen de la API**, porque el Dockerfile copia el código en lugar de montarlo.
 
 - ✅ Sección "Nuestra Historia": existe, pero con textos hardcodeados en `lib/store-config.ts`; la
   sección **Contenido** del admin es una tarjeta placeholder (no edita nada).
-- ❌ **Feed de Instagram**: no existe.
+- ✅ **Feed de Instagram**: existe desde v10 (**D23**, §1.9). Al final de la página principal se muestra, a ancho completo, el **iframe de un widget de terceros** con **solo las publicaciones**, configurado con una URL en el panel, más un botón con el glifo de Instagram al perfil. Sin token de Meta.
 - ⚠️ **Panel auto-gestionable**: el admin funciona en desktop, pero **en celular el menú lateral está
   oculto** (`hidden md:block`) sin alternativa → contradice directamente el requisito "gestionar desde el
   celular, ipad, computador".
@@ -427,8 +465,10 @@ imagen de la API**, porque el Dockerfile copia el código en lugar de montarlo.
 
 **Conflictos y decisiones:**
 
-1. **Feed de Instagram**: un embed real requiere cuenta comercial + token de Meta (caduca, frágil). La
-   alternativa barata es una grilla estática o enlace directo. → **Decidir** si vale el embed real.
+1. **Feed de Instagram (resuelto, D23)**: un embed real con token de Meta requiere cuenta comercial y
+   caduca (frágil); el embed oficial del perfil no se puede ensanchar ni ocultar su encabezado, y la API
+   pública bloquea el scrapeo (429). Se resolvió con el **iframe de un widget de terceros** configurado
+   desde el panel, que cubre la expectativa de la referencia sin manejar credenciales propias.
 2. **Comentarios**: ¿anónimos o con cuenta? ¿Moderados por el admin o publicados al instante? Requiere
    tabla `reviews` + RLS. Bajo costo, pero es "nice-to-have" → candidato a última fase.
 3. **Panel móvil**: rediseñar la navegación del admin (drawer o bottom nav) es trabajo transversal y
@@ -499,6 +539,13 @@ la tienda, agregan el respaldo de **última versión conocida** cuando la API no
 los **reportes** con las métricas de negocio aprobadas (**D21**) y quitan el brillo nativo de los selects
 del panel. Se reparten en **F2.11–F2.14** y **F3.4** sin reordenar las fases.
 
+**Ajustes del dueño v10 (§1.9):** agregan flechas a la galería de la ficha, la sección de **Instagram** al
+final de la página principal (widget de terceros con iframe, **D23**), adoptan el apartado de **productos
+destacados** de simplysweet.cl en la carta (filtros arriba, sin categoría ni descripción por tarjeta) y
+aplican la **paleta cálida** del dueño con el **salvia `#808C6D` como acento principal**, solo a la página
+principal y la ficha (**D24**). Se reparten en **F1.1**, **F1.10**, **F3.2** y **F2.17** sin reordenar las
+fases.
+
 **Ajustes del dueño v9 (§1.8):** limpian el código **duplicado o sin uso** (con la corrección del bug de
 subida de fotos que apareció en la revisión), convierten en piezas compartidas los patrones repetidos en
 cuatro pantallas (**hooks y tipos**) y **acotan el modelo de datos** retirando del backend lo que no se
@@ -521,7 +568,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D8 | Orden de pagos | Transferencia primero (manual) + Webpay en fase 2 | Esfuerzo, credenciales |
 | D9 | WhatsApp automático | API Meta Cloud vs. enlace `wa.me` manual | Costo, cuenta Business |
 | D10 | Comentarios | Anónimos vs. con cuenta; moderados vs. directos | Schema, RLS |
-| D11 | Instagram | Embed real (token) vs. enlace/gráfica estática | Mantención |
+| D11 | Instagram | **RESUELTA (v10, §1.9):** widget de terceros con **iframe** (solo publicaciones, ancho completo) configurado desde el panel; el embed oficial del perfil queda descartado y el feed con token de Meta sigue como alternativa | Tienda, panel (Contenido › Instagram) |
 | D12 | Alcance del panel móvil | Drawer/bottom-nav en admin | Trabajo transversal |
 | D13 | Protección del panel de administración | **RESUELTA E IMPLEMENTADA** (ver §1.2): sesión server-side en cookie httpOnly + `proxy.ts` por rol admin; login por correo/contraseña + Google | Arquitectura + seguridad |
 | D14 | Confirmación de cuenta | **RESUELTA E IMPLEMENTADA** (ver §1.4): código temporal de 6 dígitos por correo (Resend) | Schema `profiles`, auth, `/login` |
@@ -533,6 +580,8 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D20 | Modo sin conexión con la API | **RESUELTA E IMPLEMENTADA** (ver §1.7): **última versión conocida** guardada en el navegador (`localStorage` con clave versionada, 7 días) como respaldo de la **vidriera**; sin service worker ni PWA, **sin aplicarse al panel** y sin respaldar la agenda del checkout (ahí se avisa y se bloquea la confirmación) | Tienda, ficha de producto (y ajustes del header en `/cuenta`) |
 | D21 | Reportes del negocio | **RESUELTA E IMPLEMENTADA** (ver §1.7): métricas aprobadas por el dueño (ventas + ticket promedio, más/menos vendidos, sin ventas, puntos de retiro, día y franja, categorías y reposición) con **rango personalizado por meses enteros hasta un año** en reemplazo del filtro «Este mes»; la comparación con el período anterior queda solo en los presets de 7 y 30 días | Sección **Reportes** del panel |
 | D22 | Alcance del modelo de datos | **RESUELTA E IMPLEMENTADA** (ver §1.8): el producto es **uno por publicación** —sin variantes, sin SKU y sin campos SEO propios— y **no hay páginas editables**; el contenido editable vive en `store_settings` (F2.5). Se retiraron `product_variants` (y `order_items.variant_id`), `products.sku`/`seo_title`/`seo_description`, `pages` y `POST /api/pages` | `backend/app/models.py`, `schemas.py`, `main.py`, panel |
+| D23 | Feed de Instagram | **RESUELTA E IMPLEMENTADA** (ver §1.9): sección al final de la página principal que pinta **solo el iframe de un widget de terceros** (solo publicaciones, **de borde a borde**) con el código/URL guardado en `store_settings.instagram_embed_url` (widget de **SociableKIT** ya configurado). Evita el token de Meta y el scrapeo (429). Actualiza D11 | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `components/storefront.tsx`, panel (Contenido) |
+| D24 | Identidad visual (paleta) | **RESUELTA E IMPLEMENTADA** (ver §1.9): paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (más blanco/negro de apoyo) aplicada **solo a la página principal y la ficha de producto**; `/checkout` y `/cuenta` conservan la identidad anterior. Se implementa con la clase `theme-bosque` y la prop `warm` del header/footer | `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
 
 ---
 
@@ -555,7 +604,9 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 
 | Archivo | Rol |
 |---|---|
-| `app/page.tsx` / `components/storefront.tsx` | Tienda pública (catálogo, carrito, historia, footer) |
+| `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
+| `components/instagram-feed.tsx` | Sección de Instagram al final de la página principal: **solo** el iframe del widget de terceros (solo publicaciones, de borde a borde) (D23) |
+| `components/store-shell.tsx` | Header/footer compartidos; la prop `warm` aplica la paleta cálida solo en página principal y ficha (D24) |
 | `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |
 | `lib/products.ts` | Productos demo + `formatPrice` |
@@ -565,6 +616,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | `proxy.ts` | Protege `/admin` (rol admin) y redirige a logueados fuera de `/login` |
 | `app/api/auth/*` | Route handlers: login/registro, callback de Google, `/me`, logout (cookie httpOnly) |
 | `app/cuenta` | Página de cuenta dentro del layout de la tienda (header/footer): datos, teléfono por defecto, historial de pedidos, cerrar sesión |
+| `store_settings.instagram_embed_url` | Código o URL del iframe del widget de Instagram, editable en Contenido (D23) |
 | `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
 | `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (GOOGLE_*, ADMIN_EMAILS, AUTH_JWT_SECRET) |
 | `backend/tests/*` | Tests de la API local (40 pruebas: catálogo, órdenes, agenda, auth y correo) |

@@ -11,6 +11,23 @@ def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_store_settings_save_instagram_widget(client, admin_headers):
+    # La URL del widget de Instagram (D23) se guarda junto a los demás ajustes editables.
+    assert client.get("/api/settings").json()["instagram_embed_url"] is None
+
+    settings = client.get("/api/settings").json()
+    payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["instagram_url"] = "https://www.instagram.com/bosque"
+    payload["instagram_embed_url"] = "https://widget.example.com/iframe/123"
+
+    assert client.put("/api/settings", json=payload).status_code == 401
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["instagram_embed_url"] == "https://widget.example.com/iframe/123"
+    assert client.get("/api/settings").json()["instagram_embed_url"] == "https://widget.example.com/iframe/123"
+
+
 def test_admin_token_is_required(client):
     response = client.post("/api/categories", json={"name": "Catálogo", "slug": "catalogo"})
     assert response.status_code == 401
