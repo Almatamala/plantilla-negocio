@@ -28,6 +28,26 @@ def test_store_settings_save_instagram_widget(client, admin_headers):
     assert client.get("/api/settings").json()["instagram_embed_url"] == "https://widget.example.com/iframe/123"
 
 
+def test_store_settings_products_per_page(client, admin_headers):
+    # Productos por página del catálogo (D25): default 8, editable desde el panel junto al resto del
+    # contenido.
+    assert client.get("/api/settings").json()["products_per_page"] == 8
+
+    settings = client.get("/api/settings").json()
+    payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["products_per_page"] = 4
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["products_per_page"] == 4
+    assert client.get("/api/settings").json()["products_per_page"] == 4
+
+    # Un valor ridículo se rechaza en vez de guardarse (el frontend lo usa para cortar el catálogo).
+    payload["products_per_page"] = 0
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+
+
 def test_admin_token_is_required(client):
     response = client.post("/api/categories", json={"name": "Catálogo", "slug": "catalogo"})
     assert response.status_code == 401

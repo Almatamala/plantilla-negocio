@@ -179,6 +179,9 @@ class StoreSettings(Base):
     # URL del iframe de un widget de terceros (SnapWidget, SociableKIT, etc.) para mostrar solo las
     # últimas publicaciones de Instagram a ancho completo (D23). Se configura desde Contenido.
     instagram_embed_url: Mapped[Optional[str]] = mapped_column(String(500))
+    # Productos por página del catálogo «Productos destacados» (D25). Editable desde Contenido; el
+    # default son 8 (4 columnas × 2 filas).
+    products_per_page: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
     bank_account_info: Mapped[Optional[str]] = mapped_column(Text)
     announcement: Mapped[Optional[str]] = mapped_column(String(240))
     hero_title: Mapped[Optional[str]] = mapped_column(String(200))

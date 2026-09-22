@@ -87,9 +87,6 @@ export function StoreFooter({ config, warm = false }: { config: ShellConfig; war
           <p className="display text-3xl">{config.name}</p>
           <p className={`mt-3 text-sm ${warm ? "text-[#d7cdc1]" : "text-[#c8d1c4]"}`}>Una base para crear marcas con vida.</p>
         </div>
-        <div className="flex gap-6 text-sm">
-          {config.instagram_url && <a href={config.instagram_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-white"><AtSign size={15}/>Instagram</a>}
-        </div>
       </div>
     </footer>
   );

@@ -91,11 +91,12 @@ PROFILE_VERIFICATION_COLUMNS = (
     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
 )
 
-# Contenido de la tienda: la URL del iframe del widget de Instagram (D23) vive junto a los demás
-# ajustes editables de `store_settings`; `create_all` no altera tablas existentes, así que se agrega al
-# arrancar en PostgreSQL.
+# Contenido de la tienda: la URL del iframe del widget de Instagram (D23) y los productos por página del
+# catálogo (D25) viven junto a los demás ajustes editables de `store_settings`; `create_all` no altera
+# tablas existentes, así que se agregan al arrancar en PostgreSQL.
 STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS instagram_embed_url VARCHAR(500)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS products_per_page INTEGER NOT NULL DEFAULT 8",
 )
 
 VERIFICATION_TTL_MINUTES = 15

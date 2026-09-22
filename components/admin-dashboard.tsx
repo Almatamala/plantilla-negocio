@@ -576,19 +576,27 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
     name: storeConfig.name, announcement: storeConfig.announcement, hero_title: storeConfig.headline, hero_description: storeConfig.description,
     story_headline: storeConfig.storyHeadline, story_description: storeConfig.storyDescription, contact_email: "", contact_phone: "",
     whatsapp_phone: "", instagram_url: "", instagram_embed_url: "", bank_account_info: "",
+    products_per_page: String(storeConfig.products_per_page),
   });
   useEffect(() => {
-    apiFetch<typeof settings>("/api/settings").then((data) => setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", instagram_embed_url: data.instagram_embed_url ?? "", bank_account_info: data.bank_account_info ?? "" }))).catch(() => undefined);
+    apiFetch<typeof settings>("/api/settings").then((data) => setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", instagram_embed_url: data.instagram_embed_url ?? "", bank_account_info: data.bank_account_info ?? "", products_per_page: String(data.products_per_page ?? storeConfig.products_per_page) }))).catch(() => undefined);
   }, []);
   function set<K extends keyof typeof settings>(key: K, value: string) { setSettings((current) => ({ ...current, [key]: value })); }
   async function save(event: React.FormEvent) {
     event.preventDefault();
     try {
-      await apiFetch("/api/settings", { method: "PUT", admin: true, body: settings });
+      // La cantidad de productos por página se guarda como número en la API; si el campo queda vacío
+      // manda el default.
+      const body = {
+        ...settings,
+        products_per_page: Number(settings.products_per_page) || storeConfig.products_per_page,
+      };
+      await apiFetch("/api/settings", { method: "PUT", admin: true, body });
       setState("Contenido guardado. Refresca la tienda para ver los cambios.");
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo guardar."); }
   }
   const field = (key: keyof typeof settings, label: string, placeholder = "") => <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">{label}</span><input value={settings[key]} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>;
+  const numberField = (key: "products_per_page", label: string, max: number) => <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">{label}</span><input type="number" min={1} max={max} value={settings[key]} onChange={(e) => set(key, e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>;
   return (
     <form onSubmit={save} className="max-w-2xl space-y-4 rounded-xl bg-white p-5">
       <div><h2 className="display text-2xl">Contenido de la tienda</h2><p className="mt-2 text-sm text-[#647167]">Estos textos y datos se muestran en la tienda pública. Se guardan en la API (tabla store_settings).</p></div>
@@ -604,6 +612,7 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
         {field("whatsapp_phone", "WhatsApp (formato +569…)")}
         {field("instagram_url", "Instagram (URL del perfil)")}
         {field("instagram_embed_url", "Instagram — código o URL del widget (iframe, solo publicaciones)", "https://widgets.sociablekit.com/instagram-feed/iframe/000000")}
+        {numberField("products_per_page", "Productos por página en la vitrina", 48)}
       </div>
       <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Datos de transferencia bancaria</span><textarea value={settings.bank_account_info} onChange={(e) => set("bank_account_info", e.target.value)} rows={3} placeholder={"Banco, titular, RUT y número de cuenta"} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>
       <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">Guardar contenido</button>

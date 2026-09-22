@@ -1,7 +1,7 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.7
+**Versión del documento:** 1.8
 **Fecha:** 2026-09-21
 **Estado:** Borrador para revisión del dueño del producto
 
@@ -315,6 +315,19 @@ correr `pytest` ensuciaba el diff. Ya estaban cubiertos por `.gitignore`; se les
 
 ---
 
+## 1.10 Actualización v11 — Catálogo paginado (2026-09-21)
+
+**Implementado y verificado** (`pytest` 42/42; `tsc`, `lint` y `build` sin errores). Detalle por tarea en
+**PLAN §0.12**. Un punto sobre el código actual, con una decisión nueva (**D25**):
+
+1. **Productos destacados con página y transición (D25, F1.10).** El catálogo mostraba **todos** los
+   productos filtrados y el filtro los hacía desaparecer de golpe. Ahora son **8 por página** (4 columnas
+   × 2 filas, ajustable en Contenido) con **flechas de página** a la derecha de los filtros, y al filtrar
+   los que no coinciden **se desvanecen** mientras los que quedan **se juntan** (`framer-motion`: `layout`
+   + `AnimatePresence mode="popLayout"`).
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
@@ -582,6 +595,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D22 | Alcance del modelo de datos | **RESUELTA E IMPLEMENTADA** (ver §1.8): el producto es **uno por publicación** —sin variantes, sin SKU y sin campos SEO propios— y **no hay páginas editables**; el contenido editable vive en `store_settings` (F2.5). Se retiraron `product_variants` (y `order_items.variant_id`), `products.sku`/`seo_title`/`seo_description`, `pages` y `POST /api/pages` | `backend/app/models.py`, `schemas.py`, `main.py`, panel |
 | D23 | Feed de Instagram | **RESUELTA E IMPLEMENTADA** (ver §1.9): sección al final de la página principal que pinta **solo el iframe de un widget de terceros** (solo publicaciones, **de borde a borde**) con el código/URL guardado en `store_settings.instagram_embed_url` (widget de **SociableKIT** ya configurado). Evita el token de Meta y el scrapeo (429). Actualiza D11 | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `components/storefront.tsx`, panel (Contenido) |
 | D24 | Identidad visual (paleta) | **RESUELTA E IMPLEMENTADA** (ver §1.9): paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (más blanco/negro de apoyo) aplicada **solo a la página principal y la ficha de producto**; `/checkout` y `/cuenta` conservan la identidad anterior. Se implementa con la clase `theme-bosque` y la prop `warm` del header/footer | `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
+| D25 | Paginado del catálogo | **RESUELTA E IMPLEMENTADA** (ver §1.10): **8 productos por página** (ajustable en Contenido) con **flechas de página** a la derecha de los filtros y **transición animada** al filtrar, en lugar de mostrar todo el catálogo de una vez | `components/storefront.tsx`, `store_settings.products_per_page` |
 
 ---
 
@@ -606,6 +620,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 |---|---|
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
 | `components/instagram-feed.tsx` | Sección de Instagram al final de la página principal: **solo** el iframe del widget de terceros (solo publicaciones, de borde a borde) (D23) |
+| `store_settings.products_per_page` | Productos por página del catálogo «Productos destacados» (8 por defecto), editable en Contenido (D25) |
 | `components/store-shell.tsx` | Header/footer compartidos; la prop `warm` aplica la paleta cálida solo en página principal y ficha (D24) |
 | `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |

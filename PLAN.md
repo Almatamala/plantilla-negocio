@@ -483,6 +483,32 @@ código actual, con dos decisiones nuevas (**D23** y **D24**):
 
 ---
 
+## 0.12 Actualización — Ajuste del dueño (2026-09-21): catálogo paginado
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`pytest` **42/42**; `npx tsc --noEmit`, `npm run lint` y
+`npm run build` sin errores). Un punto sobre el código actual, con una decisión nueva (**D25**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A26** | En **Productos destacados**: **8 por página** con un botón a la derecha para avanzar, y al filtrar que los productos que no coinciden **se desvanezcan** y los que quedan **se vayan juntando** | El catálogo pintaba **todos** los productos filtrados de una vez y el filtro los hacía desaparecer de golpe (salto seco, sin transición) | **D25.** `components/storefront.tsx`: **8 por página** (4 columnas × 2 filas) con flechas ‹ › y contador «n / N» a la derecha de los filtros (aparecen cuando hay más de una página) y vuelta a la primera página al filtrar o buscar. La animación usa `framer-motion` (`layout` + `AnimatePresence mode="popLayout"`): los que salen se desvanecen y los que quedan se reacomodan | **F1.10** |
+
+### Decisiones nuevas
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D25** | Paginado del catálogo | **8 productos por página** (ajustable en Contenido) con flechas de página a la derecha de los filtros y transición animada al filtrar, en lugar de mostrar todo el catálogo de una vez | `storefront.tsx`, `store_settings.products_per_page` |
+
+### Estado: IMPLEMENTADO (2026-09-21)
+
+- **A26 (F1.10):** `store_settings.products_per_page` (default 8) con `ALTER TABLE … ADD COLUMN IF NOT
+  EXISTS` al arrancar, campo nuevo en Contenido y `components/storefront.tsx` con la paginación y la
+  animación del filtro.
+- **Sin dependencias nuevas:** `framer-motion` ya estaba en el proyecto (lo usa el carrito desde §0.11).
+
+**Al desplegar:** **reconstruir la imagen de la API** por la columna nueva de `store_settings` (ver §0.5).
+
+---
+
 ## 1. Resumen de fases
 
 | Fase | Nombre | Entregable | Estimación | Decisiones requeridas |

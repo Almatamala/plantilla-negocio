@@ -16,6 +16,7 @@ export type StoreConfig = {
   whatsapp_phone: string;
   instagram_url: string;
   instagram_embed_url: string;
+  products_per_page: number;
   bank_account_info: string;
 };
 
@@ -31,6 +32,7 @@ export type ApiSettings = {
   whatsapp_phone: string | null;
   instagram_url: string | null;
   instagram_embed_url: string | null;
+  products_per_page: number | null;
   bank_account_info: string | null;
 };
 
@@ -48,6 +50,7 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
     whatsapp_phone: data.whatsapp_phone ?? current.whatsapp_phone,
     instagram_url: data.instagram_url ?? current.instagram_url,
     instagram_embed_url: data.instagram_embed_url ?? current.instagram_embed_url,
+    products_per_page: data.products_per_page ?? current.products_per_page,
     bank_account_info: data.bank_account_info ?? current.bank_account_info,
   };
 }
@@ -66,5 +69,6 @@ export const storeConfig: StoreConfig = {
   whatsapp_phone: "",
   instagram_url: "",
   instagram_embed_url: "",
+  products_per_page: 8,
   bank_account_info: "",
 };
