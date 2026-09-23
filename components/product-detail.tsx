@@ -8,6 +8,7 @@ import { useCart } from "@/lib/cart";
 import { readCache, writeCache } from "@/lib/offline-cache";
 import { formatPrice, mapApiProduct, stockLabel, type ApiProduct, type Product } from "@/lib/products";
 import { useStoreSettings } from "@/lib/use-store-settings";
+import { themeVars } from "@/lib/theme";
 import { allergenInfo } from "@/lib/allergens";
 import { CartDrawer } from "@/components/cart-drawer";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
@@ -106,17 +107,19 @@ export function ProductDetail({ slug }: { slug: string }) {
   // La ficha mantiene el header y el footer de la tienda (no es una página aislada)
   // y ya no incluye un enlace «Volver a la tienda».
   const shell = (content: React.ReactNode) => (
-    <main className="theme-bosque min-h-screen bg-white text-[#401a04]">
+    // La paleta editable (D29) entra como variables CSS en el `<main>`: la ficha, el header, el carrito
+    // lateral y el footer la heredan sin pasar ninguna prop.
+    <main className="theme-bosque min-h-screen bg-white text-[var(--brand-ink)]" style={themeVars(config.theme_colors)}>
       <StoreHeader warm config={config} cartCount={count} onCartOpen={() => setDrawer(true)}/>
       {content}
-      <StoreFooter warm config={config}/>
+      <StoreFooter config={config}/>
       <WhatsAppButton phone={config.whatsapp_phone}/>
       <CartDrawer open={drawer} onClose={() => setDrawer(false)} cart={cart} products={catalog} onChange={change}/>
     </main>
   );
 
   if (product === undefined) {
-    return shell(<div className="grid min-h-[60vh] place-items-center px-5"><p className="text-[#846851]">Cargando producto…</p></div>);
+    return shell(<div className="grid min-h-[60vh] place-items-center px-5"><p className="text-[var(--brand-muted)]">Cargando producto…</p></div>);
   }
 
   if (product === null) {
@@ -124,7 +127,7 @@ export function ProductDetail({ slug }: { slug: string }) {
       <div className="mx-auto grid min-h-[60vh] max-w-3xl place-items-center px-5 text-center md:px-10">
         <div>
           <h1 className="display text-4xl">Producto no encontrado</h1>
-          <p className="mt-3 text-[#846851]">Puede que ya no esté disponible. Revisa la colección en el menú de arriba.</p>
+          <p className="mt-3 text-[var(--brand-muted)]">Puede que ya no esté disponible. Revisa la colección en el menú de arriba.</p>
         </div>
       </div>,
     );
@@ -149,48 +152,48 @@ export function ProductDetail({ slug }: { slug: string }) {
               <div className="relative overflow-hidden rounded-2xl">
                 <img src={image ?? gallery[0]} alt={product.name} className="aspect-[.95] w-full object-cover"/>
                 {gallery.length > 1 && <>
-                  <button type="button" onClick={() => goTo(-1)} aria-label="Foto anterior" className="absolute left-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[#401a04] shadow transition hover:bg-white"><ChevronLeft size={20}/></button>
-                  <button type="button" onClick={() => goTo(1)} aria-label="Foto siguiente" className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[#401a04] shadow transition hover:bg-white"><ChevronRight size={20}/></button>
+                  <button type="button" onClick={() => goTo(-1)} aria-label="Foto anterior" className="absolute left-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[var(--brand-ink)] shadow transition hover:bg-white"><ChevronLeft size={20}/></button>
+                  <button type="button" onClick={() => goTo(1)} aria-label="Foto siguiente" className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[var(--brand-ink)] shadow transition hover:bg-white"><ChevronRight size={20}/></button>
                 </>}
               </div>
-              {gallery.length > 1 && <div className="mt-3 flex gap-2">{gallery.map((src) => <button key={src} onClick={() => setImage(src)} className={`h-20 w-16 overflow-hidden rounded-lg border-2 ${image === src ? "border-[#808c6d]" : "border-transparent"}`}><img src={src} alt="" className="h-full w-full object-cover"/></button>)}</div>}
+              {gallery.length > 1 && <div className="mt-3 flex gap-2">{gallery.map((src) => <button key={src} onClick={() => setImage(src)} className={`h-20 w-16 overflow-hidden rounded-lg border-2 ${image === src ? "border-[var(--brand-accent)]" : "border-transparent"}`}><img src={src} alt="" className="h-full w-full object-cover"/></button>)}</div>}
             </>
           ) : (
             <div data-tone={product.tone} className="product-visual aspect-[.95] w-full rounded-2xl"/>
           )}
         </div>
         <div className="md:py-4">
-          <p className="text-xs tracking-[.18em] text-[#808c6d] uppercase">{product.category}</p>
+          <p className="text-xs tracking-[.18em] text-[var(--brand-accent)] uppercase">{product.category}</p>
           <h1 className="display mt-2 text-4xl leading-tight md:text-5xl">{product.name}</h1>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-medium ${stock.className}`}>{stock.label}</span>
           </div>
           <p className="display mt-5 text-3xl">{formatPrice(product.price)}</p>
-          <p className="mt-5 max-w-prose leading-7 text-[#846851]">{product.description}</p>
-          {product.ingredients && <div className="mt-6"><h2 className="text-xs tracking-[.16em] text-[#846851] uppercase">Ingredientes principales</h2><p className="mt-2 text-sm leading-6 text-[#846851]">{product.ingredients}</p></div>}
-          {product.allergens && product.allergens.length > 0 && <div className="mt-6"><h2 className="text-xs tracking-[.16em] text-[#846851] uppercase">Información de alérgenos</h2><div className="mt-3 flex flex-wrap gap-2">{product.allergens.map((code) => { const info = allergenInfo(code); return info ? <span key={code} className="inline-flex items-center gap-1.5 rounded-lg border border-[#d7cdc1] bg-white px-3 py-1.5 text-xs" title={`Contiene: ${info.label}`}>{info.icon}{info.label}</span> : null; })}</div></div>}
+          <p className="mt-5 max-w-prose leading-7 text-[var(--brand-muted)]">{product.description}</p>
+          {product.ingredients && <div className="mt-6"><h2 className="text-xs tracking-[.16em] text-[var(--brand-muted)] uppercase">Ingredientes principales</h2><p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">{product.ingredients}</p></div>}
+          {product.allergens && product.allergens.length > 0 && <div className="mt-6"><h2 className="text-xs tracking-[.16em] text-[var(--brand-muted)] uppercase">Información de alérgenos</h2><div className="mt-3 flex flex-wrap gap-2">{product.allergens.map((code) => { const info = allergenInfo(code); return info ? <span key={code} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-surface)] bg-white px-3 py-1.5 text-xs" title={`Contiene: ${info.label}`}>{info.icon}{info.label}</span> : null; })}</div></div>}
           {!stock.available && <p className="mt-6 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">Este producto está agotado. Vuelve pronto o consulta por WhatsApp.</p>}
           <div className="mt-7 flex items-center gap-4">
-            <div className="flex items-center gap-3 rounded-full border border-[#d7cdc1] px-4 py-2.5">
+            <div className="flex items-center gap-3 rounded-full border border-[var(--brand-surface)] px-4 py-2.5">
               <button onClick={() => setQty(Math.max(1, qty - 1))} aria-label="Disminuir cantidad"><Minus size={16}/></button>
               <span className="w-6 text-center text-sm">{qty}</span>
               <button onClick={() => setQty(qty + 1)} aria-label="Aumentar cantidad"><Plus size={16}/></button>
             </div>
-            <button onClick={addToCart} disabled={!stock.available} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#808c6d] px-6 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"><ShoppingBag size={16}/>Agregar al carrito</button>
+            <button onClick={addToCart} disabled={!stock.available} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--brand-accent)] px-6 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"><ShoppingBag size={16}/>Agregar al carrito</button>
           </div>
           {added && <div className="mt-4 rounded-lg bg-[#e7eae0] p-3 text-sm text-[#4d573e]">Producto agregado a tu carrito. <Link href="/checkout" className="underline underline-offset-2">Ir al checkout</Link> o <Link href="/#coleccion" className="underline underline-offset-2">seguir comprando</Link>.</div>}
-          <div className="mt-8 border-t border-[#d7cdc1] pt-6">
-            <h2 className="display text-2xl">Comentarios {hasReviews && <span className="text-base text-[#846851]">({reviews.length})</span>}</h2>
-            {hasReviews ? <div className="mt-4 space-y-4">{reviews.map((review) => <div key={review.id} className="rounded-xl bg-white p-4"><div className="flex items-center justify-between"><p className="text-sm font-medium">{review.author}</p><span className="inline-flex items-center gap-0.5 text-[#c9962e]">{Array.from({ length: review.rating }).map((_, i) => <Star key={i} size={13} fill="currentColor"/>)}</span></div><p className="mt-2 text-sm leading-6 text-[#846851]">{review.comment}</p></div>)}</div> : <p className="mt-3 text-sm text-[#846851]">Aún no hay comentarios para este producto.</p>}
+          <div className="mt-8 border-t border-[var(--brand-surface)] pt-6">
+            <h2 className="display text-2xl">Comentarios {hasReviews && <span className="text-base text-[var(--brand-muted)]">({reviews.length})</span>}</h2>
+            {hasReviews ? <div className="mt-4 space-y-4">{reviews.map((review) => <div key={review.id} className="rounded-xl bg-white p-4"><div className="flex items-center justify-between"><p className="text-sm font-medium">{review.author}</p><span className="inline-flex items-center gap-0.5 text-[#c9962e]">{Array.from({ length: review.rating }).map((_, i) => <Star key={i} size={13} fill="currentColor"/>)}</span></div><p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">{review.comment}</p></div>)}</div> : <p className="mt-3 text-sm text-[var(--brand-muted)]">Aún no hay comentarios para este producto.</p>}
             <form onSubmit={submitReview} className="mt-6 space-y-3 rounded-xl bg-white p-4">
               <h3 className="text-sm font-medium">Deja tu comentario</h3>
               <div className="grid gap-3 sm:grid-cols-2">
-                <input required value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Tu nombre" className="rounded-lg border border-[#d7cdc1] px-3 py-2.5 text-sm outline-none focus:border-[#808c6d]"/>
-                <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="select-field rounded-lg border border-[#d7cdc1] bg-white px-3 py-2.5 text-sm outline-none transition hover:border-[#808c6d] focus:border-[#808c6d]">{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} {n === 1 ? "estrella" : "estrellas"}</option>)}</select>
+                <input required value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Tu nombre" className="rounded-lg border border-[var(--brand-surface)] px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-accent)]"/>
+                <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="select-field rounded-lg border border-[var(--brand-surface)] bg-white px-3 py-2.5 text-sm outline-none transition hover:border-[var(--brand-accent)] focus:border-[var(--brand-accent)]">{[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{n} {n === 1 ? "estrella" : "estrellas"}</option>)}</select>
               </div>
-              <textarea required value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Cuéntanos qué te pareció…" rows={3} className="w-full rounded-lg border border-[#d7cdc1] px-3 py-2.5 text-sm outline-none focus:border-[#808c6d]"/>
-              <button className="rounded-lg bg-[#808c6d] px-4 py-2.5 text-sm text-white">Enviar comentario</button>
-              {reviewMsg && <p className="text-sm text-[#846851]">{reviewMsg}</p>}
+              <textarea required value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Cuéntanos qué te pareció…" rows={3} className="w-full rounded-lg border border-[var(--brand-surface)] px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-accent)]"/>
+              <button className="rounded-lg bg-[var(--brand-accent)] px-4 py-2.5 text-sm text-white">Enviar comentario</button>
+              {reviewMsg && <p className="text-sm text-[var(--brand-muted)]">{reviewMsg}</p>}
             </form>
           </div>
         </div>

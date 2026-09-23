@@ -10,6 +10,7 @@ import { useSession } from "@/lib/account";
 import { formatPrice, type ApiProduct, type Product, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
+import { defaultThemeColors, isHexColor, normalizeThemeColors, themeColorFields, type ThemeColorKey, type ThemeColors } from "@/lib/theme";
 import { zoneTypeOf } from "@/lib/agenda";
 import { AgendaSection, type SlotRow, type ZoneRow } from "@/components/admin-agenda";
 import { ReportsSection } from "@/components/admin-reports";
@@ -576,30 +577,49 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
     name: storeConfig.name, announcement: storeConfig.announcement, hero_title: storeConfig.headline, hero_description: storeConfig.description,
     story_headline: storeConfig.storyHeadline, story_description: storeConfig.storyDescription, contact_email: "", contact_phone: "",
     whatsapp_phone: "", instagram_url: "", instagram_embed_url: "", bank_account_info: "",
-    products_per_page: String(storeConfig.products_per_page),
   });
+  // Paleta de marca (D29): se editan los cinco tonos y el borrador guarda lo que se está escribiendo en
+  // el campo de texto, para no volcar a la paleta (ni a la API) un hex a medio escribir.
+  const [colors, setColors] = useState<ThemeColors>(defaultThemeColors);
+  const [drafts, setDrafts] = useState<ThemeColors>(defaultThemeColors);
   useEffect(() => {
-    apiFetch<typeof settings>("/api/settings").then((data) => setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", instagram_embed_url: data.instagram_embed_url ?? "", bank_account_info: data.bank_account_info ?? "", products_per_page: String(data.products_per_page ?? storeConfig.products_per_page) }))).catch(() => undefined);
+    apiFetch<typeof settings & { theme_colors?: Partial<Record<string, string>> | null }>("/api/settings").then((data) => {
+      setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", instagram_embed_url: data.instagram_embed_url ?? "", bank_account_info: data.bank_account_info ?? "" }));
+      const palette = normalizeThemeColors(data.theme_colors);
+      setColors(palette);
+      setDrafts(palette);
+    }).catch(() => undefined);
   }, []);
   function set<K extends keyof typeof settings>(key: K, value: string) { setSettings((current) => ({ ...current, [key]: value })); }
+  // El hex solo pasa a la paleta cuando está completo; si no, se guarda en el borrador y al salir del
+  // campo vuelve al último color válido.
+  function setColor(key: ThemeColorKey, value: string) {
+    if (isHexColor(value)) {
+      const hex = value.trim().toLowerCase();
+      setColors((current) => ({ ...current, [key]: hex }));
+      setDrafts((current) => ({ ...current, [key]: hex }));
+      return;
+    }
+    setDrafts((current) => ({ ...current, [key]: value }));
+  }
+  // Intercambiar dos tonos de lugar: el color de uno pasa al otro y viceversa, así que probar otro
+  // reparto (p. ej. llevar el salvia al pie) no obliga a copiar hex a mano ni pierde ningún color.
+  function swapColors(key: ThemeColorKey, other: ThemeColorKey) {
+    const swap = (current: ThemeColors) => ({ ...current, [key]: current[other], [other]: current[key] });
+    setColors(swap);
+    setDrafts(swap);
+  }
   async function save(event: React.FormEvent) {
     event.preventDefault();
     try {
-      // La cantidad de productos por página se guarda como número en la API; si el campo queda vacío
-      // manda el default.
-      const body = {
-        ...settings,
-        products_per_page: Number(settings.products_per_page) || storeConfig.products_per_page,
-      };
-      await apiFetch("/api/settings", { method: "PUT", admin: true, body });
+      await apiFetch("/api/settings", { method: "PUT", admin: true, body: { ...settings, theme_colors: colors } });
       setState("Contenido guardado. Refresca la tienda para ver los cambios.");
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo guardar."); }
   }
   const field = (key: keyof typeof settings, label: string, placeholder = "") => <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">{label}</span><input value={settings[key]} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>;
-  const numberField = (key: "products_per_page", label: string, max: number) => <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">{label}</span><input type="number" min={1} max={max} value={settings[key]} onChange={(e) => set(key, e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>;
   return (
     <form onSubmit={save} className="max-w-2xl space-y-4 rounded-xl bg-white p-5">
-      <div><h2 className="display text-2xl">Contenido de la tienda</h2><p className="mt-2 text-sm text-[#647167]">Estos textos y datos se muestran en la tienda pública. Se guardan en la API (tabla store_settings).</p></div>
+      <div><h2 className="display text-2xl">Contenido de la tienda</h2><p className="mt-2 text-sm text-[#647167]">Estos textos, datos y colores se muestran en la tienda pública. Se guardan en la API (tabla store_settings).</p></div>
       <div className="grid gap-4 sm:grid-cols-2">
         {field("name", "Nombre de la tienda", "BOSQUE")}
         {field("announcement", "Anuncio superior", "Pedidos programados con día y horario")}
@@ -612,9 +632,32 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
         {field("whatsapp_phone", "WhatsApp (formato +569…)")}
         {field("instagram_url", "Instagram (URL del perfil)")}
         {field("instagram_embed_url", "Instagram — código o URL del widget (iframe, solo publicaciones)", "https://widgets.sociablekit.com/instagram-feed/iframe/000000")}
-        {numberField("products_per_page", "Productos por página en la vitrina", 48)}
       </div>
       <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Datos de transferencia bancaria</span><textarea value={settings.bank_account_info} onChange={(e) => set("bank_account_info", e.target.value)} rows={3} placeholder={"Banco, titular, RUT y número de cuenta"} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>
+      <fieldset className="rounded-xl border border-[#e2e5df] p-4">
+        <legend className="px-1 text-sm font-medium">Colores de la tienda</legend>
+        <p className="mt-1 text-xs text-[#647167]">La paleta viste la carta, la ficha de producto y el pie de página. Prueba la combinación que quieras: al guardar, la tienda la toma al refrescar. Con «Intercambiar con…» dos tonos cambian de lugar entre sí. El panel, el checkout y la cuenta mantienen sus colores.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {themeColorFields.map(({ key, label, hint }) => (
+            <div key={key} className="rounded-lg border border-[#e2e5df] p-2.5">
+              <div className="flex items-center gap-3">
+                <input type="color" value={colors[key]} onChange={(e) => setColor(key, e.target.value)} aria-label={label} className="h-10 w-12 shrink-0 cursor-pointer rounded border border-[#d9ddd5] bg-white p-1"/>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">{label}</p>
+                  <span className="mt-0.5 block text-xs text-[#647167]">{hint}</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input value={drafts[key]} onChange={(e) => setColor(key, e.target.value)} onBlur={() => setDrafts((current) => ({ ...current, [key]: colors[key] }))} spellCheck={false} className="w-full rounded border border-[#d9ddd5] px-2 py-1 font-mono text-xs uppercase outline-none focus:border-[#243128]"/>
+                <select value="" onChange={(e) => e.target.value && swapColors(key, e.target.value as ThemeColorKey)} aria-label={`Intercambiar ${label} con otro tono`} className={`${SELECT_FIELD_SM} w-36 shrink-0`}>
+                  <option value="">Intercambiar con…</option>
+                  {themeColorFields.filter((field) => field.key !== key).map((field) => <option key={field.key} value={field.key}>{field.label} ({colors[field.key]})</option>)}
+                </select>
+              </div>
+            </div>
+          ))}
+        </div>
+      </fieldset>
       <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">Guardar contenido</button>
     </form>
   );

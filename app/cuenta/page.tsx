@@ -10,6 +10,7 @@ import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/products";
 import { refreshSession } from "@/lib/session-client";
 import { useStoreSettings } from "@/lib/use-store-settings";
+import { themeVars } from "@/lib/theme";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
@@ -80,7 +81,10 @@ export default function CuentaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#faf7f0] text-[#243128]">
+    // La cuenta conserva la identidad anterior en su contenido y en el header, pero su footer es el
+    // mismo pie cálido de la tienda: por eso acá solo se publica la paleta editable (D29), que el
+    // footer hereda.
+    <main className="min-h-screen bg-[#faf7f0] text-[#243128]" style={themeVars(config.theme_colors)}>
       <StoreHeader config={config} cartCount={count}/>
       <div className="mx-auto max-w-4xl px-5 py-8 md:px-10">
         <p className="text-xs tracking-[.18em] text-[#56745c] uppercase">Tu cuenta</p>

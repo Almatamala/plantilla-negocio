@@ -461,7 +461,7 @@ código actual, con dos decisiones nuevas (**D23** y **D24**):
 | # | Decisión | Resolución | Impacto |
 |---|---|---|---|
 | **D23** | Feed de Instagram | **Widget de terceros con iframe** (SociableKIT, SnapWidget, EmbedSocial…) para mostrar **solo las publicaciones de borde a borde**, con el código o la URL del iframe pegada en el panel (Contenido). Evita el token de Meta y también el scrapeo desde el servidor (la API pública devuelve 429). Actualiza **D11**: el embed oficial del perfil queda descartado (no se puede ensanchar ni ocultar su encabezado) y el feed con token de Meta sigue disponible como alternativa | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `storefront.tsx`, panel (Contenido) |
-| **D24** | Identidad visual (paleta) | La paleta cálida (**#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D**, más blanco y negro de apoyo) viste **solo la página principal y la ficha de producto**. Como el header/footer se comparten con `/checkout` y `/cuenta`, se aplica con la clase `theme-bosque` sobre el `<main>` de esas dos vistas y la prop `warm` del header/footer, de modo que el checkout y la cuenta **no** cambian | `globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
+| **D24** | Identidad visual (paleta) | La paleta cálida (**#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D**, más blanco y negro de apoyo) viste **solo la página principal y la ficha de producto**. Como el header/footer se comparten con `/checkout` y `/cuenta`, se aplica con la clase `theme-bosque` sobre el `<main>` de esas dos vistas y la prop `warm` del header/footer, de modo que el checkout y la cuenta **no** cambian. **Ajustada en §0.14 (D28): el footer queda cálido en todas las páginas**; **y en §0.15 (D29): los cinco tonos se editan desde el panel** | `globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
 
 ### Estado: IMPLEMENTADO (2026-09-21)
 
@@ -477,7 +477,7 @@ código actual, con dos decisiones nuevas (**D23** y **D24**):
 
 1. **Widget de Instagram configurado (2026-09-21):** el dueño creó el widget en **SociableKIT** (plan gratis) y su iframe (`instagram-feed/iframe/25715804`, altura sugerida 1000 px) quedó cargado en `store_settings.instagram_embed_url`. Verificado de punta a punta: la API lo devuelve, la sección lo renderiza **de borde a borde** (`block w-full`, sin `max-w-7xl`) y el iframe del proveedor responde 200.
 2. **Reconstruir la imagen de la API antes de desplegar** (ver §0.5): la columna `instagram_embed_url` se agrega con `ALTER TABLE` al arrancar; sin rebuild, guardar el contenido desde el panel falla con 404/422.
-3. **Revisar la paleta contra la referencia** en móvil y escritorio: los tonos cálidos se aplican a la tienda y la ficha, mientras `/checkout` y `/cuenta` conservan el verde anterior; si el dueño prefiere uniformar, es un cambio de una línea por pantalla.
+3. **Revisar la paleta contra la referencia** en móvil y escritorio: los tonos cálidos se aplican a la tienda y la ficha, mientras `/checkout` y `/cuenta` conservan el verde anterior; si el dueño prefiere uniformar, es un cambio de una línea por pantalla (**el footer ya se uniformó en §0.14 / D28**; queda pendiente el header de `/cuenta`).
 
 > **Widget de Instagram — costo de los planes gratis:** los planes gratuitos limitan las vistas mensuales (Elfsight 200, Taggbox 500, SociableKIT/CollectSocials 2.000); al agotarlas el widget deja de mostrarse. Si la tienda crece, el salto es a un plan pago (SociableKIT desde ~$10/mes con vistas ilimitadas).
 
@@ -496,16 +496,126 @@ código actual, con dos decisiones nuevas (**D23** y **D24**):
 
 | # | Decisión | Resolución | Impacto |
 |---|---|---|---|
-| **D25** | Paginado del catálogo | **8 productos por página** (ajustable en Contenido) con flechas de página a la derecha de los filtros y transición animada al filtrar, en lugar de mostrar todo el catálogo de una vez | `storefront.tsx`, `store_settings.products_per_page` |
+| **D25** | Paginado del catálogo | **8 productos por página** (~~ajustable en Contenido~~; **ajustado en §0.13 / D26: la cantidad queda fija**) con flechas de página a la derecha de los filtros y transición animada al filtrar, en lugar de mostrar todo el catálogo de una vez | `storefront.tsx` |
 
 ### Estado: IMPLEMENTADO (2026-09-21)
 
 - **A26 (F1.10):** `store_settings.products_per_page` (default 8) con `ALTER TABLE … ADD COLUMN IF NOT
   EXISTS` al arrancar, campo nuevo en Contenido y `components/storefront.tsx` con la paginación y la
   animación del filtro.
+
+> **Ajustado el 2026-09-22 (§0.13 / A27):** el dueño dejó los **8 productos por página como valor
+> fijo**, así que el ajuste salió del panel y de la API (la columna se retira al arrancar). La
+> paginación con flechas, contador y animación se mantiene igual.
 - **Sin dependencias nuevas:** `framer-motion` ya estaba en el proyecto (lo usa el carrito desde §0.11).
 
 **Al desplegar:** **reconstruir la imagen de la API** por la columna nueva de `store_settings` (ver §0.5).
+
+---
+
+## 0.13 Actualización — Ajustes del dueño (2026-09-22)
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+`pytest` **42/42**). Dos puntos sobre el código actual, con dos decisiones nuevas (**D26** y **D27**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A27** | En **Productos destacados** los **8 productos por página son fijos**: quitar del panel la opción para cambiarlos | §0.12 los había dejado como ajuste editable: columna `store_settings.products_per_page` (con `ALTER TABLE` al arrancar), campo en `SettingsIn`, campo «Productos por página en la vitrina» en Contenido, `products_per_page` en `StoreConfig`/`ApiSettings` y lectura en `storefront.tsx` con default 8 | **D26.** La carta pagina siempre **8** desde una constante (`PRODUCTS_PER_PAGE`, 4 columnas × 2 filas). Se retira el campo del panel, las propiedades del frontend, el campo del schema y **la columna** (`DROP` idempotente al arrancar, como en D22). Las flechas, el contador y la animación del filtro quedan igual | **F1.10** |
+| **A28** | Actualizar el **footer** para que sea profesional (**copyright**, número y correo de contacto, etc.) | `StoreFooter` mostraba solo el nombre de la tienda y una línea de plantilla («Una base para crear marcas con vida.»). La API **ya guardaba** `contact_email`/`contact_phone`/`whatsapp_phone`, pero `lib/store-config.ts` **no declaraba `contact_email`**, así que ese dato nunca llegaba al frontend | **D27.** Footer en tres bloques —**marca** (nombre + una línea del negocio), **Contacto** (correo `mailto:`, teléfono `tel:`, WhatsApp e Instagram, cada fila solo si está configurada) y **Tienda** (anclas de Productos, Beneficios y Nosotros)— más una franja inferior con **© año + nombre** y la ubicación. `contact_email` se agrega a los ajustes del frontend (tipo, `mergeSettings` y default) para que el valor guardado en Contenido llegue a la vista | **F2.18** |
+
+### Decisiones nuevas
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D26** | Paginado del catálogo | **8 productos por página, fijos** (4 columnas × 2 filas): deja de ser configurable desde el panel. Ajusta **D25** | `components/storefront.tsx`; `store_settings.products_per_page` (retirada) |
+| **D27** | Footer de la tienda | Footer **profesional** compartido por carta, ficha y cuenta: marca, **datos de contacto** (correo, teléfono, WhatsApp e Instagram), navegación y **copyright con el año**. El footer mínimo del checkout se mantiene como la referencia Shopify (**D15**) | `components/store-shell.tsx`, `lib/store-config.ts` |
+
+### Estado: IMPLEMENTADO (2026-09-22)
+
+- **A27 (F1.10):** `components/storefront.tsx` con `PRODUCTS_PER_PAGE = 8`; `lib/store-config.ts` sin
+  `products_per_page` (tipo, `ApiSettings`, `mergeSettings` y default); `components/admin-dashboard.tsx` sin
+  el campo ni el helper `numberField`; `backend/app/models.py` y `backend/app/schemas.py` sin la
+  columna/campo, y **`RETIRED_STORE_SETTINGS_COLUMNS`** la elimina al arrancar en PostgreSQL;
+  `backend/tests/test_api.py` verifica que el ajuste **ya no se expone** en `GET/PUT /api/settings`.
+- **A28 (F2.18):** `components/store-shell.tsx` con el footer de tres bloques y la franja de copyright;
+  `ShellConfig` expone `contact_email`/`contact_phone`/`whatsapp_phone`; `lib/store-config.ts` agrega
+  `contact_email` (era el único dato de contacto que no llegaba al frontend); `components/checkout-shell.tsx`
+  reutiliza el `ShellConfig` completo (ya no redeclara `whatsapp_phone`).
+
+**Al desplegar:** **reconstruir la imagen de la API** (se retira una columna de `store_settings`; ver §0.5).
+
+---
+
+## 0.14 Actualización — Ajuste del dueño (2026-09-22): footer cálido en todas las páginas
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores).
+Un punto sobre el código actual, con una decisión nueva (**D28**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A29** | **Uniformar el footer de `/cuenta` con la paleta cálida de la tienda** | **D24** dejó el footer **compartido** por carta, ficha y cuenta, pero con prop `warm`: cálido solo en las dos primeras, verde anterior en `/cuenta`. Al pasar el footer a cálido en todas las páginas, la variante verde **queda sin uso** (el checkout tiene su propio footer mínimo, D15) | **D28.** `StoreFooter` **pierde la prop `warm`** y usa siempre la paleta cálida (`#401A04` de fondo, `#D7CDC1`/`#D9B391` para texto y enlaces, `#846851` en la línea divisoria), así que la cuenta queda uniformada sin tocar `app/cuenta/page.tsx`. Se retiran las ramas de color sin uso y las llamadas `warm` de `storefront.tsx` y `product-detail.tsx` (D22: lo que no se usa se elimina). El **header** conserva `warm` porque `/cuenta` mantiene ahí la identidad anterior | **F2.19** |
+
+### Decisiones nuevas
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D28** | Footer de la tienda | **Un solo footer, siempre en la paleta cálida** (carta, ficha y cuenta): el pie es el mismo en todo el sitio y deja de depender de la vista. Ajusta **D24** (el header mantiene la prop `warm`; el checkout mantiene su footer mínimo, D15) | `components/store-shell.tsx`, `storefront.tsx`, `product-detail.tsx`, `app/globals.css` (comentario) |
+
+### Estado: IMPLEMENTADO (2026-09-22)
+
+- **A29 (F2.19):** `components/store-shell.tsx` con `StoreFooter({ config })` (sin variante verde),
+  `components/storefront.tsx` y `components/product-detail.tsx` sin la prop `warm` en el footer y el
+  comentario de `app/globals.css` ajustado. `app/cuenta/page.tsx` **no se toca**: al ser el footer único,
+  hereda la paleta cálida.
+
+**Sin pendientes de despliegue:** el cambio es solo de frontend (no toca API ni base de datos).
+
+---
+
+## 0.15 Actualización — Ajuste del dueño (2026-09-22): colores editables desde el panel
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+`pytest` **43/43**). Un punto sobre el código actual, con una decisión nueva (**D29**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A30** | Poder **editar los colores de la página desde el panel**, para probar las configuraciones que el cliente quiera | La paleta cálida estaba **hardcodeada** en dos lugares: la clase `theme-bosque` (`app/globals.css`, con los visuales de relleno) y ~70 valores hex sueltos en `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx` y `cart-drawer.tsx`. Sin variables no había nada que el panel pudiera cambiar | **D29.** Los cinco tonos pasan a **variables CSS** (`--brand-accent`, `--brand-ink`, `--brand-surface`, `--brand-muted`, `--brand-detail`) con la paleta actual como valor por defecto, y el panel los edita en **Contenido › Colores de la tienda** (selector de color, hex y ~~«Restablecer paleta»~~ **«Intercambiar con…»**, que cambia dos tonos de lugar — ajustado el mismo día a pedido del dueño). Se guardan en `store_settings.theme_colors` (columna **JSON** nueva, validada por la API: solo esos cinco tonos y hex de seis dígitos) y cada vista cálida los escribe **en línea** sobre su `<main>`, así que carta, ficha, carrito lateral y footer los heredan sin props. Los matices que no se editan (texto claro sobre la tinta, fondos y rellenos de los visuales) se derivan con `color-mix` para que la tienda siga legible con cualquier combinación | **F2.20** |
+
+### Decisiones nuevas
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D29** | Paleta de marca | Los **cinco tonos de la identidad cálida se editan desde el panel** (Contenido › Colores) y se guardan en `store_settings.theme_colors` como JSON; la tienda los aplica con variables CSS y deriva el resto con `color-mix`. El panel, el checkout y el contenido/header de la cuenta conservan sus colores. **Decidido con el dueño:** cinco tonos nombrados por su uso (acento, tinta, bloque suave, texto secundario y detalle cálido), alcance **carta + ficha + footer** y **sin vista previa** en el panel (guardar y refrescar) | `lib/theme.ts`, `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx`, `app/cuenta/page.tsx`, `admin-dashboard.tsx`, `backend/app/*` |
+
+### Estado: IMPLEMENTADO (2026-09-22)
+
+- **A30 (F2.20):** `lib/theme.ts` (nuevo) con los cinco tonos, sus etiquetas para el panel, la
+  normalización de lo que devuelve la API (`normalizeThemeColors`) y el helper `themeVars`;
+  `app/globals.css` con las variables `--brand-*` y los derivados `color-mix`; `components/storefront.tsx`,
+  `components/product-detail.tsx` y `app/cuenta/page.tsx` escribiendo la paleta en línea en su `<main>`;
+  los hex sueltos de esos componentes, del footer y del carrito lateral reemplazados por variables;
+  `backend/app/models.py` con la columna `theme_colors`, `backend/app/schemas.py` con la validación
+  (tonos conocidos y hex de seis dígitos, normalizado a minúsculas) y `backend/app/main.py` con el
+  `ADD COLUMN IF NOT EXISTS` idempotente; `backend/tests/test_api.py` con la prueba de guardado y de
+  rechazo.
+- **Sin vista previa en el panel** (decisión del dueño): el propio selector de color del navegador hace
+  de muestra y al guardar la tienda toma los colores al refrescar. El borrador del campo de texto no
+  vuelca un hex a medio escribir, así que la API nunca recibe un valor inválido.
+- **Sin dependencias nuevas** y sin tocar la paleta base (`--ink`/`--moss`/`--cream`) del panel, el
+  checkout y la cuenta: sus pantallas siguen con los colores de siempre.
+- **«Restablecer paleta» retirado (mismo día, a pedido del dueño):** volver a los tonos del código se hace
+  dejando el ajuste vacío, y en su lugar el panel ofrece **intercambiar dos tonos de lugar**
+  («Intercambiar con…» sobre cada tono), que es lo que hacía falta para probar otro reparto sin copiar hex
+  a mano ni perder ningún color por el camino.
+- **Guardarraíl contra el guardado silencioso:** la paleta se estrenó contra una **imagen vieja de la API**
+  y el PUT respondía **200 sin guardar nada**, porque pydantic **descarta los campos que no conoce**.
+  `SettingsIn` usa `extra="forbid"`: un campo que la API no reconoce devuelve **422** con su nombre, y una
+  prueba cubre el caso. Verificado de punta a punta contra la API **dockerizada reconstruida**: el PUT con
+  los cinco tonos se guarda (normalizando el hex a minúsculas), el GET los devuelve, y se rechazan un hex
+  inválido, un tono desconocido y un campo de más (422 los tres).
+
+**Al desplegar:** **reconstruir la imagen de la API** (hay una columna nueva en `store_settings`; ver §0.5)
+— ya reconstruida y probada en local contra PostgreSQL; el despliegue de AWS sigue pendiente.
 
 ---
 
@@ -708,10 +818,12 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 - **Referencia:** el apartado de **productos destacados/más vendidos** de https://simplysweet.cl (§9).
 - **Pasos:** titular el catálogo «Productos destacados», **mantener los filtros de categoría arriba** del
   grid y dejar la tarjeta **solo con foto, nombre y precio**: quitar la **categoría** que iba debajo de la
-  carta y la **descripción** que iba debajo del `<h3>`. Es un cambio de presentación, no de datos.
-- **Criterio:** la carta muestra las tarjetas limpias bajo el título, con los filtros y el buscador
-  funcionando igual que antes.
-- **Estado:** IMPLEMENTADO (ver §0.11).
+  carta y la **descripción** que iba debajo del `<h3>`. Es un cambio de presentación, no de datos.- **Criterio:** la carta muestra las tarjetas limpias bajo el título, con los filtros y el buscador funcionando igual que antes.
+- **Ajuste A26 (2026-09-21):** el catálogo pagina de a **8 productos** (4 columnas × 2 filas) con flechas,
+  contador y transición animada al filtrar (D25, §0.12).
+- **Ajuste A27 (2026-09-22):** esa cantidad queda **fija**: se quita del panel el ajuste para cambiarla y
+  la columna `store_settings.products_per_page` sale de la API (D26, §0.13).
+- **Estado:** IMPLEMENTADO (ver §0.11 y §0.13).
 
 > **Gate F1:** `npx tsc --noEmit`, `npm run lint`, `npm run build` OK + revisión del dueño (flujo
 > cliente completo en móvil y desktop).
@@ -768,8 +880,9 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 
 ### F2.5 — Contenido editable (conectar `store_settings`)
 - **Archivos:** `lib/store-config.ts` (leer desde Supabase con fallback a constantes), admin sección
-  "Contenido" (editar nombre, hero, historia, WhatsApp, Instagram, datos de transferencia), storefront.
-- **Criterio:** el dueño edita textos/fotos de la home desde el panel y el cambio se ve en la tienda.
+  "Contenido" (editar nombre, hero, historia, WhatsApp, Instagram, datos de transferencia y, desde
+  **§0.15 / D29**, la **paleta de la tienda**), storefront.
+- **Criterio:** el dueño edita textos/fotos/colores de la home desde el panel y el cambio se ve en la tienda.
 - **Dependencias:** F0.3.
 - **Estimación:** 2 días.
 
@@ -873,11 +986,51 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
 - **Pasos:** definir la paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (con blanco y negro de
   apoyo) en la clase `theme-bosque` de `globals.css` —incluidos los visuales de hero y producto— y
   aplicarla al `<main>` de la tienda y la ficha. Como el header/footer se comparten con `/checkout` y
-  `/cuenta`, agregar la prop **`warm`** a `StoreHeader`/`StoreFooter` en lugar de cambiar la identidad
-  global. Los indicadores de stock conservan su semántica verde/ámbar/rojo.
+  `/cuenta`, agregar la prop **`warm`** a `StoreHeader` en lugar de cambiar la identidad global (el footer
+  pasa a ser cálido en todo el sitio en **§0.14 / D28**). Los indicadores de stock conservan su semántica verde/ámbar/rojo.
 - **Criterio:** la página principal y la ficha se ven en la paleta cálida (header, footer, secciones,
-  tarjetas y carrito lateral) mientras `/checkout` y `/cuenta` mantienen los tonos anteriores.
+  tarjetas y carrito lateral) mientras `/checkout` y `/cuenta` mantienen los tonos anteriores en su
+  contenido y su header (el footer es cálido en todas las páginas desde **D28**).
 - **Estado:** IMPLEMENTADO (ver §0.11).
+
+### F2.18 — Footer profesional con contacto y copyright (A28, D27)
+- **Archivos:** `components/store-shell.tsx`, `lib/store-config.ts`, `components/checkout-shell.tsx`.
+- **Pasos:** rehacer `StoreFooter` en tres bloques (marca con una línea del negocio, **Contacto** con correo,
+  teléfono, WhatsApp e Instagram, y **Tienda** con las anclas de sección) más una franja inferior con
+  **© año + nombre** y la ubicación; cada fila de contacto se dibuja solo si está configurada. Agregar
+  `contact_email` a `StoreConfig`/`ApiSettings`/`mergeSettings` (el dato se guardaba en la API pero no
+  llegaba al frontend) y exponer los tres teléfonos/correo en `ShellConfig`.
+- **Criterio:** carta, ficha y cuenta muestran el mismo footer profesional con los datos de Contenido y el
+  año en curso; sin datos de contacto configurados no quedan filas vacías; el footer del checkout sigue
+  siendo el mínimo de la referencia (D15).
+- **Estado:** IMPLEMENTADO (ver §0.13).
+
+### F2.19 — Footer cálido único en todo el sitio (A29, D28)
+- **Archivos:** `components/store-shell.tsx`, `components/storefront.tsx`, `components/product-detail.tsx`,
+  `app/globals.css` (comentario del tema).
+- **Pasos:** quitar la prop **`warm`** de `StoreFooter` y dejar sus colores fijos en la paleta cálida
+  (`#401a04` de fondo, `#d7cdc1` de texto, `#d9b391` en títulos y enlaces, `#846851` en la línea
+  divisoria), eliminando la rama verde que queda sin uso (D22). Retirar `warm` de las llamadas en la carta
+  y la ficha.
+- **Criterio:** el pie de la carta, la ficha y la cuenta es **idéntico** (mismos colores y bloques) sin
+  pasar ninguna prop; el header mantiene su prop `warm` (la cuenta conserva ahí la identidad anterior) y el
+  footer mínimo del checkout sigue igual (D15).
+- **Estado:** IMPLEMENTADO (ver §0.14).
+
+### F2.20 — Colores de la tienda editables (A30, D29)
+- **Archivos:** `lib/theme.ts` (nuevo), `app/globals.css`, `components/storefront.tsx`,
+  `components/product-detail.tsx`, `components/store-shell.tsx`, `components/cart-drawer.tsx`,
+  `app/cuenta/page.tsx`, `components/admin-dashboard.tsx`, `backend/app/*`, `backend/tests/test_api.py`.
+- **Pasos:** convertir la paleta cálida en variables CSS (`--brand-*`) con los tonos actuales como valor
+  por defecto y derivar con `color-mix` lo que no se edita; guardar los cinco tonos en
+  `store_settings.theme_colors` (JSON, validado) y exponerlos en `GET/PUT /api/settings`; editarlos en
+  Contenido con selector de color, hex y el **intercambio de tonos** entre sí; escribirlos en línea en el `<main>` de la
+  carta, la ficha y la cuenta (de ahí los heredan header, carrito lateral y footer).
+- **Criterio:** cambiar un tono en el panel y refrescar la tienda cambia ese tono en la carta, la ficha,
+  el carrito y el footer; sin colores guardados la tienda se ve igual que antes; la API rechaza tonos
+  desconocidos y valores que no sean hex de seis dígitos; el panel, el checkout y el contenido/header de
+  la cuenta no cambian.
+- **Estado:** IMPLEMENTADO (ver §0.15).
 
 > **Gate F2:** flujo completo de compra probado (transferencia y, si aplica, Webpay en TBK) + panel en
 > celular + `npm run build` OK.
@@ -983,6 +1136,17 @@ protegiendo escrituras. `npx tsc --noEmit` OK.
    prueba y mirar los Reportes en pantalla** para decidir si el orden de las métricas es el que espera el
    dueño, y confirmar en el navegador que el panel sigue mostrando su error explícito cuando la API se
    cae (D20 no lo cubre a propósito).
+10. **Ajustes de §0.13 (2026-09-22):** ya implementados (8 productos por página **fijos** y footer
+    profesional con contacto y copyright). Falta **reconstruir la imagen de la API** (se retira
+    `store_settings.products_per_page`), **cargar el correo y el teléfono reales** en Contenido para que
+    el footer los muestre, y revisar la carta y el footer en móvil y escritorio.
+11. **Ajustes de §0.14 (2026-09-22):** ya implementados (el footer es cálido en **carta, ficha y cuenta**
+    con una sola definición). Falta revisarlo en móvil y decidir si el **header** de `/cuenta` también pasa
+    a la paleta cálida.
+12. **Ajustes de §0.15 (2026-09-22):** ya implementados (los cinco tonos de la tienda se editan en
+    **Contenido › Colores**). Falta **reconstruir la imagen de la API** (columna nueva
+    `store_settings.theme_colors`), **elegir con el dueño la paleta definitiva** y guardarla desde el
+    panel, y comprobar en el navegador que el footer y el carrito acompañan el cambio.
 
 ---
 

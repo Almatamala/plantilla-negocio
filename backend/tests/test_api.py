@@ -28,24 +28,53 @@ def test_store_settings_save_instagram_widget(client, admin_headers):
     assert client.get("/api/settings").json()["instagram_embed_url"] == "https://widget.example.com/iframe/123"
 
 
-def test_store_settings_products_per_page(client, admin_headers):
-    # Productos por página del catálogo (D25): default 8, editable desde el panel junto al resto del
-    # contenido.
-    assert client.get("/api/settings").json()["products_per_page"] == 8
-
+def test_store_settings_without_products_per_page(client, admin_headers):
+    # Productos por página del catálogo (D26): quedaron fijos en 8, así que el ajuste se retiró del panel
+    # y de la API (la columna se elimina al arrancar en PostgreSQL). El resto de los ajustes sigue igual.
     settings = client.get("/api/settings").json()
+    assert "products_per_page" not in settings
+
     payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
     payload["name"] = "BOSQUE"
-    payload["products_per_page"] = 4
 
     saved = client.put("/api/settings", headers=admin_headers, json=payload)
     assert saved.status_code == 200
-    assert saved.json()["products_per_page"] == 4
-    assert client.get("/api/settings").json()["products_per_page"] == 4
+    assert saved.json()["name"] == "BOSQUE"
+    assert "products_per_page" not in saved.json()
+    assert client.get("/api/settings").json()["name"] == "BOSQUE"
 
-    # Un valor ridículo se rechaza en vez de guardarse (el frontend lo usa para cortar el catálogo).
-    payload["products_per_page"] = 0
+
+def test_store_settings_save_theme_colors(client, admin_headers):
+    # Paleta de marca (D29): los cinco tonos se guardan tal cual y la API solo acepta hex de seis dígitos
+    # en los tonos conocidos; el frontend completa con su paleta por defecto los que no se envíen.
+    settings = client.get("/api/settings").json()
+    assert settings["theme_colors"] is None
+
+    payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["theme_colors"] = {"accent": "#123ABC", "ink": "#401a04"}
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["theme_colors"] == {"accent": "#123abc", "ink": "#401a04"}
+    assert client.get("/api/settings").json()["theme_colors"]["accent"] == "#123abc"
+
+    payload["theme_colors"] = {"accent": "verde"}
     assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+    payload["theme_colors"] = {"acento": "#123abc"}
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+
+    # Un campo que la API no conoce se rechaza en vez de descartarse en silencio: con una imagen vieja de
+    # la API, guardar la paleta respondía 200 y no guardaba nada (extra="forbid" en SettingsIn).
+    payload["theme_colors"] = {"accent": "#123abc"}
+    payload["theme_colours"] = "#123abc"
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+    payload.pop("theme_colours")
+
+    # Volver a la paleta del código: basta con vaciar el ajuste.
+    payload["theme_colors"] = None
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["theme_colors"] is None
 
 
 def test_admin_token_is_required(client):

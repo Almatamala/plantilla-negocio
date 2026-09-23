@@ -306,7 +306,7 @@ con dos decisiones nuevas (**D23** y **D24**):
    (con blanco/negro de apoyo) para que la página se vea elegante y armónica, **solo en la página
    principal y la ficha**. Como el header/footer se comparten con `/checkout` y `/cuenta`, el tema se
    aplica con la clase `theme-bosque` sobre el `<main>` de esas dos vistas y el header/footer recibe una
-   prop `warm`; el checkout y la cuenta **conservan** la identidad anterior. Los indicadores de stock
+   prop `warm`; el checkout y la cuenta **conservan** la identidad anterior. **Ajustado en v13 (§1.12 / D28): el footer es cálido en todas las páginas y ya no lleva la prop `warm`.** Los indicadores de stock
    mantienen su semántica (verde/ámbar/rojo) por ser funcionales, no decorativos.
 
 **Nota de mantenimiento:** los `.pyc` de `backend/**/__pycache__` estaban **versionados** en git, así que
@@ -322,9 +322,65 @@ correr `pytest` ensuciaba el diff. Ya estaban cubiertos por `.gitignore`; se les
 
 1. **Productos destacados con página y transición (D25, F1.10).** El catálogo mostraba **todos** los
    productos filtrados y el filtro los hacía desaparecer de golpe. Ahora son **8 por página** (4 columnas
-   × 2 filas, ajustable en Contenido) con **flechas de página** a la derecha de los filtros, y al filtrar
+   × 2 filas, ~~ajustable en Contenido~~ **fijo desde v12, D26**) con **flechas de página** a la derecha de los filtros, y al filtrar
    los que no coinciden **se desvanecen** mientras los que quedan **se juntan** (`framer-motion`: `layout`
    + `AnimatePresence mode="popLayout"`).
+
+---
+
+## 1.11 Actualización v12 — Ajustes del dueño (2026-09-22)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores; `pytest` 42/42). Detalle por tarea en
+**PLAN §0.13**. Dos puntos sobre el código actual, con dos decisiones nuevas (**D26** y **D27**):
+
+1. **Productos destacados: 8 por página, fijos (D26, F1.10).** La v11 dejó la cantidad como ajuste
+   editable. Ahora la carta pagina **siempre 8 productos** (4 columnas × 2 filas) desde una constante y el
+   ajuste sale del panel, del frontend y de la API: `store_settings.products_per_page` se retira con
+   `DROP COLUMN` idempotente al arrancar. Las flechas, el contador y la animación del filtro se mantienen.
+2. **Footer profesional (D27, F2.18).** El footer mostraba solo el nombre y una línea de plantilla. Ahora
+   tiene marca, **Contacto** (correo, teléfono, WhatsApp e Instagram, cada fila solo si está configurada),
+   navegación y una franja inferior con **© año + nombre** y la ubicación. `contact_email` **nunca había
+   llegado al frontend** (`lib/store-config.ts` no lo declaraba, aunque la API sí lo guardaba), así que se
+   agrega a los ajustes del frontend. El footer mínimo del checkout se mantiene (referencia Shopify, D15).
+
+---
+
+## 1.12 Actualización v13 — Ajuste del dueño (2026-09-22)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores). Detalle por tarea en **PLAN §0.14**.
+Un punto sobre el código actual, con una decisión nueva (**D28**):
+
+1. **Footer cálido en todas las páginas (D28, F2.19).** La v10 hizo el footer **compartido** por carta,
+   ficha y cuenta, pero con la prop `warm`: cálido en las dos primeras y con el verde anterior en
+   `/cuenta`. El dueño pidió uniformar **el footer de la cuenta**, así que `StoreFooter` deja de llevar la
+   prop y usa siempre la paleta cálida (`#401A04` de fondo, `#D7CDC1` de texto, `#D9B391` en títulos y
+   enlaces, `#846851` en la línea divisoria). Al ser un solo footer, la variante verde queda sin uso y se
+   elimina (D22), y `app/cuenta/page.tsx` queda uniformada **sin cambios**. El **header** conserva `warm`
+   (la cuenta mantiene ahí la identidad anterior) y el footer mínimo del checkout sigue igual (D15).
+
+---
+
+## 1.13 Actualización v14 — Ajuste del dueño (2026-09-22)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores; `pytest` 43/43). Detalle por tarea en
+**PLAN §0.15**. Un punto sobre el código actual, con una decisión nueva (**D29**):
+
+1. **Colores editables desde el panel (D29, F2.20).** El dueño quiere poder **probar las combinaciones
+   que el cliente pida** sin tocar código. La paleta cálida estaba fija en dos lugares: la clase
+   `theme-bosque` de `app/globals.css` y ~70 hex sueltos en la carta, la ficha, el footer y el carrito.
+   Ahora los **cinco tonos** (acento, tinta, bloque suave, texto secundario y detalle cálido) son
+   variables CSS (`--brand-*`) con la paleta actual como valor por defecto, se editan en **Contenido ›
+   Colores de la tienda** (selector de color, hex e **«Intercambiar con…»**, que cambia dos tonos de lugar;
+   el botón «Restablecer paleta» se retiró el mismo día a pedido del dueño) y se guardan en
+   `store_settings.theme_colors` (columna JSON validada por la API). Cada vista cálida los escribe en
+   línea sobre su `<main>`, así que carta, ficha, carrito y footer acompañan el cambio; lo que no se
+   edita se deriva con `color-mix` para que la tienda siga legible. **Decidido con el dueño:** cinco
+   tonos nombrados por su uso, alcance carta + ficha + footer, y **sin vista previa** (guardar y
+   refrescar). El panel, el checkout y el contenido/header de la cuenta conservan sus colores. La API
+   además **rechaza los campos que no conoce** (`extra="forbid"` en `SettingsIn`): contra una imagen
+   vieja, guardar la paleta respondía 200 sin guardar nada, que es como apareció el problema. Probado de
+   punta a punta contra la API dockerizada reconstruida (guardado, normalización a minúsculas y 422 para
+   hex inválido, tono desconocido y campo de más).
 
 ---
 
@@ -337,7 +393,7 @@ correr `pytest` ensuciaba el diff. Ya estaban cubiertos por `.gitignore`; se les
 | **Datos** | `backend/app/models.py` (SQLAlchemy): tablas `profiles`, `categories`, `products`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con días de la semana), `closed_days` (fechas), `closed_weekdays` (cierre semanal), `shipping_zones`, `reviews`, `store_settings`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
 | **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (franjas/días cerrados/zonas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
 | **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, zonas, reviews, órdenes con stock server-side, ajustes e imágenes. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
-| **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**. |
+| **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**, incluida la **paleta de la tienda** (`theme_colors`: acento, tinta, bloque suave, texto secundario y detalle cálido — D29). |
 
 > Nota: el trabajo que quedó a medio camino en `components/admin-dashboard.tsx` (modal de ítems,
 > filtros, creación de producto, modal de stock) fue commiteado y el desarrollo continuó: ver §1.2.
@@ -559,6 +615,18 @@ aplican la **paleta cálida** del dueño con el **salvia `#808C6D` como acento p
 principal y la ficha (**D24**). Se reparten en **F1.1**, **F1.10**, **F3.2** y **F2.17** sin reordenar las
 fases.
 
+**Ajustes del dueño v12 (§1.11):** fijan los **8 productos por página** de «Productos destacados» —el
+ajuste sale del panel y de la API (**D26**)— y rehacen el **footer** con contacto (correo, teléfono y
+WhatsApp) y copyright (**D27**). Se reparten en **F1.10** y **F2.18** sin reordenar las fases.
+
+**Ajustes del dueño v13 (§1.12):** uniforman el **footer de `/cuenta`** con la paleta cálida de la tienda
+—el pie pasa a ser **uno solo** para carta, ficha y cuenta, sin la prop `warm` (**D28**)—. Se reparte en
+**F2.19** sin reordenar las fases.
+
+**Ajustes del dueño v14 (§1.13):** hacen **editables los colores** de la tienda desde el panel para poder
+probar configuraciones con el cliente: cinco tonos como variables CSS guardadas en
+`store_settings.theme_colors` (**D29**). Se reparten en **F2.20** sin reordenar las fases.
+
 **Ajustes del dueño v9 (§1.8):** limpian el código **duplicado o sin uso** (con la corrección del bug de
 subida de fotos que apareció en la revisión), convierten en piezas compartidas los patrones repetidos en
 cuatro pantallas (**hooks y tipos**) y **acotan el modelo de datos** retirando del backend lo que no se
@@ -594,8 +662,12 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D21 | Reportes del negocio | **RESUELTA E IMPLEMENTADA** (ver §1.7): métricas aprobadas por el dueño (ventas + ticket promedio, más/menos vendidos, sin ventas, puntos de retiro, día y franja, categorías y reposición) con **rango personalizado por meses enteros hasta un año** en reemplazo del filtro «Este mes»; la comparación con el período anterior queda solo en los presets de 7 y 30 días | Sección **Reportes** del panel |
 | D22 | Alcance del modelo de datos | **RESUELTA E IMPLEMENTADA** (ver §1.8): el producto es **uno por publicación** —sin variantes, sin SKU y sin campos SEO propios— y **no hay páginas editables**; el contenido editable vive en `store_settings` (F2.5). Se retiraron `product_variants` (y `order_items.variant_id`), `products.sku`/`seo_title`/`seo_description`, `pages` y `POST /api/pages` | `backend/app/models.py`, `schemas.py`, `main.py`, panel |
 | D23 | Feed de Instagram | **RESUELTA E IMPLEMENTADA** (ver §1.9): sección al final de la página principal que pinta **solo el iframe de un widget de terceros** (solo publicaciones, **de borde a borde**) con el código/URL guardado en `store_settings.instagram_embed_url` (widget de **SociableKIT** ya configurado). Evita el token de Meta y el scrapeo (429). Actualiza D11 | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `components/storefront.tsx`, panel (Contenido) |
-| D24 | Identidad visual (paleta) | **RESUELTA E IMPLEMENTADA** (ver §1.9): paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (más blanco/negro de apoyo) aplicada **solo a la página principal y la ficha de producto**; `/checkout` y `/cuenta` conservan la identidad anterior. Se implementa con la clase `theme-bosque` y la prop `warm` del header/footer | `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
-| D25 | Paginado del catálogo | **RESUELTA E IMPLEMENTADA** (ver §1.10): **8 productos por página** (ajustable en Contenido) con **flechas de página** a la derecha de los filtros y **transición animada** al filtrar, en lugar de mostrar todo el catálogo de una vez | `components/storefront.tsx`, `store_settings.products_per_page` |
+| D24 | Identidad visual (paleta) | **RESUELTA E IMPLEMENTADA** (ver §1.9): paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (más blanco/negro de apoyo) aplicada **solo a la página principal y la ficha de producto**; `/checkout` y `/cuenta` conservan la identidad anterior. Se implementa con la clase `theme-bosque` y la prop `warm` del header (el **footer** pasó a ser cálido en todas las páginas en v13, **§1.12 / D28**; y los **cinco tonos se editan desde el panel** en v14, **§1.13 / D29**) | `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
+| D25 | Paginado del catálogo | **RESUELTA E IMPLEMENTADA** (ver §1.10): **8 productos por página** con **flechas de página** a la derecha de los filtros y **transición animada** al filtrar, en lugar de mostrar todo el catálogo de una vez. **Ajustada en v12 (§1.11 / D26): la cantidad queda fija** | `components/storefront.tsx` |
+| D26 | Productos por página | **RESUELTA E IMPLEMENTADA** (ver §1.11): **8 por página, fijos** (4 columnas × 2 filas). Deja de ser configurable desde el panel y la columna `store_settings.products_per_page` se retira de la API | `components/storefront.tsx`, `backend/app/*`, panel (Contenido) |
+| D27 | Footer de la tienda | **RESUELTA E IMPLEMENTADA** (ver §1.11): footer **profesional** compartido por carta, ficha y cuenta —marca, **datos de contacto** (correo, teléfono, WhatsApp e Instagram), navegación y **copyright con el año**—; el footer mínimo del checkout se mantiene (D15) | `components/store-shell.tsx`, `lib/store-config.ts` |
+| D28 | Footer cálido único | **RESUELTA E IMPLEMENTADA** (ver §1.12): **un solo footer, siempre en la paleta cálida**, en carta, ficha y cuenta (pierde la prop `warm` y con ella la variante verde). Ajusta D24 en el pie; el **header** mantiene `warm` y el checkout su footer mínimo (D15) | `components/store-shell.tsx`, `storefront.tsx`, `product-detail.tsx`, `app/globals.css` |
+| D29 | Paleta de marca editable | **RESUELTA E IMPLEMENTADA** (ver §1.13): los **cinco tonos** de la identidad cálida se editan desde el panel (Contenido › Colores) y se guardan en `store_settings.theme_colors` (JSON validado: solo esos tonos y hex de seis dígitos). La tienda los aplica con variables CSS `--brand-*` y deriva el resto con `color-mix`; el panel, el checkout y el contenido/header de la cuenta conservan sus colores. Ajusta D24 | `lib/theme.ts`, `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx`, `app/cuenta/page.tsx`, `admin-dashboard.tsx`, `backend/app/*` |
 
 ---
 
@@ -620,8 +692,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 |---|---|
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
 | `components/instagram-feed.tsx` | Sección de Instagram al final de la página principal: **solo** el iframe del widget de terceros (solo publicaciones, de borde a borde) (D23) |
-| `store_settings.products_per_page` | Productos por página del catálogo «Productos destacados» (8 por defecto), editable en Contenido (D25) |
-| `components/store-shell.tsx` | Header/footer compartidos; la prop `warm` aplica la paleta cálida solo en página principal y ficha (D24) |
+| `components/store-shell.tsx` | Header/footer compartidos. El footer trae marca, contacto (correo, teléfono, WhatsApp e Instagram), navegación y **copyright** (D27) y usa siempre la paleta cálida en carta, ficha y cuenta (D28); la prop `warm` del **header** aplica esa paleta solo en página principal y ficha (D24) |
 | `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |
 | `lib/products.ts` | Productos demo + `formatPrice` |
@@ -631,6 +702,8 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | `proxy.ts` | Protege `/admin` (rol admin) y redirige a logueados fuera de `/login` |
 | `app/api/auth/*` | Route handlers: login/registro, callback de Google, `/me`, logout (cookie httpOnly) |
 | `app/cuenta` | Página de cuenta dentro del layout de la tienda (header/footer): datos, teléfono por defecto, historial de pedidos, cerrar sesión |
+| `lib/theme.ts` | Paleta de marca editable: los cinco tonos con sus etiquetas, la normalización de lo que guarda la API y las variables CSS que aplican las vistas cálidas (D29) |
+| `store_settings.theme_colors` | Paleta guardada como JSON (`accent`, `ink`, `surface`, `muted`, `detail`), editable en Contenido › Colores; sin valores guardados manda la paleta del código (D29) |
 | `store_settings.instagram_embed_url` | Código o URL del iframe del widget de Instagram, editable en Contenido (D23) |
 | `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
 | `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (GOOGLE_*, ADMIN_EMAILS, AUTH_JWT_SECRET) |

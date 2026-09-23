@@ -46,9 +46,11 @@ Quedan disponibles PostgreSQL en `localhost:5432`, la API en `http://localhost:8
 
 Las tablas se crean automáticamente al arrancar desde `backend/app/models.py` (SQLAlchemy). Los cambios
 posteriores de columnas se aplican al arrancar **solo en PostgreSQL** con `ALTER TABLE` idempotentes
-(por ejemplo `time_slots.zone_id`/`weekdays`, el retiro de `shipping_zones.areas`/`schedule` y
-`orders.notes`; ver PLAN §0.7 y §0.8). En una instalación nueva, el domingo queda como **día cerrado
-semanal** por defecto (`closed_weekdays`).
+(por ejemplo `time_slots.zone_id`/`weekdays`, el retiro de `shipping_zones.areas`/`schedule`,
+`orders.notes` y de `store_settings.products_per_page`, ya que la cantidad de productos por página
+quedó **fija en 8**, más las columnas de contenido `instagram_embed_url` y `theme_colors` —la **paleta
+editable** desde el panel—; ver PLAN §0.7, §0.8, §0.13 y §0.15). En una instalación nueva, el domingo queda como
+**día cerrado semanal** por defecto (`closed_weekdays`).
 
 ## Variables de entorno
 
@@ -117,4 +119,6 @@ franjas deshabilitadas, de otro punto o de un día que no corresponde), **puntos
 sesión de
 usuarios (auth sin credenciales, `/api/auth/me`, roles admin/customer, vínculo orden→perfil y
 **confirmación por correo**: código correcto/incorrecto, expiración, límite de intentos, reenvíos y
-desactivación cuando faltan las credenciales de Resend).
+desactivación cuando faltan las credenciales de Resend) y la **paleta de la tienda**: guardado de los
+cinco tonos, normalización a minúsculas y rechazo de tonos desconocidos o valores que no sean un hex de
+seis dígitos.

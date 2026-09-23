@@ -21,7 +21,7 @@ export function CheckoutHeader({ config }: { config: ShellConfig }) {
 }
 
 /** Footer de contacto del checkout (en la referencia son los enlaces de políticas). */
-export function CheckoutFooter({ config }: { config: ShellConfig & { whatsapp_phone?: string | null } }) {
+export function CheckoutFooter({ config }: { config: ShellConfig }) {
   const digits = (config.whatsapp_phone ?? "").replace(/\D/g, "");
   return (
     <footer className="border-t border-[#e2e5df] bg-white px-5 py-8 md:px-10">

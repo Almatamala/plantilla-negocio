@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -233,20 +234,48 @@ class OrderOut(ORMModel):
     shipping_zone_name: str | None = None
 
 
+# Paleta de marca editable desde el panel (D29): los cinco tonos de la identidad cálida, nombrados por
+# el uso que tienen en la tienda. La API no impone la paleta, solo que sean colores válidos y de estos
+# tonos: los que falten los completa el frontend con sus valores por defecto.
+THEME_COLOR_KEYS = ("accent", "ink", "surface", "muted", "detail")
+HEX_COLOR = re.compile(r"^#[0-9a-f]{6}$")
+
+
 class SettingsIn(BaseModel):
+    # `extra="forbid"`: el panel es el único cliente de este endpoint y un campo que la API no conoce se
+    # descartaba **en silencio** —parecía guardarse y no se guardaba nada—, que es justo lo que pasó al
+    # estrenar la paleta contra una imagen vieja de la API. Mejor un 422 que diga qué sobra.
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=160)
     contact_email: str | None = Field(default=None, max_length=254)
     contact_phone: str | None = Field(default=None, max_length=50)
     whatsapp_phone: str | None = Field(default=None, max_length=50)
     instagram_url: str | None = Field(default=None, max_length=300)
     instagram_embed_url: str | None = Field(default=None, max_length=500)
-    products_per_page: int = Field(default=8, ge=1, le=48)
     bank_account_info: str | None = None
     announcement: str | None = Field(default=None, max_length=240)
     hero_title: str | None = Field(default=None, max_length=200)
     hero_description: str | None = None
     story_headline: str | None = Field(default=None, max_length=240)
     story_description: str | None = None
+    theme_colors: dict[str, str] | None = None
+
+    @field_validator("theme_colors")
+    @classmethod
+    def valid_theme_colors(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        unknown = sorted(set(value) - set(THEME_COLOR_KEYS))
+        if unknown:
+            raise ValueError(f"Tono desconocido: {', '.join(unknown)}. Se editan {', '.join(THEME_COLOR_KEYS)}.")
+        colors = {}
+        for key, color in value.items():
+            color = color.strip().lower()
+            if not HEX_COLOR.match(color):
+                raise ValueError(f"«{color}» no es un color hexadecimal de seis dígitos (por ejemplo #808c6d).")
+            colors[key] = color
+        return colors
 
 
 class SettingsOut(SettingsIn, ORMModel):

@@ -1,6 +1,31 @@
 @import "tailwindcss";
 
 :root { --ink: #243128; --moss: #56745c; --cream: #faf7f0; }
+
+/*
+ * Paleta de marca **editable** (panel › Contenido › Colores).
+ *
+ * Los cinco tonos viven como variables CSS y el panel los guarda en `store_settings.theme_colors`
+ * (D29); las vistas cálidas —carta, ficha de producto y el footer, que es el mismo en todo el sitio—
+ * escriben los valores guardados en línea sobre su `<main>`, así que el dueño puede probar cualquier
+ * combinación sin tocar el código. Lo que **no** se edita (el texto claro sobre los bloques oscuros,
+ * los fondos y los rellenos de los visuales de relleno) se deriva de esos tonos con `color-mix`, para
+ * que la tienda siga legible al cambiar un color.
+ *
+ * Los valores por defecto son la paleta con la que se diseñó la tienda (#808C6D, #401A04, #D7CDC1,
+ * #846851 y #D9B391): sin guardar nada, se ve igual que antes.
+ */
+:root {
+  --brand-accent: #808c6d;  /* Acento: botones, filtros, enlaces y secciones destacadas */
+  --brand-ink: #401a04;     /* Tinta: texto principal y bloques oscuros (footer, carrito) */
+  --brand-surface: #d7cdc1; /* Bloque suave: fondo del catálogo, bordes y visuales */
+  --brand-muted: #846851;   /* Texto secundario: descripciones, contadores y líneas */
+  --brand-detail: #d9b391;  /* Detalle cálido: títulos y acentos de los visuales */
+  --brand-on-ink: color-mix(in srgb, var(--brand-surface) 35%, white);
+  --brand-surface-soft: color-mix(in srgb, var(--brand-surface) 65%, white);
+  --brand-surface-lighter: color-mix(in srgb, var(--brand-surface) 40%, white);
+  --brand-detail-soft: color-mix(in srgb, var(--brand-detail) 75%, white);
+}
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--cream); color: var(--ink); font-family: Arial, sans-serif; }
@@ -36,14 +61,19 @@ select.select-field {
  * El dueño pidió que estos tonos —#D7CDC1, #D9B391, #846851, #401A04 y #808C6D, con blanco y negro de
  * apoyo— vistieran la página principal y la ficha, **sin** tocar el checkout ni la cuenta. Como el
  * header/footer (`store-shell.tsx`) se comparten entre esas pantallas, el tema se aplica con la clase
- * `theme-bosque` sobre el `<main>` de esas dos vistas y el header/footer recibe la prop `warm`.
+ * `theme-bosque` sobre el `<main>` de esas dos vistas y el header recibe la prop `warm`. El **footer**
+ * (`StoreFooter`) usa siempre esta paleta en todas las páginas (D28), así que no lleva prop.
+ *
+ * Desde **D29** los tonos ya no están fijos acá: salen de las variables `--brand-*` de arriba, que el
+ * panel guarda en `store_settings.theme_colors`. Lo único que esta clase fija es el reparto (qué tono
+ * usa cada sección y cada relleno).
  * Los visuales de relleno (hero y product-visual) se redefinen solo dentro del tema para que el panel
  * y el checkout conserven los suyos.
  */
-.theme-bosque { --ink: #401a04; --moss: #846851; --cream: #ffffff; background: var(--cream); color: var(--ink); }
-.theme-bosque .hero-visual { background: radial-gradient(circle at 78% 26%, #d9b391 0 7%, transparent 7.5%), radial-gradient(circle at 65% 60%, #808c6d 0 17%, transparent 17.5%), radial-gradient(circle at 87% 67%, #846851 0 13%, transparent 13.5%), linear-gradient(130deg, #d7cdc1 0%, #d9b391 100%); }
-.theme-bosque .product-visual { background: linear-gradient(145deg, #e7dfd5, #d7cdc1); }
-.theme-bosque .product-visual[data-tone="warm"] { background: linear-gradient(145deg, #e3c3a6, #d9b391); }
-.theme-bosque .product-visual[data-tone="deep"] { background: linear-gradient(145deg, #846851, #401a04); }
-.theme-bosque .product-visual[data-tone="light"] { background: linear-gradient(145deg, #efe9e1, #d7cdc1); }
-.theme-bosque .product-visual[data-tone="classic"] { background: linear-gradient(145deg, #d7cdc1, #808c6d); }
+.theme-bosque { --ink: var(--brand-ink); --moss: var(--brand-muted); --cream: #ffffff; background: var(--cream); color: var(--ink); }
+.theme-bosque .hero-visual { background: radial-gradient(circle at 78% 26%, var(--brand-detail) 0 7%, transparent 7.5%), radial-gradient(circle at 65% 60%, var(--brand-accent) 0 17%, transparent 17.5%), radial-gradient(circle at 87% 67%, var(--brand-muted) 0 13%, transparent 13.5%), linear-gradient(130deg, var(--brand-surface) 0%, var(--brand-detail) 100%); }
+.theme-bosque .product-visual { background: linear-gradient(145deg, var(--brand-surface-soft), var(--brand-surface)); }
+.theme-bosque .product-visual[data-tone="warm"] { background: linear-gradient(145deg, var(--brand-detail-soft), var(--brand-detail)); }
+.theme-bosque .product-visual[data-tone="deep"] { background: linear-gradient(145deg, var(--brand-muted), var(--brand-ink)); }
+.theme-bosque .product-visual[data-tone="light"] { background: linear-gradient(145deg, var(--brand-surface-lighter), var(--brand-surface)); }
+.theme-bosque .product-visual[data-tone="classic"] { background: linear-gradient(145deg, var(--brand-surface), var(--brand-accent)); }
