@@ -576,7 +576,7 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
   const [settings, setSettings] = useState({
     name: storeConfig.name, announcement: storeConfig.announcement, hero_title: storeConfig.headline, hero_description: storeConfig.description,
     story_headline: storeConfig.storyHeadline, story_description: storeConfig.storyDescription, contact_email: "", contact_phone: "",
-    whatsapp_phone: "", instagram_url: "", instagram_embed_url: "", bank_account_info: "",
+    whatsapp_phone: "", instagram_url: "", bank_account_info: "",
   });
   // Paleta de marca (D29): se editan los cinco tonos y el borrador guarda lo que se está escribiendo en
   // el campo de texto, para no volcar a la paleta (ni a la API) un hex a medio escribir.
@@ -584,7 +584,7 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
   const [drafts, setDrafts] = useState<ThemeColors>(defaultThemeColors);
   useEffect(() => {
     apiFetch<typeof settings & { theme_colors?: Partial<Record<string, string>> | null }>("/api/settings").then((data) => {
-      setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", instagram_embed_url: data.instagram_embed_url ?? "", bank_account_info: data.bank_account_info ?? "" }));
+      setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", bank_account_info: data.bank_account_info ?? "" }));
       const palette = normalizeThemeColors(data.theme_colors);
       setColors(palette);
       setDrafts(palette);
@@ -631,7 +631,6 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
         {field("contact_phone", "Teléfono de contacto")}
         {field("whatsapp_phone", "WhatsApp (formato +569…)")}
         {field("instagram_url", "Instagram (URL del perfil)")}
-        {field("instagram_embed_url", "Instagram — código o URL del widget (iframe, solo publicaciones)", "https://widgets.sociablekit.com/instagram-feed/iframe/000000")}
       </div>
       <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Datos de transferencia bancaria</span><textarea value={settings.bank_account_info} onChange={(e) => set("bank_account_info", e.target.value)} rows={3} placeholder={"Banco, titular, RUT y número de cuenta"} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>
       <fieldset className="rounded-xl border border-[#e2e5df] p-4">

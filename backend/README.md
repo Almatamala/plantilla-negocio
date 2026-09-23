@@ -48,8 +48,9 @@ Las tablas se crean automáticamente al arrancar desde `backend/app/models.py` (
 posteriores de columnas se aplican al arrancar **solo en PostgreSQL** con `ALTER TABLE` idempotentes
 (por ejemplo `time_slots.zone_id`/`weekdays`, el retiro de `shipping_zones.areas`/`schedule`,
 `orders.notes` y de `store_settings.products_per_page`, ya que la cantidad de productos por página
-quedó **fija en 8**, más las columnas de contenido `instagram_embed_url` y `theme_colors` —la **paleta
-editable** desde el panel—; ver PLAN §0.7, §0.8, §0.13 y §0.15). En una instalación nueva, el domingo queda como
+quedó **fija en 8**, y de `store_settings.instagram_embed_url`, al reemplazar el widget de terceros por el
+**feed propio** con la API de Instagram (D30); más la columna de contenido `theme_colors` —la **paleta
+editable** desde el panel—; ver PLAN §0.7, §0.8, §0.13, §0.15 y §0.17). En una instalación nueva, el domingo queda como
 **día cerrado semanal** por defecto (`closed_weekdays`).
 
 ## Variables de entorno

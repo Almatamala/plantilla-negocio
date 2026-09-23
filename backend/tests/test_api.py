@@ -11,21 +11,23 @@ def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
 
-def test_store_settings_save_instagram_widget(client, admin_headers):
-    # La URL del widget de Instagram (D23) se guarda junto a los demás ajustes editables.
-    assert client.get("/api/settings").json()["instagram_embed_url"] is None
-
+def test_store_settings_without_instagram_widget(client, admin_headers):
+    # El widget de terceros de Instagram (D23) se retiró al pasar al **feed propio** con la API de
+    # Instagram (D30), cuyo token vive solo en el servidor: el ajuste sale del panel y de la API y la
+    # columna se elimina al arrancar en PostgreSQL. El enlace al perfil (`instagram_url`) se mantiene.
     settings = client.get("/api/settings").json()
+    assert "instagram_embed_url" not in settings
+
     payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
     payload["name"] = "BOSQUE"
     payload["instagram_url"] = "https://www.instagram.com/bosque"
-    payload["instagram_embed_url"] = "https://widget.example.com/iframe/123"
 
     assert client.put("/api/settings", json=payload).status_code == 401
     saved = client.put("/api/settings", headers=admin_headers, json=payload)
     assert saved.status_code == 200
-    assert saved.json()["instagram_embed_url"] == "https://widget.example.com/iframe/123"
-    assert client.get("/api/settings").json()["instagram_embed_url"] == "https://widget.example.com/iframe/123"
+    assert saved.json()["instagram_url"] == "https://www.instagram.com/bosque"
+    assert "instagram_embed_url" not in saved.json()
+    assert client.get("/api/settings").json()["instagram_url"] == "https://www.instagram.com/bosque"
 
 
 def test_store_settings_without_products_per_page(client, admin_headers):

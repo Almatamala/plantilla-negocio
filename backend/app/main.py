@@ -91,19 +91,19 @@ PROFILE_VERIFICATION_COLUMNS = (
     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
 )
 
-# Contenido de la tienda: la URL del iframe del widget de Instagram (D23) y la **paleta de marca
-# editable** (D29) viven junto a los demás ajustes de `store_settings`; `create_all` no altera tablas
-# existentes, así que se agregan al arrancar en PostgreSQL.
+# Contenido de la tienda: la **paleta de marca editable** (D29) vive junto a los demás ajustes de
+# `store_settings`; `create_all` no altera tablas existentes, así que se agrega al arrancar en PostgreSQL.
 STORE_CONTENT_COLUMNS = (
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS instagram_embed_url VARCHAR(500)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS theme_colors JSON",
 )
 
 # Ajustes retirados de `store_settings`: los productos por página de «Productos destacados» quedaron
-# **fijos en 8** (D26), así que el ajuste sale del panel y de la API y la columna se elimina al arrancar
-# para que una base ya creada quede igual que una nueva.
+# **fijos en 8** (D26) y la **URL del iframe del widget de Instagram** sale al reemplazar el widget de
+# terceros por el feed propio con la API de Instagram (D30), así que ambos salen del panel y de la API y
+# las columnas se eliminan al arrancar para que una base ya creada quede igual que una nueva.
 RETIRED_STORE_SETTINGS_COLUMNS = (
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS products_per_page",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS instagram_embed_url",
 )
 
 VERIFICATION_TTL_MINUTES = 15

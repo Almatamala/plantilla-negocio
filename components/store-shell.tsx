@@ -48,28 +48,34 @@ export function StoreHeader({
   return (
     <>
       {config.announcement && <div className={`${announcement} px-4 py-2 text-center text-[11px] tracking-[.16em] uppercase`}>{config.announcement} · Plantilla demo</div>}
-      <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6 md:px-10">
-        <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="Abrir menú"><Menu size={22}/></button>
-        <nav className={`${menu ? "flex" : "hidden"} absolute top-28 left-5 right-5 z-20 flex-col gap-4 rounded-2xl bg-white p-6 shadow-lg md:static md:flex md:flex-row md:bg-transparent md:p-0 md:shadow-none`}>
-          <Link href="/#coleccion" onClick={() => setMenu(false)}>Productos</Link>
-          <Link href="/#beneficios" onClick={() => setMenu(false)}>Beneficios</Link>
-          <Link href="/#historia" onClick={() => setMenu(false)}>Nosotros</Link>
-        </nav>
-        <Link href="/" className="display text-3xl tracking-tight md:absolute md:left-1/2 md:-translate-x-1/2">{config.name}</Link>
-        <div className="flex items-center gap-4">
-          {onSearch
-            ? <button onClick={onSearch} aria-label="Buscar"><Search size={20}/></button>
-            : <Link href="/#coleccion" aria-label="Buscar" title="Buscar productos"><Search size={20}/></Link>}
-          {account && <Link href={account.href} aria-label={account.label} title={account.label}><UserRound size={20}/></Link>}
-          {onCartOpen
-            ? <button className="relative" onClick={onCartOpen} aria-label="Carrito">
-                <ShoppingBag size={21}/>
-                {cartCount > 0 && <span className={`absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full ${badge} text-[10px] text-white`}>{cartCount}</span>}
-              </button>
-            : <Link href={cartHref} className="relative" aria-label="Carrito" title="Carrito">
-                <ShoppingBag size={21}/>
-                {cartCount > 0 && <span className={`absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full ${badge} text-[10px] text-white`}>{cartCount}</span>}
-              </Link>}
+      {/* El margen lateral va **fuera** de `max-w-7xl`, igual que la sección «Productos destacados»
+          (`px-5 md:px-10` en el contenedor y `mx-auto max-w-7xl` adentro). Antes el padding iba dentro
+          del `max-w-7xl`, así que en PC el borde del header caía 40 px más adentro que la carta. La nav y
+          el logo siguen posicionándose contra la ventana porque acá no se agrega `relative`. */}
+      <header className="px-5 py-6 md:px-10">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="Abrir menú"><Menu size={22}/></button>
+          <nav className={`${menu ? "flex" : "hidden"} absolute top-28 left-5 right-5 z-20 flex-col gap-4 rounded-2xl bg-white p-6 shadow-lg md:static md:flex md:flex-row md:bg-transparent md:p-0 md:shadow-none`}>
+            <Link href="/#coleccion" onClick={() => setMenu(false)}>Productos</Link>
+            <Link href="/#beneficios" onClick={() => setMenu(false)}>Beneficios</Link>
+            <Link href="/#historia" onClick={() => setMenu(false)}>Nosotros</Link>
+          </nav>
+          <Link href="/" className="display text-3xl tracking-tight md:absolute md:left-1/2 md:-translate-x-1/2">{config.name}</Link>
+          <div className="flex items-center gap-4">
+            {onSearch
+              ? <button onClick={onSearch} aria-label="Buscar"><Search size={20}/></button>
+              : <Link href="/#coleccion" aria-label="Buscar" title="Buscar productos"><Search size={20}/></Link>}
+            {account && <Link href={account.href} aria-label={account.label} title={account.label}><UserRound size={20}/></Link>}
+            {onCartOpen
+              ? <button className="relative" onClick={onCartOpen} aria-label="Carrito">
+                  <ShoppingBag size={21}/>
+                  {cartCount > 0 && <span className={`absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full ${badge} text-[10px] text-white`}>{cartCount}</span>}
+                </button>
+              : <Link href={cartHref} className="relative" aria-label="Carrito" title="Carrito">
+                  <ShoppingBag size={21}/>
+                  {cartCount > 0 && <span className={`absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full ${badge} text-[10px] text-white`}>{cartCount}</span>}
+                </Link>}
+          </div>
         </div>
       </header>
     </>

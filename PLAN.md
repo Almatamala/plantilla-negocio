@@ -460,7 +460,7 @@ código actual, con dos decisiones nuevas (**D23** y **D24**):
 
 | # | Decisión | Resolución | Impacto |
 |---|---|---|---|
-| **D23** | Feed de Instagram | **Widget de terceros con iframe** (SociableKIT, SnapWidget, EmbedSocial…) para mostrar **solo las publicaciones de borde a borde**, con el código o la URL del iframe pegada en el panel (Contenido). Evita el token de Meta y también el scrapeo desde el servidor (la API pública devuelve 429). Actualiza **D11**: el embed oficial del perfil queda descartado (no se puede ensanchar ni ocultar su encabezado) y el feed con token de Meta sigue disponible como alternativa | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `storefront.tsx`, panel (Contenido) |
+| **D23** | Feed de Instagram | **RETIRADA en §0.17:** reemplazada por el **feed propio** con la API de Instagram (**D30**, §0.16); el componente, el campo del panel y la columna se eliminaron. **Original:** **Widget de terceros con iframe** (SociableKIT, SnapWidget, EmbedSocial…) para mostrar **solo las publicaciones de borde a borde**, con el código o la URL del iframe pegada en el panel (Contenido). Evita el token de Meta y también el scrapeo desde el servidor (la API pública devuelve 429). Actualiza **D11**: el embed oficial del perfil queda descartado (no se puede ensanchar ni ocultar su encabezado) y el feed con token de Meta sigue disponible como alternativa | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `storefront.tsx`, panel (Contenido) |
 | **D24** | Identidad visual (paleta) | La paleta cálida (**#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D**, más blanco y negro de apoyo) viste **solo la página principal y la ficha de producto**. Como el header/footer se comparten con `/checkout` y `/cuenta`, se aplica con la clase `theme-bosque` sobre el `<main>` de esas dos vistas y la prop `warm` del header/footer, de modo que el checkout y la cuenta **no** cambian. **Ajustada en §0.14 (D28): el footer queda cálido en todas las páginas**; **y en §0.15 (D29): los cinco tonos se editan desde el panel** | `globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
 
 ### Estado: IMPLEMENTADO (2026-09-21)
@@ -616,6 +616,159 @@ Un punto sobre el código actual, con una decisión nueva (**D28**):
 
 **Al desplegar:** **reconstruir la imagen de la API** (hay una columna nueva en `store_settings`; ver §0.5)
 — ya reconstruida y probada en local contra PostgreSQL; el despliegue de AWS sigue pendiente.
+
+---
+
+## 0.16 Actualización — Ajuste del dueño (2026-09-23): feed de Instagram propio, sin proveedor externo
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+`GET /api/instagram/feed` probado **en vivo** contra la API real: devuelve las **15 últimas
+publicaciones** de `bosque.cl` con `like_count`, `comments_count`, descripción e imagen, incluidos
+videos y carruseles). Un punto sobre el código actual, con una decisión nueva (**D30**), más la
+**investigación de la renovación del token** (documentada sin implementar) y la aclaración del **webhook**.
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A31** | Dejar de usar el **widget de un proveedor externo** y hacer un **feed propio** con la cuenta definida: por defecto las **15 últimas publicaciones en 3 filas de 5 columnas**, configurables **solo desde el código**, con **likes, comentarios y descripción al posar el mouse** sobre la foto. **No reemplazar** el widget actual todavía: primero ver cómo queda | **D23** mostraba un **iframe de SociableKIT**: cumplía «solo publicaciones a ancho completo», pero no deja pintar datos propios (likes, comentarios, descripción), depende de las **vistas mensuales del plan gratis** y ata la sección a un proveedor. El token de Meta se había descartado por el **429** de la API pública de *scrapeo*; el **token de larga duración de la Instagram API with Instagram Login** que entregó el dueño **sí responde** para la cuenta **profesional**: `/me/media` entrega `like_count` y `comments_count` | **D30.** `lib/instagram.ts` (nuevo: tipos y las constantes `INSTAGRAM_POST_COUNT = 15` / `INSTAGRAM_COLUMNS = 5`), `app/api/instagram/feed/route.ts` (nuevo: consulta la API **desde el servidor** con el token de entorno, normaliza imagen/miniatura/carrusel y cachea 15 min) y `components/instagram-grid.tsx` (nuevo: grilla 3×5 con overlay de likes, comentarios y descripción al pasar el mouse, y acceso a la publicación). El widget anterior **se mantiene** y la home muestra **los dos** para comparar | **F3.2** |
+
+### Decisión nueva
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D30** | Feed de Instagram | **Feed propio con la API de Instagram** (Instagram Login): el token de **larga duración** vive **solo en el servidor** (`INSTAGRAM_ACCESS_TOKEN` / `INSTAGRAM_USER_ID`, `.env` ignorado por git) y un **route handler** de Next entrega al navegador las publicaciones ya normalizadas; el widget las pinta en **3 filas de 5 columnas** (15 últimas) con **likes, comentarios y descripción al pasar el mouse**. La configuración se edita **solo en el código** (`lib/instagram.ts`), **sin ajuste en el panel**. Se dejó **D23** (widget de terceros) conviviendo **hasta que el dueño confirmara**; **cerrada en §0.17**, donde se retiraron el iframe y `store_settings.instagram_embed_url` | `lib/instagram.ts`, `app/api/instagram/feed/route.ts`, `components/instagram-grid.tsx`, `components/storefront.tsx`, `.env` |
+
+### Estado: IMPLEMENTADO (2026-09-23)
+
+- **A31 (F3.2):** `lib/instagram.ts` (tipos `InstagramPost`/`InstagramFeed` + `INSTAGRAM_POST_COUNT` y
+  `INSTAGRAM_COLUMNS`), `app/api/instagram/feed/route.ts` (token de entorno, campos de medios, 15
+  publicaciones, caché de 15 min con `next: { revalidate }`), `components/instagram-grid.tsx` (grilla
+  `grid-cols-3 sm:grid-cols-[repeat(var(--ig-columns),…)]`, overlay en hover con `Heart`/`MessageCircle`
+  y `line-clamp-3` para la descripción, insignia de video) y `components/storefront.tsx` (lo monta
+  **debajo** del widget actual, con una leyenda de vista previa fácil de quitar).
+- **El token nunca llega al navegador:** `INSTAGRAM_ACCESS_TOKEN` e `INSTAGRAM_USER_ID` son variables
+  **solo de servidor** (sin `NEXT_PUBLIC_`), documentadas en `.env.example` y cargadas en `.env.local`.
+  El route handler tampoco registra la URL de la llamada (lleva el token) y si faltan credenciales la
+  sección **no se dibuja**, igual que el widget anterior.
+- **Sin dependencias nuevas** y **sin cambios en la API ni en la base de datos**: la sección es solo de
+  frontend, así que no exige reconstruir la imagen.
+- **Resuelto el mismo día (§0.17):** el dueño aprobó el feed propio, así que se retiraron el iframe
+  (`components/instagram-feed.tsx`), la leyenda de vista previa, el campo «Instagram — código o URL del
+  widget» de Contenido y la columna `store_settings.instagram_embed_url` (**retira D23**, misma regla de
+  D22: lo que no se usa se elimina).
+
+### Renovación del token (investigación, **sin implementar**)
+
+**Decisión del dueño: *tarea programada en el mismo stack*.** El token de la Instagram API with
+Instagram Login es de **larga duración (60 días)** y se renueva con
+`GET https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=…`, que
+devuelve **otro** token de 60 días (solo puede refrescarse pasadas **24 h** desde su emisión y **antes**
+de vencer, es decir, no sirve hacerlo cuando ya expiró).
+
+- **Qué se haría:** un job programado (cada **~50 días**) llama al *refresh* y **escribe el token nuevo**
+  donde la tienda lo lee. Como el token no puede vivir en una variable de entorno que se edite sola, la
+  implementación prevista es guardarlo en `store_settings` (columna nueva, como `theme_colors`) y que el
+  route handler lo prefiera sobre `INSTAGRAM_ACCESS_TOKEN`.
+- **Piezas a definir cuando se implemente:** dónde corre el disparador (EventBridge/Scheduler de AWS sobre
+  el stack actual), el endpoint que ejecuta el *refresh* (`POST /api/instagram/refresh` detrás del rol
+  admin o protegido por un secreto propio) y un **aviso** cuando el refresco falla dos veces seguidas (si
+  el token vence, la sección deja de dibujarse: el fallo es **silencioso** para el visitante, así que hay
+  que avisar al dueño).
+- **Alternativas descartadas por el dueño:** infraestructura dedicada (Lambda + Secrets Manager) y el
+  recordatorio manual de calendario.
+
+### Webhook de Instagram (consulta)
+
+El **webhook** (suscripciones de Meta) no hace falta para este feed: sirve para que **Instagram avise**
+cuando pasa un evento —comentarios nuevos, menciones o mensajes— a un **callback HTTPS** propio, en
+**tiempo real** y sin preguntar. Leer el feed (nuestro caso) es lo contrario: se **consulta** la API
+cuando carga la página, con la caché de 15 min. El webhook exigiría URL pública con verificación, tokens
+propios y, en general, **revisión de la app** por permisos como `instagram_business_manage_comments`; se
+justificaría recién si se quiere **moderar o responder comentarios desde el panel** o recibir avisos
+instantáneos. **No se implementa.**
+
+**Al desplegar:** agregar `INSTAGRAM_ACCESS_TOKEN` e `INSTAGRAM_USER_ID` al entorno del **frontend**
+(Next.js) en AWS; el resto son archivos de código. Sin cambios en la API ni en la base de datos.
+
+> **Seguridad:** el token se compartió por chat, así que conviene **rotarlo** cuando se configure en el
+> servidor (Instagram permite revocar el acceso de la app desde la cuenta) y recordar que **renovándolo se
+> emite uno nuevo**, de modo que el valor viejo deja de servir.
+
+---
+
+## 0.17 Actualización — Ajuste del dueño (2026-09-23): retiro del widget de Instagram de terceros
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+`pytest` **43/43**). Cierra **D30**: el dueño confirmó el feed propio, así que el widget de terceros de
+**D23** sale del código, del panel y de la API. Sin decisión nueva (es la contraparte de D30/D23).
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A32** | «Quita el widget de terceros, la leyenda de vista previa y el ajuste de Instagram del panel» | §0.16 dejó conviviendo el widget de SociableKIT (**D23**) y el feed propio (**D30**) para comparar: **dos secciones** de Instagram en la home, la leyenda de vista previa, el campo «Instagram — código o URL del widget» en Contenido y `instagram_embed_url` en `StoreConfig`/`ApiSettings` y en el schema y el modelo de la API | **D23 se retira** (misma regla de **D22**: lo que no se usa se elimina). Se borra `components/instagram-feed.tsx` y su import; la leyenda sale de `components/instagram-grid.tsx` (la sección recupera `id="instagram"`); `instagram_embed_url` sale de `lib/store-config.ts` (tipo, `ApiSettings`, `mergeSettings` y default) y del panel; en la API sale de `models.py` y `schemas.py`, y `main.py` la **elimina al arrancar** con `DROP COLUMN IF EXISTS` (`RETIRED_STORE_SETTINGS_COLUMNS`). El enlace al **perfil** (`instagram_url`) y el botón del footer se mantienen | **F3.2** |
+
+### Estado: IMPLEMENTADO (2026-09-23)
+
+- **Frontend:** se elimina `components/instagram-feed.tsx`; `components/storefront.tsx` pierde su import y
+  monta **solo** `<InstagramGrid/>`; `components/instagram-grid.tsx` ya no lleva la leyenda de vista previa
+  y vuelve a usar `id="instagram"`; `lib/store-config.ts` y `components/admin-dashboard.tsx` quedan sin
+  `instagram_embed_url` (el panel conserva «Instagram (URL del perfil)»).
+- **API:** `backend/app/models.py` y `backend/app/schemas.py` sin la columna/campo; `backend/app/main.py`
+  retira `instagram_embed_url` de `STORE_CONTENT_COLUMNS` y la agrega a `RETIRED_STORE_SETTINGS_COLUMNS`;
+  `backend/tests/test_api.py` cambia la prueba del widget por una que verifica que **ya no se expone** y
+  que `instagram_url` sigue guardándose. `backend/README.md` actualizado.
+- **Sin dependencias nuevas.**
+
+**Al desplegar:** el retiro de la columna exige **reconstruir la imagen de la API** (ver §0.5); el
+`DROP COLUMN IF EXISTS` corre al arrancar en PostgreSQL. El frontend, además, necesita
+`INSTAGRAM_ACCESS_TOKEN` / `INSTAGRAM_USER_ID` en el entorno de Next.js (ver §0.16).
+
+---
+
+## 0.18 Actualización — Ajuste del dueño (2026-09-23): grillas de celular a 2 columnas
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+solo frontend, no toca la API). Un punto sobre el código actual, **sin decisión nueva** (es un ajuste de
+layout sobre lo ya resuelto en **D30** y **F1.10**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A33** | En **celular**: el feed de Instagram debe mostrar **2 publicaciones por fila** y **no mostrar la que sobra** (para no dejar una foto sola); y **Productos destacados** debe mostrar **2 por fila** con **8 por página** | El feed propio (**D30**) usaba `grid-cols-3` en celular (5 en escritorio), así que con 15 publicaciones la última fila quedaba **despareja**; la carta (`PRODUCTS_PER_PAGE = 8`, cuatro columnas en escritorio) mostraba **una sola columna** en celular, muy alta para recorrer | `lib/instagram.ts` gana `INSTAGRAM_COLUMNS_MOBILE = 2`; `components/instagram-grid.tsx` usa las dos variables de columnas (`grid-cols-[repeat(var(--ig-columns-mobile),…)] sm:grid-cols-[repeat(var(--ig-columns),…)]`) y **oculta en celular** las publicaciones que no completan la última fila (`hidden sm:block`), así que con 15 se ven **14** (7 filas de 2) y en escritorio siguen las **15** (3 filas de 5). `components/storefront.tsx` pasa la carta a `grid-cols-2 … lg:grid-cols-4`, manteniendo los **8 productos por página** (4 filas de 2) | **F3.2 / F1.10** |
+
+### Estado: IMPLEMENTADO (2026-09-23)
+
+- **Feed (F3.2):** las publicaciones sobrantes se ocultan **solo** en celular y siguen visibles en
+  escritorio, así que la cantidad visible se deriva del ancho de pantalla **sin duplicar el HTML** ni pedir
+  el feed dos veces. La regla es general: se ocultan las últimas `publicaciones % INSTAGRAM_COLUMNS_MOBILE`.
+- **Carta (F1.10):** cambia solo el número de columnas en celular y tablet (2); la paginación de **8** se
+  mantiene y, al ser 8 múltiplo de 2, tampoco quedan productos sueltos.
+- **Sin dependencias nuevas y sin cambios en la API.**
+
+**Al desplegar:** nada nuevo (solo frontend; ver §0.16 y §0.17 para las variables de Instagram y el
+retiro de la columna del widget).
+
+---
+
+## 0.19 Actualización — Ajuste del dueño (2026-09-23): separación del feed y alineación del header en PC
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+solo frontend). Dos puntos sobre el código actual, **sin decisión nueva**:
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A34** | **Un poco de margen entre las publicaciones** de Instagram | El feed propio (**D30**) pegaba las fotos con `gap-px` sobre un fondo `--brand-surface`: lo que se veía entre publicaciones eran **líneas de 1 px** de color, no un margen | `components/instagram-grid.tsx` pasa a `gap-2` (8 px) y **quita el fondo del grid**, así que el hueco deja ver el blanco de la página y las publicaciones quedan como tarjetas sueltas; la sección suma además un **respiro vertical** de 8 px arriba y abajo (`py-2`, el mismo tamaño del gap), para que las publicaciones no toquen el bloque de historia ni el footer | **F3.2** |
+| **A35** | En PC, el **borde del header** debe quedar a la misma altura que el **margen de «Productos destacados»** | El header y la carta usaban **dos patrones distintos**: el header ponía el padding **dentro** de `max-w-7xl` (`mx-auto max-w-7xl … px-5 md:px-10`) y la sección de la carta lo pone **fuera** (`px-5 md:px-10` en la sección + `mx-auto max-w-7xl` adentro). En una pantalla de 1440 px el borde del header caía en 120 px y el de la carta en 80: **40 px de desfase** | `components/store-shell.tsx`: el header pasa al mismo patrón de la carta (`px-5 py-6 md:px-10` en el `<header>` y `mx-auto flex max-w-7xl items-center justify-between` en el div interior). Sin `relative`, la nav móvil (`absolute left-5 right-5`) y el logo centrado (`md:absolute md:left-1/2`) siguen anclados a la ventana | **F2.10 / F2.18** |
+
+### Estado: IMPLEMENTADO (2026-09-23)
+
+- **Feed (F3.2):** `gap-2` (8 px) entre publicaciones y sin fondo en la grilla; `py-2` deja **8 px de aire
+  arriba y abajo** del feed. La separación se ajusta en una sola clase y la regla de «sin sobras en
+  celular» (A33) sigue igual.
+- **Header (F2.10 / F2.18):** el contenido del header queda alineado con el de «Productos destacados» en
+  cualquier ancho. **Ojo:** el hero, «Beneficios» y el **footer** siguen con el patrón anterior (padding
+  dentro de `max-w-7xl`), así que en PC quedan 40 px más adentro que la carta; unificarlos es el mismo
+  cambio de una clase por bloque **si el dueño lo pide**.
+- **Sin dependencias nuevas y sin cambios en la API.**
+
+**Al desplegar:** nada nuevo (solo frontend).
 
 ---
 

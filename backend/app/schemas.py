@@ -252,7 +252,6 @@ class SettingsIn(BaseModel):
     contact_phone: str | None = Field(default=None, max_length=50)
     whatsapp_phone: str | None = Field(default=None, max_length=50)
     instagram_url: str | None = Field(default=None, max_length=300)
-    instagram_embed_url: str | None = Field(default=None, max_length=500)
     bank_account_info: str | None = None
     announcement: str | None = Field(default=None, max_length=240)
     hero_title: str | None = Field(default=None, max_length=200)

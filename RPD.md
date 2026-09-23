@@ -384,6 +384,70 @@ Un punto sobre el código actual, con una decisión nueva (**D28**):
 
 ---
 
+## 1.14 Actualización v15 — Feed de Instagram propio (2026-09-23)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores; `GET /api/instagram/feed` probado **en
+vivo** contra la API real: 15 publicaciones con likes y comentarios). Detalle por tarea en **PLAN §0.16**.
+Un punto sobre el código actual, con una decisión nueva (**D30**):
+
+1. **Feed propio en lugar del widget de terceros (D30, F3.2).** La v10 había resuelto Instagram con el
+   **iframe de SociableKIT** (**D23**): mostraba las publicaciones a ancho completo, pero no permitía
+   pintar datos propios (likes, comentarios, descripción) y dependía de las **vistas del plan gratis**. El
+   dueño aportó el **token de larga duración** de la **Instagram API with Instagram Login** de la cuenta
+   profesional —la API pública de *scrapeo* sí devolvía **429**, pero `/me/media` **no**—, así que ahora hay
+   un **widget propio**: las **15 últimas publicaciones en 3 filas de 5 columnas** (constantes en
+   `lib/instagram.ts`, editables **solo en el código**) con **likes, comentarios y descripción al pasar el
+   mouse** y acceso a la publicación. El token **nunca llega al navegador**: vive en variables de entorno
+   **de servidor** y un **route handler** de Next (`/api/instagram/feed`) entrega las publicaciones ya
+   normalizadas (imagen; miniatura si es video; primera imagen si es carrusel) con **caché de 15 min**. El
+   widget anterior **se mantiene** y la home muestra **los dos** mientras el dueño compara. La **renovación
+   del token** (60 días, vía `refresh_access_token`) quedó **documentada sin implementar**, con la decisión
+   del dueño de hacerla como **tarea programada en el mismo stack**; y el **webhook** de Instagram **no se
+   usa**: sirve para eventos en tiempo real (comentarios, menciones y mensajes), no para leer el feed.
+
+---
+
+## 1.15 Actualización v16 — Retiro del widget de Instagram de terceros (2026-09-23)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores; `pytest` 43/43). Detalle por tarea en
+**PLAN §0.17**. Cierra la **D30** de la v15, sin decisión nueva:
+
+1. **El feed propio reemplaza al widget de terceros (D30, retira D23).** Confirmado el nuevo widget, se
+   retiraron el iframe de SociableKIT (`components/instagram-feed.tsx`), la **leyenda de vista previa** y el
+   ajuste «Instagram — código o URL del widget» de Contenido, junto con la columna
+   `store_settings.instagram_embed_url` (`DROP COLUMN IF EXISTS` al arrancar, misma regla de **D22**). La
+   sección de Instagram de la página principal es ahora **solo el feed propio**, y el enlace al perfil
+   (`instagram_url`) del footer se mantiene.
+
+---
+
+## 1.16 Actualización v17 — Grillas de celular a 2 columnas (2026-09-23)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores). Detalle por tarea en **PLAN §0.18**.
+Un punto sobre el código actual, **sin decisión nueva**:
+
+1. **Celular a 2 columnas (D30 y F1.10).** El **feed propio** pasa a **2 publicaciones por fila** en
+   celular (5 en escritorio) y **oculta la que sobra** cuando la cantidad no completa la última fila: con
+   15 publicaciones se ven **14** (7 filas de 2) y en escritorio siguen las 15 en 3 filas de 5. **Productos
+   destacados** también muestra **2 por fila** en celular, manteniendo los **8 por página**.
+
+---
+
+## 1.17 Actualización v18 — Separación del feed y alineación del header en PC (2026-09-23)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores). Detalle por tarea en **PLAN §0.19**.
+Dos puntos sobre el código actual, **sin decisión nueva**:
+
+1. **Margen entre publicaciones (D30, F3.2).** El feed pegaba las fotos con **líneas de 1 px**
+   (`gap-px` sobre un fondo de color); ahora hay **8 px de margen real** (`gap-2`, sin fondo en la grilla),
+   así que el hueco deja ver el blanco de la página, más **8 px de aire arriba y abajo** del feed (`py-2`).
+2. **Header alineado con la carta en PC (F2.10 / F2.18).** El header ponía el padding **dentro** de
+   `max-w-7xl` y la sección «Productos destacados» lo pone **fuera**: en PC el borde del header caía 40 px
+   más adentro. El header pasa al mismo patrón de la carta, así que ambos bordes coinciden. El hero,
+   «Beneficios» y el footer conservan el patrón anterior (queda documentado por si se quiere unificar).
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
@@ -627,6 +691,24 @@ WhatsApp) y copyright (**D27**). Se reparten en **F1.10** y **F2.18** sin reorde
 probar configuraciones con el cliente: cinco tonos como variables CSS guardadas en
 `store_settings.theme_colors` (**D29**). Se reparten en **F2.20** sin reordenar las fases.
 
+**Ajustes del dueño v15 (§1.14):** reemplazan el **widget de terceros** de Instagram por un **feed propio**
+con la **API de Instagram** (token de larga duración **solo en el servidor**, **D30**): 15 publicaciones en
+**3 filas de 5 columnas** y con **likes, comentarios y descripción al pasar el mouse**. Se reparten en
+**F3.2** sin reordenar las fases.
+
+**Ajustes del dueño v16 (§1.15):** confirman el feed propio y **retiran el widget de terceros** y todo su
+ajuste (componente, campo del panel y columna `store_settings.instagram_embed_url`): cierran **D30** y
+**retiran D23**. Se reparten en **F3.2** sin reordenar las fases.
+
+**Ajustes del dueño v17 (§1.16):** llevan las **grillas de celular a 2 columnas** —el feed de Instagram
+(descartando la publicación sobrante para no dejar una foto sola) y **Productos destacados**—, sin
+decisión nueva. Se reparten en **F3.2** y **F1.10** sin reordenar las fases.
+
+**Ajustes del dueño v18 (§1.17):** agregan **margen real entre las publicaciones** de Instagram (y un
+respiro vertical de 8 px arriba y abajo del feed) y **alinean el header con la carta en PC** (mismo margen
+lateral que «Productos destacados»), sin decisión nueva. Se reparten en **F3.2**, **F2.10** y **F2.18**
+sin reordenar las fases.
+
 **Ajustes del dueño v9 (§1.8):** limpian el código **duplicado o sin uso** (con la corrección del bug de
 subida de fotos que apareció en la revisión), convierten en piezas compartidas los patrones repetidos en
 cuatro pantallas (**hooks y tipos**) y **acotan el modelo de datos** retirando del backend lo que no se
@@ -661,13 +743,14 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D20 | Modo sin conexión con la API | **RESUELTA E IMPLEMENTADA** (ver §1.7): **última versión conocida** guardada en el navegador (`localStorage` con clave versionada, 7 días) como respaldo de la **vidriera**; sin service worker ni PWA, **sin aplicarse al panel** y sin respaldar la agenda del checkout (ahí se avisa y se bloquea la confirmación) | Tienda, ficha de producto (y ajustes del header en `/cuenta`) |
 | D21 | Reportes del negocio | **RESUELTA E IMPLEMENTADA** (ver §1.7): métricas aprobadas por el dueño (ventas + ticket promedio, más/menos vendidos, sin ventas, puntos de retiro, día y franja, categorías y reposición) con **rango personalizado por meses enteros hasta un año** en reemplazo del filtro «Este mes»; la comparación con el período anterior queda solo en los presets de 7 y 30 días | Sección **Reportes** del panel |
 | D22 | Alcance del modelo de datos | **RESUELTA E IMPLEMENTADA** (ver §1.8): el producto es **uno por publicación** —sin variantes, sin SKU y sin campos SEO propios— y **no hay páginas editables**; el contenido editable vive en `store_settings` (F2.5). Se retiraron `product_variants` (y `order_items.variant_id`), `products.sku`/`seo_title`/`seo_description`, `pages` y `POST /api/pages` | `backend/app/models.py`, `schemas.py`, `main.py`, panel |
-| D23 | Feed de Instagram | **RESUELTA E IMPLEMENTADA** (ver §1.9): sección al final de la página principal que pinta **solo el iframe de un widget de terceros** (solo publicaciones, **de borde a borde**) con el código/URL guardado en `store_settings.instagram_embed_url` (widget de **SociableKIT** ya configurado). Evita el token de Meta y el scrapeo (429). Actualiza D11 | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `components/storefront.tsx`, panel (Contenido) |
+| D23 | Feed de Instagram | **RETIRADA en v16 (§1.15)**: reemplazada por el **feed propio** de **D30**; el widget de terceros, su campo en el panel y la columna `instagram_embed_url` se eliminaron (v15, §1.14). **Original:** **RESUELTA E IMPLEMENTADA** (ver §1.9): sección al final de la página principal que pinta **solo el iframe de un widget de terceros** (solo publicaciones, **de borde a borde**) con el código/URL guardado en `store_settings.instagram_embed_url` (widget de **SociableKIT** ya configurado). Evita el token de Meta y el scrapeo (429). Actualiza D11 | `store_settings.instagram_embed_url`, `components/instagram-feed.tsx`, `components/storefront.tsx`, panel (Contenido) |
 | D24 | Identidad visual (paleta) | **RESUELTA E IMPLEMENTADA** (ver §1.9): paleta **#D7CDC1 / #D9B391 / #846851 / #401A04 / #808C6D** (más blanco/negro de apoyo) aplicada **solo a la página principal y la ficha de producto**; `/checkout` y `/cuenta` conservan la identidad anterior. Se implementa con la clase `theme-bosque` y la prop `warm` del header (el **footer** pasó a ser cálido en todas las páginas en v13, **§1.12 / D28**; y los **cinco tonos se editan desde el panel** en v14, **§1.13 / D29**) | `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx` |
 | D25 | Paginado del catálogo | **RESUELTA E IMPLEMENTADA** (ver §1.10): **8 productos por página** con **flechas de página** a la derecha de los filtros y **transición animada** al filtrar, en lugar de mostrar todo el catálogo de una vez. **Ajustada en v12 (§1.11 / D26): la cantidad queda fija** | `components/storefront.tsx` |
 | D26 | Productos por página | **RESUELTA E IMPLEMENTADA** (ver §1.11): **8 por página, fijos** (4 columnas × 2 filas). Deja de ser configurable desde el panel y la columna `store_settings.products_per_page` se retira de la API | `components/storefront.tsx`, `backend/app/*`, panel (Contenido) |
 | D27 | Footer de la tienda | **RESUELTA E IMPLEMENTADA** (ver §1.11): footer **profesional** compartido por carta, ficha y cuenta —marca, **datos de contacto** (correo, teléfono, WhatsApp e Instagram), navegación y **copyright con el año**—; el footer mínimo del checkout se mantiene (D15) | `components/store-shell.tsx`, `lib/store-config.ts` |
 | D28 | Footer cálido único | **RESUELTA E IMPLEMENTADA** (ver §1.12): **un solo footer, siempre en la paleta cálida**, en carta, ficha y cuenta (pierde la prop `warm` y con ella la variante verde). Ajusta D24 en el pie; el **header** mantiene `warm` y el checkout su footer mínimo (D15) | `components/store-shell.tsx`, `storefront.tsx`, `product-detail.tsx`, `app/globals.css` |
 | D29 | Paleta de marca editable | **RESUELTA E IMPLEMENTADA** (ver §1.13): los **cinco tonos** de la identidad cálida se editan desde el panel (Contenido › Colores) y se guardan en `store_settings.theme_colors` (JSON validado: solo esos tonos y hex de seis dígitos). La tienda los aplica con variables CSS `--brand-*` y deriva el resto con `color-mix`; el panel, el checkout y el contenido/header de la cuenta conservan sus colores. Ajusta D24 | `lib/theme.ts`, `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx`, `app/cuenta/page.tsx`, `admin-dashboard.tsx`, `backend/app/*` |
+| D30 | Feed de Instagram propio | **RESUELTA E IMPLEMENTADA** (ver §1.14): **feed propio** con la **API de Instagram** (Instagram Login) en lugar del widget de terceros —token de larga duración **solo en el servidor** (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID`) y un **route handler** de Next que entrega las publicaciones normalizadas—: las **15 últimas en 3 filas de 5 columnas** (configurables **solo en el código**, `lib/instagram.ts`) con **likes, comentarios y descripción al pasar el mouse**. El dueño **confirmó el reemplazo** en la v16 (§1.15), así que **D23 quedó retirada**; la **renovación del token** queda documentada como **tarea programada en el mismo stack**. Ajusta y retira D23 | `lib/instagram.ts`, `app/api/instagram/feed/route.ts`, `components/instagram-grid.tsx`, `components/storefront.tsx`, `.env` |
 
 ---
 
@@ -691,7 +774,9 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | Archivo | Rol |
 |---|---|
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
-| `components/instagram-feed.tsx` | Sección de Instagram al final de la página principal: **solo** el iframe del widget de terceros (solo publicaciones, de borde a borde) (D23) |
+| `components/instagram-grid.tsx` | **Feed de Instagram propio** (D30): grilla de las 15 últimas publicaciones en 3 filas de 5 columnas, con **likes, comentarios y descripción al pasar el mouse**; lee `GET /api/instagram/feed` |
+| `app/api/instagram/feed/route.ts` | Route handler **de servidor** que consulta la API de Instagram con `INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID` y entrega las publicaciones normalizadas (caché 15 min); el token nunca llega al navegador (D30) |
+| `lib/instagram.ts` | Tipos y **configuración única** del feed propio (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`): se edita **solo en el código**, no hay ajuste en el panel (D30) |
 | `components/store-shell.tsx` | Header/footer compartidos. El footer trae marca, contacto (correo, teléfono, WhatsApp e Instagram), navegación y **copyright** (D27) y usa siempre la paleta cálida en carta, ficha y cuenta (D28); la prop `warm` del **header** aplica esa paleta solo en página principal y ficha (D24) |
 | `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |
@@ -704,7 +789,6 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | `app/cuenta` | Página de cuenta dentro del layout de la tienda (header/footer): datos, teléfono por defecto, historial de pedidos, cerrar sesión |
 | `lib/theme.ts` | Paleta de marca editable: los cinco tonos con sus etiquetas, la normalización de lo que guarda la API y las variables CSS que aplican las vistas cálidas (D29) |
 | `store_settings.theme_colors` | Paleta guardada como JSON (`accent`, `ink`, `surface`, `muted`, `detail`), editable en Contenido › Colores; sin valores guardados manda la paleta del código (D29) |
-| `store_settings.instagram_embed_url` | Código o URL del iframe del widget de Instagram, editable en Contenido (D23) |
 | `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
 | `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (GOOGLE_*, ADMIN_EMAILS, AUTH_JWT_SECRET) |
 | `backend/tests/*` | Tests de la API local (40 pruebas: catálogo, órdenes, agenda, auth y correo) |

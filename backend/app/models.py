@@ -176,9 +176,6 @@ class StoreSettings(Base):
     contact_phone: Mapped[Optional[str]] = mapped_column(String(50))
     whatsapp_phone: Mapped[Optional[str]] = mapped_column(String(50))
     instagram_url: Mapped[Optional[str]] = mapped_column(String(300))
-    # URL del iframe de un widget de terceros (SnapWidget, SociableKIT, etc.) para mostrar solo las
-    # últimas publicaciones de Instagram a ancho completo (D23). Se configura desde Contenido.
-    instagram_embed_url: Mapped[Optional[str]] = mapped_column(String(500))
     # Paleta de marca editable desde Contenido (D29): cinco tonos hexadecimales nombrados por el uso que
     # tienen en la tienda (`accent`, `ink`, `surface`, `muted`, `detail`). Se guarda como JSON para
     # poder sumar tonos sin migrar la tabla; sin valores guardados, la vista usa la paleta por defecto
