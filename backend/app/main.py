@@ -1,8 +1,9 @@
+import asyncio
 import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,11 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
 from authlib.integrations.httpx_client import OAuth2Client
+from . import instagram
 from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_verification_code
 from .models import Category, ClosedDay, ClosedWeekday, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, ClosedWeekdayIn, ClosedWeekdayOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, ClosedWeekdayIn, ClosedWeekdayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 
@@ -144,7 +146,15 @@ async def lifespan(_: FastAPI):
         # Se siembra solo cuando la tabla se creó recién, para no volver a cerrarlo si el dueño lo quitó.
         with Session(engine) as session:
             seed_default_closed_weekday(session)
-    yield
+    # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
+    # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.
+    refresh_task = asyncio.create_task(instagram.refresh_loop(lambda: Session(engine)))
+    try:
+        yield
+    finally:
+        refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await refresh_task
 
 
 app = FastAPI(title="BOSQUE API", version="2.0.0", lifespan=lifespan)
@@ -775,6 +785,65 @@ async def upload_image(file: UploadFile = File(...)):
     with open(os.path.join(UPLOAD_DIR, name), "wb") as handle:
         handle.write(await file.read())
     return {"url": f"/uploads/{name}"}
+
+
+# ── Feed de Instagram propio (D30) ──────────────────────────────────────────
+
+INSTAGRAM_DEFAULT_LIMIT = 15
+INSTAGRAM_MAX_LIMIT = 50
+
+
+@app.get("/api/instagram/feed", response_model=InstagramFeedOut)
+def instagram_feed(limit: int = INSTAGRAM_DEFAULT_LIMIT, db: Session = Depends(get_db)):
+    """Últimas publicaciones ya normalizadas para el widget de la tienda (`lib/instagram.ts`).
+
+    Es público (lo consume la tienda) y **nunca devuelve el token**: el token vive en este proceso y la
+    respuesta solo trae imagen, enlace, descripción, likes y comentarios. Sin credenciales la sección no
+    se dibuja y la respuesta es `configured: false`, que no es un error.
+    """
+    limit = max(1, min(limit, INSTAGRAM_MAX_LIMIT))
+    if not instagram.feed_configured(db):
+        return InstagramFeedOut(configured=False, posts=[])
+    try:
+        posts = instagram.fetch_posts(db, limit)
+    except instagram.InstagramError as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"No se pudo leer el feed de Instagram: {error}") from error
+    return InstagramFeedOut(configured=True, posts=posts)
+
+
+def instagram_status(db: Session) -> InstagramTokenStatusOut:
+    """Estado del token para diagnosticar la renovación automática (el token en sí no sale de acá)."""
+    row = instagram.stored_token(db)
+    token, source = instagram.current_token(db)
+    refreshed = instagram.as_utc(row.refreshed_at)
+    return InstagramTokenStatusOut(
+        configured=bool(token) and bool(settings.instagram_user_id.strip()),
+        user_id=settings.instagram_user_id.strip() or None,
+        source=source if token else None,
+        refreshed_at=refreshed,
+        next_refresh_at=refreshed + timedelta(days=settings.instagram_refresh_days) if refreshed else None,
+        last_error=row.last_error,
+    )
+
+
+@app.get("/api/instagram/token", response_model=InstagramTokenStatusOut, dependencies=[Depends(require_admin)])
+def instagram_token_status(db: Session = Depends(get_db)):
+    """Cuándo se renovó el token y cuándo tocará, más el motivo del último fallo (solo admin)."""
+    return instagram_status(db)
+
+
+@app.post("/api/instagram/refresh", response_model=InstagramTokenStatusOut, dependencies=[Depends(require_admin)])
+def instagram_refresh(db: Session = Depends(get_db)):
+    """Fuerza la renovación: el mismo trabajo que hace la tarea de fondo, para probarlo o adelantarlo."""
+    try:
+        instagram.refresh_token(db)
+    except instagram.InstagramError as error:
+        # Mismo comportamiento que la tarea de fondo: el motivo queda guardado para poder mostrarlo.
+        row = instagram.stored_token(db)
+        row.last_error = str(error)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"No se pudo renovar el token de Instagram: {error}") from error
+    return instagram_status(db)
 
 
 # ── Contenido y ajustes ─────────────────────────────────────────────────────

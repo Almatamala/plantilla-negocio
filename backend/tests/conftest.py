@@ -12,6 +12,11 @@ os.environ["API_ADMIN_TOKEN"] = "test-admin-token"
 os.environ["AUTH_JWT_SECRET"] = "test-jwt-secret"
 os.environ["ADMIN_EMAILS"] = "admin@test.cl"
 os.environ["DATABASE_URL"] = "sqlite://"
+# Feed de Instagram propio (D30): credenciales de mentira. Las pruebas **nunca** llaman a Instagram
+# (se reemplaza `instagram._graph_get`) y la tarea de fondo espera un ciclo entero antes de su primera
+# revisión, así que no hay red en la suite.
+os.environ["INSTAGRAM_USER_ID"] = "17841434442618145"
+os.environ["INSTAGRAM_ACCESS_TOKEN"] = "test-instagram-token"
 
 from app import main  # noqa: E402
 from app.database import Base, get_db  # noqa: E402

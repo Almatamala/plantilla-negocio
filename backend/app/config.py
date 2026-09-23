@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # Datos que aparecen en los correos de la tienda.
     store_name: str = "BOSQUE"
     store_url: str = "http://localhost:3000"
+    # Feed de Instagram propio (D30). El token de larga duración y el ID de la cuenta profesional viven
+    # **solo acá** (la API es la única fuente de verdad, D7): `/api/instagram/feed` entrega las
+    # publicaciones ya normalizadas y una **tarea de fondo** renueva el token antes de que venza.
+    instagram_user_id: str = ""
+    instagram_access_token: str = ""
+    # Renovación automática: se refresca cuando el token guardado supera `instagram_refresh_days` (el de
+    # Instagram dura 60) y la tarea revisa cada `instagram_refresh_check_hours`.
+    instagram_refresh_days: int = 50
+    instagram_refresh_check_hours: int = 12
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

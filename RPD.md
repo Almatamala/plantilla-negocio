@@ -448,6 +448,24 @@ Dos puntos sobre el código actual, **sin decisión nueva**:
 
 ---
 
+## 1.18 Actualización v19 — Renovación automática del token de Instagram (2026-09-23)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores; `pytest` 47/47 y prueba de punta a
+punta contra la API real). Detalle por tarea en **PLAN §0.20**. Un punto sobre el código actual, con una
+decisión nueva (**D31**):
+
+1. **La renovación del token pasa a ser automática y el feed vive en la API (D31, F3.2).** La v15 había
+   dejado la renovación **documentada sin implementar** y el token en el **entorno de Next**: un token que
+   solo se cambia editando variables de entorno no se renueva solo, y Next no trae planificador. Ahora el
+   token de larga duración vive en la tabla `instagram_token` y lo renueva una **tarea de fondo** de la API
+   (revisa cada 12 h y renueva pasados **50 de los 60 días**, reintentando sola si Instagram la rechaza,
+   porque exige **≥ 24 h** y que el token no esté vencido), **sin cron externo**. La API sirve el feed
+   (`GET /api/instagram/feed`, público y **sin token**), y expone el estado y la renovación manual a los
+   admins (`GET /api/instagram/token`, `POST /api/instagram/refresh`). El route handler de Next se elimina
+   y `components/instagram-grid.tsx` lee la API con `apiFetch`.
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
@@ -705,9 +723,13 @@ ajuste (componente, campo del panel y columna `store_settings.instagram_embed_ur
 decisión nueva. Se reparten en **F3.2** y **F1.10** sin reordenar las fases.
 
 **Ajustes del dueño v18 (§1.17):** agregan **margen real entre las publicaciones** de Instagram (y un
-respiro vertical de 8 px arriba y abajo del feed) y **alinean el header con la carta en PC** (mismo margen
+respiro vertical de 4 px arriba y abajo del feed) y **alinean el header con la carta en PC** (mismo margen
 lateral que «Productos destacados»), sin decisión nueva. Se reparten en **F3.2**, **F2.10** y **F2.18**
 sin reordenar las fases.
+
+**Ajustes del dueño v19 (§1.18):** automatizan la **renovación del token de Instagram** (tarea de fondo
+de la API, tabla `instagram_token`, sin cron externo) y llevan el **feed y el token al backend** (**D31**),
+con el route handler de Next eliminado. Se reparte en **F3.2** sin reordenar las fases.
 
 **Ajustes del dueño v9 (§1.8):** limpian el código **duplicado o sin uso** (con la corrección del bug de
 subida de fotos que apareció en la revisión), convierten en piezas compartidas los patrones repetidos en
@@ -750,7 +772,8 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D27 | Footer de la tienda | **RESUELTA E IMPLEMENTADA** (ver §1.11): footer **profesional** compartido por carta, ficha y cuenta —marca, **datos de contacto** (correo, teléfono, WhatsApp e Instagram), navegación y **copyright con el año**—; el footer mínimo del checkout se mantiene (D15) | `components/store-shell.tsx`, `lib/store-config.ts` |
 | D28 | Footer cálido único | **RESUELTA E IMPLEMENTADA** (ver §1.12): **un solo footer, siempre en la paleta cálida**, en carta, ficha y cuenta (pierde la prop `warm` y con ella la variante verde). Ajusta D24 en el pie; el **header** mantiene `warm` y el checkout su footer mínimo (D15) | `components/store-shell.tsx`, `storefront.tsx`, `product-detail.tsx`, `app/globals.css` |
 | D29 | Paleta de marca editable | **RESUELTA E IMPLEMENTADA** (ver §1.13): los **cinco tonos** de la identidad cálida se editan desde el panel (Contenido › Colores) y se guardan en `store_settings.theme_colors` (JSON validado: solo esos tonos y hex de seis dígitos). La tienda los aplica con variables CSS `--brand-*` y deriva el resto con `color-mix`; el panel, el checkout y el contenido/header de la cuenta conservan sus colores. Ajusta D24 | `lib/theme.ts`, `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx`, `app/cuenta/page.tsx`, `admin-dashboard.tsx`, `backend/app/*` |
-| D30 | Feed de Instagram propio | **RESUELTA E IMPLEMENTADA** (ver §1.14): **feed propio** con la **API de Instagram** (Instagram Login) en lugar del widget de terceros —token de larga duración **solo en el servidor** (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID`) y un **route handler** de Next que entrega las publicaciones normalizadas—: las **15 últimas en 3 filas de 5 columnas** (configurables **solo en el código**, `lib/instagram.ts`) con **likes, comentarios y descripción al pasar el mouse**. El dueño **confirmó el reemplazo** en la v16 (§1.15), así que **D23 quedó retirada**; la **renovación del token** queda documentada como **tarea programada en el mismo stack**. Ajusta y retira D23 | `lib/instagram.ts`, `app/api/instagram/feed/route.ts`, `components/instagram-grid.tsx`, `components/storefront.tsx`, `.env` |
+| D31 | Renovación del token de Instagram | **RESUELTA E IMPLEMENTADA** (ver §1.18): **automática y dentro de la API** —el token de larga duración vive en la tabla `instagram_token` y lo renueva una **tarea de fondo** del arranque (cada 12 h, a los 50 días), sin cron externo—; la API sirve el feed y expone estado y renovación manual a los admins, así que **el token nunca sale del servidor**. Ajusta D30 │ `backend/app/instagram.py`, `backend/app/models.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/config.py`, `components/instagram-grid.tsx`, `lib/instagram.ts` |
+| D30 | Feed de Instagram propio | **RESUELTA E IMPLEMENTADA** (ver §1.14): **feed propio** con la **API de Instagram** (Instagram Login) en lugar del widget de terceros —token de larga duración **solo en el servidor** (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID`) y un **route handler** de Next que entrega las publicaciones normalizadas—: las **15 últimas en 3 filas de 5 columnas** (configurables **solo en el código**, `lib/instagram.ts`) con **likes, comentarios y descripción al pasar el mouse**. El dueño **confirmó el reemplazo** en la v16 (§1.15), así que **D23 quedó retirada**; en la v19 la **renovación del token** quedó **implementada como tarea de fondo de la API** que también sirve el feed (**§1.18 / D31**). Ajusta y retira D23 | `lib/instagram.ts`, `app/api/instagram/feed/route.ts`, `components/instagram-grid.tsx`, `components/storefront.tsx`, `.env` |
 
 ---
 
@@ -775,8 +798,9 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 |---|---|
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
 | `components/instagram-grid.tsx` | **Feed de Instagram propio** (D30): grilla de las 15 últimas publicaciones en 3 filas de 5 columnas, con **likes, comentarios y descripción al pasar el mouse**; lee `GET /api/instagram/feed` |
-| `app/api/instagram/feed/route.ts` | Route handler **de servidor** que consulta la API de Instagram con `INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID` y entrega las publicaciones normalizadas (caché 15 min); el token nunca llega al navegador (D30) |
-| `lib/instagram.ts` | Tipos y **configuración única** del feed propio (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`): se edita **solo en el código**, no hay ajuste en el panel (D30) |
+| `lib/instagram.ts` | Tipos y **configuración única** del widget del feed propio (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`, `INSTAGRAM_COLUMNS_MOBILE = 2`) y espejo de lo que devuelve la API: se edita **solo en el código**, no hay ajuste en el panel (D30) |
+| `backend/app/instagram.py` | Feed de Instagram de la API: consulta Instagram, normaliza las publicaciones (imagen, video → miniatura, carrusel → primera hija), cachea 15 min y **renueva solo** el token de larga duración con la tarea de fondo (D31) |
+| `instagram_token` | Fila única con el token de Instagram vigente (`access_token`, `refreshed_at`, `last_error`); la crea `create_all` y la actualiza la tarea de fondo. Vive aparte de `store_settings` por ser una credencial, así no puede colarse en `GET /api/settings` (D31) |
 | `components/store-shell.tsx` | Header/footer compartidos. El footer trae marca, contacto (correo, teléfono, WhatsApp e Instagram), navegación y **copyright** (D27) y usa siempre la paleta cálida en carta, ficha y cuenta (D28); la prop `warm` del **header** aplica esa paleta solo en página principal y ficha (D24) |
 | `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |

@@ -2,25 +2,26 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { Heart, MessageCircle, Play } from "lucide-react";
-import { INSTAGRAM_COLUMNS, INSTAGRAM_COLUMNS_MOBILE, type InstagramFeed } from "@/lib/instagram";
+import { apiFetch } from "@/lib/api";
+import { INSTAGRAM_COLUMNS, INSTAGRAM_COLUMNS_MOBILE, INSTAGRAM_POST_COUNT, type InstagramFeed } from "@/lib/instagram";
 
 /**
  * Feed de Instagram **propio** (D30), que reemplazó al iframe de un proveedor externo (D23).
  *
- * Las publicaciones las entrega `GET /api/instagram/feed`, que consulta la API de Instagram **desde el
- * servidor** con el token de entorno (`INSTAGRAM_USER_ID` / `INSTAGRAM_ACCESS_TOKEN`), así que el token
- * nunca llega al navegador. Por defecto se muestran las **15 últimas publicaciones** en **3 filas de 5
+ * Las publicaciones las sirve `GET /api/instagram/feed` de la **API**, que guarda el token de larga
+ * duración, consulta Instagram y lo **renueva sola** con una tarea de fondo (`backend/app/instagram.py`);
+ * el navegador nunca ve el token. Por defecto se muestran las **15 últimas publicaciones** en **3 filas de 5
  * columnas** en escritorio y **2 por fila en celular** (ver `lib/instagram.ts`); al pasar el mouse por una
  * foto se ven **likes, comentarios y la descripción**, y cada tarjeta lleva a la publicación en Instagram.
  * En celular la última fila no deja sobras: las publicaciones que no completan la fila no se pintan.
  *
- * La separación entre publicaciones es un margen real (`gap-2`, 8 px): los huecos dejan ver el fondo de la
+ * La separación entre publicaciones es un margen real (`gap-1`, 4 px): los huecos dejan ver el fondo de la
  * página en vez de las líneas de 1 px con las que antes se pegaban las fotos. La sección suma además un
- * **respiro vertical** (`py-1`, 8 px arriba y abajo) para que las publicaciones no toquen el bloque de
+ * **respiro vertical** (`py-1`, 4 px arriba y abajo) para que las publicaciones no toquen el bloque de
  * historia ni el footer.
  */
 
-/** Cuánto se espera antes de volver a pedir el feed al route handler (15 min, igual que su caché). */
+/** Cuánto se espera antes de volver a pedir el feed (15 min, igual que la caché de la API). */
 const REFRESH_MS = 15 * 60 * 1000;
 
 export function InstagramGrid() {
@@ -28,14 +29,16 @@ export function InstagramGrid() {
 
   useEffect(() => {
     let active = true;
-    const load = () => {
-      fetch("/api/instagram/feed")
-        .then((res) => (res.ok ? (res.json() as Promise<InstagramFeed>) : null))
-        .then((data) => { if (active && data) setFeed(data); })
-        .catch(() => undefined);
+    const load = async () => {
+      try {
+        const data = await apiFetch<InstagramFeed>(`/api/instagram/feed?limit=${INSTAGRAM_POST_COUNT}`);
+        if (active) setFeed(data);
+      } catch {
+        // Sin respuesta (API o Instagram caídos) la sección no se dibuja, igual que antes.
+      }
     };
-    load();
-    const timer = window.setInterval(load, REFRESH_MS);
+    void load();
+    const timer = window.setInterval(() => void load(), REFRESH_MS);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 
@@ -68,7 +71,7 @@ export function InstagramGrid() {
               loading="lazy"
               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
             />
-            {post.isVideo && (
+            {post.is_video && (
               <Play size={16} className="absolute top-3 right-3 text-white drop-shadow" aria-hidden />
             )}
             {/* Al posar el mouse: likes, comentarios y descripción, sobre la tinta de la marca. */}

@@ -22,6 +22,9 @@ vía HTTP (`NEXT_PUBLIC_API_URL`).
 | `/api/orders/{id}/status` | PATCH | Admin |
 | `/api/orders/{id}` | PUT (corrige datos del pedido; no recalcula stock) | Admin |
 | `/api/settings` | GET / PUT | Público / Admin |
+| `/api/instagram/feed?limit=15` | GET (publicaciones ya normalizadas, **nunca el token**) | Público |
+| `/api/instagram/token` | GET (estado y próxima renovación, sin el token) | Admin |
+| `/api/instagram/refresh` | POST (fuerza la renovación; es lo que hace la tarea de fondo) | Admin |
 | `/api/upload` | POST (multipart) | Admin |
 | `/api/auth/register` | POST (name, email, password) | Público (crea la cuenta; con confirmación activa envía el código de 6 dígitos y **no** emite sesión) |
 | `/api/auth/verify-email` | POST (email, code) | Público (confirma el código y emite sesión JWT) |
@@ -68,6 +71,30 @@ editable** desde el panel—; ver PLAN §0.7, §0.8, §0.13, §0.15 y §0.17). E
 | `RESEND_API_KEY` / `RESEND_EMAIL_FROM` | Credenciales de [Resend](https://resend.com) para la confirmación de cuentas por correo. **Si están vacías, la verificación queda desactivada** y las cuentas nuevas entran activas |
 | `RESEND_API_URL` | Endpoint de Resend (por defecto `https://api.resend.com/emails`; útil para pruebas) |
 | `STORE_NAME` / `STORE_URL` | Nombre del negocio y enlace a la tienda que aparecen en el correo |
+| `INSTAGRAM_USER_ID` | ID de la cuenta profesional de Instagram del feed propio (D30) |
+| `INSTAGRAM_ACCESS_TOKEN` | Token de **larga duración** de la *Instagram API with Instagram Login*. Es el valor de **arranque**: la API guarda y renueva el vigente en la tabla `instagram_token` (ver abajo) |
+| `INSTAGRAM_REFRESH_DAYS` | Días que se espera antes de renovar (por defecto **50**; el token dura 60) |
+| `INSTAGRAM_REFRESH_CHECK_HOURS` | Cada cuántas horas la tarea de fondo revisa el token (por defecto **12**) |
+
+## Feed de Instagram propio y renovación automática del token (D30)
+
+La sección de Instagram de la tienda la sirve esta API (`GET /api/instagram/feed`): acá vive el token, acá
+se consulta Instagram y acá se **renueva solo**. El frontend solo recibe las publicaciones normalizadas
+(imagen, enlace, descripción, likes y comentarios), así que el token nunca sale del servidor.
+
+- **Cómo se renueva:** al arrancar la API se lanza una **tarea de fondo** (`app/instagram.py`) que revisa
+  el token cada `INSTAGRAM_REFRESH_CHECK_HOURS` y, cuando pasaron `INSTAGRAM_REFRESH_DAYS` desde la última
+  renovación, llama a `GET /refresh_access_token` de Instagram y guarda el token nuevo en la tabla
+  `instagram_token`. Instagram exige que el token tenga **al menos 24 h** y que **no esté vencido**: si el
+  intento falla, el motivo queda en `instagram_token.last_error` (visible en `GET /api/instagram/token`) y
+  el ciclo siguiente lo reintenta solo. No hace falta ningún cron externo.
+- **De dónde sale el token:** primero el que renovó la tarea (`instagram_token`, la fuente normal); si
+  todavía no existe, el de `INSTAGRAM_ACCESS_TOKEN`. En una instalación nueva, la tarea empieza a renovar
+  por su cuenta, así que el valor del entorno solo se usa al principio.
+- **Para revisar o adelantar la renovación** (admin): `GET /api/instagram/token` muestra `source`,
+  `refreshed_at`, `next_refresh_at` y `last_error`; `POST /api/instagram/refresh` la fuerza ahora mismo.
+- **Si el token vence sin renovarse**, la sección de Instagram simplemente **no se dibuja** (no rompe la
+  tienda): por eso `last_error` es el dato a mirar.
 
 ## Confirmación de cuenta por correo (código de 6 dígitos)
 

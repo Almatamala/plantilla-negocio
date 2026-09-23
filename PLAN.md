@@ -772,6 +772,52 @@ solo frontend). Dos puntos sobre el código actual, **sin decisión nueva**:
 
 ---
 
+## 0.20 Actualización — Ajuste del dueño (2026-09-23): renovación automática del token de Instagram
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`npx tsc --noEmit`, `npm run lint` y `npm run build` sin errores;
+`pytest` **47/47**; y probado **de punta a punta** contra la API real: `GET /api/instagram/feed` devuelve
+las 15 publicaciones con `is_video`, likes y comentarios **sin rastro del token**, y
+`GET /api/instagram/token` informa `source: "entorno"` antes de la primera renovación). Un punto sobre el
+código actual, con una decisión nueva (**D31**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A36** | **Automatizar la renovación del token** de Instagram | §0.16 dejó la renovación documentada como «tarea programada» pero **sin implementar**: el token vivía en el **entorno de Next** y el route handler consultaba Instagram desde ahí. Un token que solo se puede reemplazar editando variables de entorno **no se puede renovar solo**, y Next no trae planificador (exigiría un cron externo). El token dura **60 días** y se renueva con `GET /refresh_access_token`, pero Instagram exige que tenga **≥ 24 h** y que **no esté vencido** | **D31.** Todo Instagram pasa a la **API** (única fuente de verdad, D7): tabla `instagram_token` (la crea `create_all`, sin `ALTER TABLE`), `backend/app/instagram.py` (consulta, caché de 15 min y renovación) y una **tarea de fondo** que arranca con la aplicación (`refresh_loop`: revisa cada 12 h y renueva pasados 50 días, con reintento automático). Endpoints: `GET /api/instagram/feed` (público, **sin token**), `GET /api/instagram/token` y `POST /api/instagram/refresh` (admin). El route handler de Next **se elimina** y el widget pasa a leer la API con `apiFetch` | **F3.2** |
+
+### Decisión nueva
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D31** | Renovación del token de Instagram | **Automática y dentro de la API**: el token de larga duración vive en la tabla `instagram_token` y lo renueva una **tarea de fondo** del arranque (revisa cada 12 h y renueva pasados 50 días), **sin cron externo ni infraestructura nueva**; `INSTAGRAM_ACCESS_TOKEN` queda como valor de arranque. La API sirve el feed (`GET /api/instagram/feed`, público) y expone el estado y la renovación manual a los admins, así que **el token nunca sale del servidor**. Ajusta **D30** y cierra el pendiente de §0.16 | `backend/app/instagram.py`, `backend/app/models.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/config.py`, `components/instagram-grid.tsx`, `lib/instagram.ts` |
+
+### Estado: IMPLEMENTADO (2026-09-23)
+
+- **Backend:** `app/instagram.py` (nuevo: `fetch_posts` con caché de 15 min, `normalize_media`,
+  `refresh_token`, `refresh_if_due` y `refresh_loop`), `models.py` (`InstagramToken`),
+  `schemas.py` (`InstagramPostOut`, `InstagramFeedOut`, `InstagramTokenStatusOut`), `config.py`
+  (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_REFRESH_DAYS` = 50 y
+  `INSTAGRAM_REFRESH_CHECK_HOURS` = 12) y `main.py` (la tarea en el `lifespan` —se cancela al apagar— y los
+  tres endpoints). `tests/test_api.py` **no llama a Instagram**: reemplaza `instagram._graph_get` y cubre
+  la normalización (video → miniatura, carrusel → primera hija, sin imagen → descartada), la caché, la
+  renovación, el **no exponer el token** y el guardado del motivo cuando la renovación falla.
+- **Frontend:** se elimina `app/api/instagram/feed/route.ts`; `components/instagram-grid.tsx` lee la API
+  con `apiFetch` (`?limit=INSTAGRAM_POST_COUNT`) y `lib/instagram.ts` refleja el contrato de la API
+  (`is_video`).
+- **Variables de entorno:** `INSTAGRAM_USER_ID` / `INSTAGRAM_ACCESS_TOKEN` salen de `.env.local` (Next) y
+  pasan al **backend** (`backend/.env.example`, `docker-compose.backend.yml` y el `.env` de la raíz que usa
+  `docker compose`); el `.env.example` de Next lo indica.
+- **Sin dependencias nuevas** (`requests` ya estaba por Resend).
+
+**Al desplegar:** **reconstruir la imagen de la API** (trae el módulo nuevo) y cargar `INSTAGRAM_USER_ID` /
+`INSTAGRAM_ACCESS_TOKEN` en el entorno del servicio. La tabla `instagram_token` la crea `create_all`, así
+que **no** hay `ALTER TABLE` de por medio. La primera renovación automática ocurre **12 h después** del
+arranque y se puede adelantar con `POST /api/instagram/refresh`.
+
+> **Nota:** el token se compartió por chat, así que conviene **rotarlo** desde la cuenta de Instagram antes
+> de dejarlo en producción; al renovarse, la API guarda el nuevo en la base y el del entorno deja de usarse.
+
+---
+
 ## 1. Resumen de fases
 
 | Fase | Nombre | Entregable | Estimación | Decisiones requeridas |

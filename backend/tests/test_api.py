@@ -288,3 +288,106 @@ def test_reviews_are_moderated(client, admin_headers):
     public = client.get(f"/api/reviews?product_id={product['id']}").json()
     assert len(public) == 1
     assert public[0]["product_name"] == "Torta"
+
+
+# ── Feed de Instagram propio (D30) ──────────────────────────────────────────
+
+GRAPH_MEDIA = [
+    {"id": "1", "media_type": "IMAGE", "media_url": "https://img/1.jpg", "permalink": "https://ig/p/1", "caption": "Hola", "like_count": 7, "comments_count": 2, "timestamp": "2026-09-01T00:00:00+0000"},
+    {"id": "2", "media_type": "VIDEO", "thumbnail_url": "https://img/2.jpg", "media_url": "https://video/2.mp4", "permalink": "https://ig/reel/2", "like_count": 3, "comments_count": 1},
+    {"id": "3", "media_type": "CAROUSEL_ALBUM", "children": {"data": [{"media_type": "IMAGE", "media_url": "https://img/3.jpg"}]}, "permalink": "https://ig/p/3", "like_count": 0, "comments_count": 0},
+    # Sin imagen (ni propia, ni miniatura, ni hijos): se descarta en vez de pintar un hueco.
+    {"id": "4", "media_type": "IMAGE"},
+]
+
+
+def fake_graph(payload: dict, calls: list[dict] | None = None):
+    """Reemplaza a `instagram._graph_get` para no depender de la red en las pruebas."""
+    def handler(path: str, params: dict) -> dict:
+        if calls is not None:
+            calls.append({"path": path, "params": params})
+        return payload
+    return handler
+
+
+def test_instagram_feed_normaliza_y_no_expone_el_token(client, monkeypatch):
+    # La API entrega las últimas publicaciones ya normalizadas para el widget (imagen, enlace,
+    # descripción, likes y comentarios) y **nunca** el token de Instagram.
+    from app import instagram
+
+    instagram.reset_feed_cache()
+    monkeypatch.setattr(instagram, "_graph_get", fake_graph({"data": GRAPH_MEDIA}))
+
+    response = client.get("/api/instagram/feed")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["configured"] is True
+    # El 4 no tiene imagen, así que no se devuelve.
+    assert [post["id"] for post in body["posts"]] == ["1", "2", "3"]
+    assert body["posts"][0]["image"] == "https://img/1.jpg"
+    assert body["posts"][0]["likes"] == 7 and body["posts"][0]["comments"] == 2
+    assert body["posts"][0]["caption"] == "Hola"
+    # Video → miniatura; carrusel → primera imagen hija.
+    assert body["posts"][1]["is_video"] is True and body["posts"][1]["image"] == "https://img/2.jpg"
+    assert body["posts"][2]["is_video"] is False and body["posts"][2]["image"] == "https://img/3.jpg"
+    assert "token" not in response.text
+
+
+def test_instagram_feed_usa_la_cache(client, monkeypatch):
+    # El feed se cachea 15 min: la sección se refresca sola cada tanto desde la tienda y no cada visita.
+    from app import instagram
+
+    instagram.reset_feed_cache()
+    calls: list[dict] = []
+    monkeypatch.setattr(instagram, "_graph_get", fake_graph({"data": GRAPH_MEDIA}, calls))
+
+    client.get("/api/instagram/feed")
+    client.get("/api/instagram/feed")
+    assert len(calls) == 1
+    assert calls[0]["params"]["limit"] == 15
+
+
+def test_instagram_refresh_guarda_el_token_y_el_estado(client, admin_headers, db_session, monkeypatch):
+    # Renovación (D30): el token nuevo se guarda y el estado queda disponible para el admin, siempre
+    # **sin** devolver el token.
+    from app import instagram
+
+    calls: list[dict] = []
+    monkeypatch.setattr(instagram, "_graph_get", fake_graph({"access_token": "token-renovado", "expires_in": 5184000}, calls))
+
+    # El token nunca se puede leer sin ser admin.
+    assert client.get("/api/instagram/token").status_code == 401
+    assert client.post("/api/instagram/refresh").status_code == 401
+
+    refreshed = client.post("/api/instagram/refresh", headers=admin_headers)
+    assert refreshed.status_code == 200
+    assert calls[0]["path"] == "refresh_access_token"
+    assert calls[0]["params"]["grant_type"] == "ig_refresh_token"
+
+    status = client.get("/api/instagram/token", headers=admin_headers).json()
+    assert status["configured"] is True
+    assert status["source"] == "base_de_datos"
+    assert status["refreshed_at"] and status["next_refresh_at"]
+    assert status["last_error"] is None
+    assert "token" not in refreshed.text
+    # Con el token ya renovado, la tarea de fondo no vuelve a llamar a Instagram.
+    assert instagram.refresh_if_due(db_session) is False
+    assert len(calls) == 1
+
+
+def test_instagram_refresh_guarda_el_motivo_del_fallo(client, admin_headers, monkeypatch):
+    # Si Instagram rechaza la renovación (lo típico: el token todavía no tiene las 24 h que exige), el
+    # motivo queda guardado para poder avisar y el próximo ciclo lo reintenta solo.
+    from app import instagram
+
+    def error_handler(path: str, params: dict) -> dict:
+        raise instagram.InstagramError("Token has not been refreshed in 24 hours")
+
+    monkeypatch.setattr(instagram, "_graph_get", error_handler)
+    failed = client.post("/api/instagram/refresh", headers=admin_headers)
+    assert failed.status_code == 502
+    assert "24 hours" in failed.json()["detail"]
+
+    status = client.get("/api/instagram/token", headers=admin_headers).json()
+    assert status["last_error"] == "Token has not been refreshed in 24 hours"
+    assert status["source"] == "entorno"  # sigue usando el del entorno hasta que la renovación funcione

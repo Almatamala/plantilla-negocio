@@ -280,3 +280,34 @@ class SettingsIn(BaseModel):
 class SettingsOut(SettingsIn, ORMModel):
     id: bool
     updated_at: datetime
+
+
+# ── Feed de Instagram propio (D30) ──────────────────────────────────────────
+# Los nombres van en snake_case como el resto de la API; el widget de la tienda (`lib/instagram.ts`)
+# declara exactamente estos campos. El **token no aparece en ninguna de estas respuestas**.
+
+class InstagramPostOut(BaseModel):
+    id: str
+    image: str
+    permalink: str
+    caption: str
+    likes: int
+    comments: int
+    is_video: bool
+    timestamp: str
+
+
+class InstagramFeedOut(BaseModel):
+    configured: bool
+    posts: list[InstagramPostOut]
+
+
+class InstagramTokenStatusOut(BaseModel):
+    """Estado del token de larga duración, para diagnosticar la renovación automática (solo admin)."""
+    configured: bool
+    user_id: str | None = None
+    # De dónde sale el token que se está usando: `base_de_datos` (ya renovado por la tarea) o `entorno`.
+    source: str | None = None
+    refreshed_at: datetime | None = None
+    next_refresh_at: datetime | None = None
+    last_error: str | None = None
