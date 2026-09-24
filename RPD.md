@@ -1,8 +1,8 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.8
-**Fecha:** 2026-09-21
+**Versión del documento:** 1.9
+**Fecha:** 2026-09-24
 **Estado:** Borrador para revisión del dueño del producto
 
 ---
@@ -466,6 +466,32 @@ decisión nueva (**D31**):
 
 ---
 
+## 1.19 Actualización v20 — Ajustes del dueño (2026-09-24)
+
+**Implementado y verificado** (`pytest` 47/47; `tsc`, `lint` y `build` sin errores). Detalle por tarea en
+**PLAN §0.21**. Cuatro puntos sobre el código actual, con una decisión nueva (**D32**):
+
+1. **Cómo pasar el token de Instagram (una sola vez).** El token **no se le pasa a la página**: desde **D31**
+   (`§1.18`) todo Instagram vive en la **API**, así que `INSTAGRAM_USER_ID` e `INSTAGRAM_ACCESS_TOKEN` se
+   cargan **una vez en el entorno del backend** (`backend/.env`, `docker-compose` o las variables del
+   servicio en AWS); la API lo guarda en `instagram_token` y lo **renueva sola**. El navegador solo lee
+   `GET /api/instagram/feed`. Este documento y el anexo decían todavía «route handler de Next» (v15, §1.14),
+   que se eliminó en §1.18: queda corregido acá.
+2. **Tipografía de los enlaces.** Se probaron **Productos / Beneficios / Nosotros** con la clase `display`
+   (Georgia serif, la del nombre de la tienda), pero el dueño lo **reconsideró el mismo día**: la navegación
+   **vuelve a la tipografía del cuerpo** y solo `config.name` mantiene `display`.
+3. **Inicio del panel.** «Ventas del período» **no decía de qué período** (sumaba todo el historial): pasa a
+   **«Ventas del último mes»**, con los **últimos 30 días móviles**. Se **elimina el botón «Actualizar
+   primero»**, que cambiaba el estado de la primera orden sin que el dueño lo pidiera.
+4. **Agenda (D32).** Se retira el **cierre «todas las semanas»** (`closed_weekdays`, D19) porque duplicaba
+   los **días de cada franja** (D18) y, al ser global, cerraba el día para **todos** los puntos. Quedan los
+   días de la franja más las **fechas cerradas puntuales** (`closed_days`), que ahora viven en la sección
+   **«Fechas cerradas»** y **ya no piden motivo**. La franja además **ya no pide nombre**: se muestra por su
+   horario. Con eso `time_slots.label`, `closed_days.reason` y la tabla `closed_weekdays` se eliminan al
+   arrancar la API.
+
+---
+
 ## 2. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
@@ -761,7 +787,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D16 | Entrega | **RESUELTA E IMPLEMENTADA** (ver §1.5): no hay despacho a domicilio; solo retiro presencial y puntos de encuentro (San Javier / Talca) con ubicación y horario, en una ventana de 2 semanas | Schema `shipping_zones`, checkout, admin |
 | D17 | Nota del pedido | **RESUELTA E IMPLEMENTADA** (ver §1.5): eliminada del checkout, del admin y del schema | Checkout, admin, `orders.notes` |
 | D18 | Franjas horarias | **RESUELTA E IMPLEMENTADA** (ver §1.6): cada franja pertenece a un **punto** y declara los **días de la semana** en que atiende; el punto ya no tiene un horario en texto libre | Schema `time_slots`, checkout, agenda del admin |
-| D19 | Días cerrados | **RESUELTA E IMPLEMENTADA** (ver §1.6): cierres **semanales recurrentes** (p. ej. lunes de producción; domingo por defecto) **y** fechas puntuales | Nueva tabla `closed_weekdays`, checkout, agenda del admin |
+| D19 | Días cerrados | **RESUELTA E IMPLEMENTADA** (ver §1.6) y **AJUSTADA EN v20 (§1.19 / D32):** el cierre **semanal** (`closed_weekdays`) se retiró —duplicaba los días de cada franja y cerraba el día para todos los puntos—; quedan los **días de cada franja** y las **fechas puntuales** (`closed_days`) | Checkout, agenda del admin |
 | D20 | Modo sin conexión con la API | **RESUELTA E IMPLEMENTADA** (ver §1.7): **última versión conocida** guardada en el navegador (`localStorage` con clave versionada, 7 días) como respaldo de la **vidriera**; sin service worker ni PWA, **sin aplicarse al panel** y sin respaldar la agenda del checkout (ahí se avisa y se bloquea la confirmación) | Tienda, ficha de producto (y ajustes del header en `/cuenta`) |
 | D21 | Reportes del negocio | **RESUELTA E IMPLEMENTADA** (ver §1.7): métricas aprobadas por el dueño (ventas + ticket promedio, más/menos vendidos, sin ventas, puntos de retiro, día y franja, categorías y reposición) con **rango personalizado por meses enteros hasta un año** en reemplazo del filtro «Este mes»; la comparación con el período anterior queda solo en los presets de 7 y 30 días | Sección **Reportes** del panel |
 | D22 | Alcance del modelo de datos | **RESUELTA E IMPLEMENTADA** (ver §1.8): el producto es **uno por publicación** —sin variantes, sin SKU y sin campos SEO propios— y **no hay páginas editables**; el contenido editable vive en `store_settings` (F2.5). Se retiraron `product_variants` (y `order_items.variant_id`), `products.sku`/`seo_title`/`seo_description`, `pages` y `POST /api/pages` | `backend/app/models.py`, `schemas.py`, `main.py`, panel |
@@ -772,8 +798,9 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | D27 | Footer de la tienda | **RESUELTA E IMPLEMENTADA** (ver §1.11): footer **profesional** compartido por carta, ficha y cuenta —marca, **datos de contacto** (correo, teléfono, WhatsApp e Instagram), navegación y **copyright con el año**—; el footer mínimo del checkout se mantiene (D15) | `components/store-shell.tsx`, `lib/store-config.ts` |
 | D28 | Footer cálido único | **RESUELTA E IMPLEMENTADA** (ver §1.12): **un solo footer, siempre en la paleta cálida**, en carta, ficha y cuenta (pierde la prop `warm` y con ella la variante verde). Ajusta D24 en el pie; el **header** mantiene `warm` y el checkout su footer mínimo (D15) | `components/store-shell.tsx`, `storefront.tsx`, `product-detail.tsx`, `app/globals.css` |
 | D29 | Paleta de marca editable | **RESUELTA E IMPLEMENTADA** (ver §1.13): los **cinco tonos** de la identidad cálida se editan desde el panel (Contenido › Colores) y se guardan en `store_settings.theme_colors` (JSON validado: solo esos tonos y hex de seis dígitos). La tienda los aplica con variables CSS `--brand-*` y deriva el resto con `color-mix`; el panel, el checkout y el contenido/header de la cuenta conservan sus colores. Ajusta D24 | `lib/theme.ts`, `app/globals.css`, `storefront.tsx`, `product-detail.tsx`, `store-shell.tsx`, `cart-drawer.tsx`, `app/cuenta/page.tsx`, `admin-dashboard.tsx`, `backend/app/*` |
+| D32 | Días libres y agenda | **RESUELTA E IMPLEMENTADA** (ver §1.19): los días libres salen de los **días de cada franja** más las **fechas cerradas puntuales** (`closed_days`); se retiran el **cierre semanal** `closed_weekdays` (duplicaba los días de la franja y cerraba el día para todos los puntos), el **nombre de la franja** (`time_slots.label`) y el **motivo** de la fecha cerrada (`closed_days.reason`). Ajusta D18 y D19 | `backend/app/*`, `components/admin-agenda.tsx`, `app/checkout/page.tsx`, `lib/agenda.ts` |
 | D31 | Renovación del token de Instagram | **RESUELTA E IMPLEMENTADA** (ver §1.18): **automática y dentro de la API** —el token de larga duración vive en la tabla `instagram_token` y lo renueva una **tarea de fondo** del arranque (cada 12 h, a los 50 días), sin cron externo—; la API sirve el feed y expone estado y renovación manual a los admins, así que **el token nunca sale del servidor**. Ajusta D30 │ `backend/app/instagram.py`, `backend/app/models.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/config.py`, `components/instagram-grid.tsx`, `lib/instagram.ts` |
-| D30 | Feed de Instagram propio | **RESUELTA E IMPLEMENTADA** (ver §1.14): **feed propio** con la **API de Instagram** (Instagram Login) en lugar del widget de terceros —token de larga duración **solo en el servidor** (`INSTAGRAM_ACCESS_TOKEN`/`INSTAGRAM_USER_ID`) y un **route handler** de Next que entrega las publicaciones normalizadas—: las **15 últimas en 3 filas de 5 columnas** (configurables **solo en el código**, `lib/instagram.ts`) con **likes, comentarios y descripción al pasar el mouse**. El dueño **confirmó el reemplazo** en la v16 (§1.15), así que **D23 quedó retirada**; en la v19 la **renovación del token** quedó **implementada como tarea de fondo de la API** que también sirve el feed (**§1.18 / D31**). Ajusta y retira D23 | `lib/instagram.ts`, `app/api/instagram/feed/route.ts`, `components/instagram-grid.tsx`, `components/storefront.tsx`, `.env` |
+| D30 | Feed de Instagram propio | **RESUELTA E IMPLEMENTADA** (ver §1.14): **feed propio** con la **API de Instagram** (Instagram Login) en lugar del widget de terceros: las **15 últimas en 3 filas de 5 columnas** (configurables **solo en el código**, `lib/instagram.ts`) con **likes, comentarios y descripción al pasar el mouse**. El dueño **confirmó el reemplazo** en la v16 (§1.15), así que **D23 quedó retirada**; en la v19 la **renovación del token** quedó **implementada como tarea de fondo de la API** que también sirve el feed (**§1.18 / D31**). Ajusta y retira D23. **Ajustada en v20 (§1.19):** el token se carga **una sola vez en el entorno del backend** y el **route handler de Next se eliminó** (todo Instagram vive en la API, §1.18) | `lib/instagram.ts`, `components/instagram-grid.tsx`, `components/storefront.tsx`, `backend/app/instagram.py` |
 
 ---
 
@@ -799,7 +826,7 @@ usará: variantes, SKU, campos SEO propios y páginas editables (**D22**). Se re
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
 | `components/instagram-grid.tsx` | **Feed de Instagram propio** (D30): grilla de las 15 últimas publicaciones en 3 filas de 5 columnas, con **likes, comentarios y descripción al pasar el mouse**; lee `GET /api/instagram/feed` |
 | `lib/instagram.ts` | Tipos y **configuración única** del widget del feed propio (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`, `INSTAGRAM_COLUMNS_MOBILE = 2`) y espejo de lo que devuelve la API: se edita **solo en el código**, no hay ajuste en el panel (D30) |
-| `backend/app/instagram.py` | Feed de Instagram de la API: consulta Instagram, normaliza las publicaciones (imagen, video → miniatura, carrusel → primera hija), cachea 15 min y **renueva solo** el token de larga duración con la tarea de fondo (D31) |
+| `backend/app/instagram.py` | Feed de Instagram de la API: consulta Instagram, normaliza las publicaciones (imagen, video → miniatura, carrusel → primera hija), cachea 15 min y **renueva solo** el token de larga duración con la tarea de fondo (D31). **El token se carga una sola vez en el entorno del backend** (`INSTAGRAM_USER_ID`/`INSTAGRAM_ACCESS_TOKEN`); no hay route handler de Next (ver §1.19) |
 | `instagram_token` | Fila única con el token de Instagram vigente (`access_token`, `refreshed_at`, `last_error`); la crea `create_all` y la actualiza la tarea de fondo. Vive aparte de `store_settings` por ser una credencial, así no puede colarse en `GET /api/settings` (D31) |
 | `components/store-shell.tsx` | Header/footer compartidos. El footer trae marca, contacto (correo, teléfono, WhatsApp e Instagram), navegación y **copyright** (D27) y usa siempre la paleta cálida en carta, ficha y cuenta (D28); la prop `warm` del **header** aplica esa paleta solo en página principal y ficha (D24) |
 | `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |

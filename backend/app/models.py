@@ -68,12 +68,13 @@ class TimeSlot(Base):
 
     `weekdays` usa la convención de JavaScript (`Date.getDay()`): `0` domingo … `6` sábado. La
     franja solo se ofrece los días listados, así un punto de encuentro que funciona solo los
-    sábados no permite agendar un miércoles.
+    sábados no permite agendar un miércoles. Los **días libres** salen de los días de la franja y de
+    las **fechas cerradas** puntuales (`closed_days`); no hay nombre de franja (se nombra por su
+    horario).
     """
     __tablename__ = "time_slots"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
     zone_id: Mapped[str] = mapped_column(ForeignKey("shipping_zones.id", ondelete="CASCADE"), nullable=False)
-    label: Mapped[str] = mapped_column(String(120), nullable=False)
     start_time: Mapped[str] = mapped_column(String(10), nullable=False)
     end_time: Mapped[str] = mapped_column(String(10), nullable=False)
     weekdays: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -83,11 +84,10 @@ class TimeSlot(Base):
 
 
 class ClosedDay(Base):
-    """Días cerrados (fines de semana, feriados, producción intensa)."""
+    """Fecha cerrada puntual (feriados, vacaciones, producción especial)."""
     __tablename__ = "closed_days"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
     date: Mapped[date] = mapped_column(Date, unique=True, nullable=False)
-    reason: Mapped[Optional[str]] = mapped_column(String(240))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -97,7 +97,8 @@ class ShippingZone(Base):
     `type` distingue **retiro presencial** (en el local) de **punto de encuentro** (Talca o San
     Javier). Cada punto se define por su **ubicación** y sus **franjas horarias** (tabla
     `time_slots`, que cuelga de este punto — D18); el cliente elige cuál y qué día/franja ir a
-    buscarlo dentro de las dos semanas siguientes (ver `closed_days` y `closed_weekdays`).
+    buscarlo dentro de las dos semanas siguientes. Los días libres salen de los **días de cada
+    franja** más las **fechas cerradas** puntuales (`closed_days`).
     """
     __tablename__ = "shipping_zones"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
@@ -108,19 +109,6 @@ class ShippingZone(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Al eliminar un punto se eliminan sus franjas (misma semántica que la FK ON DELETE CASCADE).
     slots: Mapped[list["TimeSlot"]] = relationship(back_populates="zone", cascade="all, delete-orphan")
-
-
-class ClosedWeekday(Base):
-    """Día de la semana cerrado **todas las semanas** (p. ej. lunes de producción, D19).
-
-    `weekday` sigue la convención de JavaScript: `0` domingo … `6` sábado. El domingo viene
-    cargado por defecto en una instalación nueva.
-    """
-    __tablename__ = "closed_weekdays"
-    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
-    weekday: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
-    reason: Mapped[Optional[str]] = mapped_column(String(240))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Review(Base):

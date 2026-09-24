@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Basado en:** RPD.md v1.2
-**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-21 (ajustes del dueño: ver §0.6, §0.7, §0.8, §0.9, §0.10, §0.11 y §9)
+**Fecha:** 2026-09-08 · **Actualizado:** 2026-09-24 (ajustes del dueño: ver §0.6, §0.7, §0.8, §0.9, §0.10, §0.11, §0.20, §0.21 y §9)
 **Estado:** Propuesta para aprobación del dueño
 
 ---
@@ -815,6 +815,65 @@ arranque y se puede adelantar con `POST /api/instagram/refresh`.
 
 > **Nota:** el token se compartió por chat, así que conviene **rotarlo** desde la cuenta de Instagram antes
 > de dejarlo en producción; al renovarse, la API guarda el nuevo en la base y el del entorno deja de usarse.
+
+---
+
+## 0.21 Actualización — Ajustes del dueño (2026-09-24): token de Instagram, tipografía, Inicio y agenda
+
+**Estado: IMPLEMENTADO Y VERIFICADO** (`pytest` **47/47**; `npx tsc --noEmit`, `npm run lint` y
+`npm run build` sin errores). Cuatro puntos sobre el código actual, con una decisión nueva (**D32**):
+
+| # | Ajuste pedido | Análisis del código actual | Implementación | Tareas |
+|---|---|---|---|---|
+| **A37** | «¿Cómo se le pasa el token de Instagram a la página (solo necesario una vez)?» | El token **no va a la página**: desde **D31** todo Instagram vive en la **API** (única fuente de verdad, D7). El frontend solo lee `GET /api/instagram/feed`, que ya entrega las publicaciones normalizadas **sin token**. La confusión venía de la v15 (§0.16), cuando el token sí vivía en el entorno de Next y había un route handler; desde §0.20 eso se eliminó | **No hay cambio de código** (D31 ya lo resolvió): se documenta el procedimiento de **una sola vez** en esta sección y se dejan congruentes `.env.example` y el anexo del RPD | **F3.2** |
+| **A38** | Los enlaces **Productos / Beneficios / Nosotros** deben usar **la misma tipografía** que el nombre de la tienda (`config.name`) | Los tres enlaces (header y footer) usaban la tipografía del cuerpo, mientras el nombre usa la clase `display` (Georgia serif). Se probó con la clase `display`, pero el dueño lo **reconsideró el mismo día** y pidió **dejarlo como estaba**: la navegación vuelve a la tipografía del cuerpo y solo `config.name` mantiene `display` | **Sin cambio neto:** `components/store-shell.tsx` queda como estaba (header y footer sin `display` en los enlaces) | **F2.10 / F2.18** |
+| **A39** | En **Inicio** del panel, «Ventas del período» **no dice de qué período** (sumaba todo el historial); y el botón **«Actualizar primero»** no hace nada útil | `revenue` sumaba **todo** el historial de órdenes (excepto canceladas) bajo la etiqueta «del período», que no existía en esa pantalla. «Actualizar primero» cambiaba el estado de `orders[0]` a «Preparando» sin que el dueño lo pidiera | `components/admin-dashboard.tsx`: la métrica pasa a **«Ventas del último mes»** y se calcula con los **últimos 30 días móviles** (mismo criterio que el preset «Últimos 30 días» de Reportes). Se **elimina el botón «Actualizar primero»** y el encabezado de «Pedidos recientes» queda solo | **F3.4** |
+| **A40** | En **Agenda**: quitar el **cierre «todas las semanas»**, mantener **solo las fechas puntuales** (y **sin motivo**), y quitar el **nombre de la franja horaria** | La agenda tenía **dos fuentes de verdad** para los días libres: los `weekdays` de cada franja (D18) y los cierres semanales `closed_weekdays` (D19, con el domingo sembrado). Eso se pisaba entre sí: cerrar un día en `closed_weekdays` lo cerraba para **todos** los puntos, aunque cada franja ya declara sus días. La franja además pedía un **nombre** («Tarde») y la fecha cerrada un **motivo**, que no aportaban | **D32.** La disponibilidad sale de los **días de cada franja** más las **fechas cerradas puntuales** (`closed_days`); se retiran `closed_weekdays` (modelo, endpoints, siembra del domingo, panel y checkout), el **`label`** de `time_slots` (se muestra como «10:00–13:00») y el **`reason`** de `closed_days`. El panel deja la sección de cierres como **«Fechas cerradas»** | **F1.7 / F2.4** |
+
+### Decisión nueva
+
+| # | Decisión | Resolución | Impacto |
+|---|---|---|---|
+| **D32** | Días libres, nombre de franja y motivo del cierre | Los **días que no se atiende** salen de los **días de cada franja** (por punto, D18) y de las **fechas cerradas** puntuales (`closed_days`). Se **retira el cierre semanal** `closed_weekdays` porque duplicaba los días de la franja y, al ser global, cerraba el día para todos los puntos. La franja **no tiene nombre** (se identifica por su horario) y la fecha cerrada **no pide motivo**. Ajusta **D19** y aligera **D18** | `backend/app/models.py`, `schemas.py`, `main.py`, `components/admin-agenda.tsx`, `app/checkout/page.tsx`, `lib/agenda.ts` |
+
+### Estado: IMPLEMENTADO (2026-09-24)
+
+- **A38:** probado con `display` y **revertido** el mismo día a pedido del dueño: `components/store-shell.tsx`
+  queda como estaba.
+- **A39:** `components/admin-dashboard.tsx`: `revenue` se calcula con las órdenes de los últimos 30 días
+  (con `createdAt`) y sin canceladas; la métrica dice «Ventas del último mes»; el botón «Actualizar primero»
+  y su contenedor `flex` se eliminan.
+- **A40:** `backend/app/models.py` (fuera `ClosedWeekday` y `TimeSlot.label`), `backend/app/schemas.py`
+  (fuera `ClosedWeekdayIn/Out`, `label` de `TimeSlotIn/Patch` y `reason` de `ClosedDayIn`),
+  `backend/app/main.py` (fuera los endpoints `/api/closed-weekdays`, la siembra del domingo y
+  `DEFAULT_CLOSED_WEEKDAY`; `time_slot_label` de la orden pasa a ser el horario `11:00–13:00`; migración
+  idempotente al arrancar que **quita `time_slots.label`** y **`closed_days.reason`**, y **elimina la tabla
+  `closed_weekdays`**), `components/admin-agenda.tsx` (franjas sin nombre y fechas cerradas sin motivo), `app/checkout/page.tsx` (fuera la lectura de `closed-weekdays`; un día se habilita si el punto
+  atiende ese día de la semana y no está en una fecha cerrada) y `lib/agenda.ts` (`Slot` sin `label`).
+- **Tests:** `backend/tests/test_api.py` actualizado (franjas sin `label`, `time_slot_label` por horario, y
+  una prueba de que las **fechas cerradas puntuales** se mantienen (sin `reason`) y `/api/closed-weekdays` ya
+  no existe).
+
+**Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §0.5).
+El `DROP TABLE IF EXISTS closed_weekdays` cierra todos los días que estuvieran marcados semanalmente: los
+que deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
+
+### Cómo pasarle el token de Instagram (una sola vez)
+
+> Respuesta corta: el token **no se le pasa a la página**. Se carga **una sola vez en el entorno de la API**
+> y la API se encarga del resto (consulta, caché y renovación).
+
+1. **En la API, no en Next.** Definir `INSTAGRAM_USER_ID` e `INSTAGRAM_ACCESS_TOKEN` en el entorno del
+   **backend**: `backend/.env` (o el `.env` de la raíz que usa `docker compose`) en local, y las variables del
+   servicio (ECS/EC2) en AWS. `backend/.env.example` las documenta. `docker-compose.backend.yml` ya las pasa.
+2. **Una sola vez.** Al arrancar, `backend/app/instagram.py` guarda el nuevo token en la tabla
+   `instagram_token` y una **tarea de fondo** lo renueva sola (revisa cada 12 h y renueva pasados 50 de los
+   60 días). Desde ahí el valor del entorno deja de usarse: no hay que recalcular ni volver a cargarlo.
+3. **El navegador nunca ve el token.** El widget (`components/instagram-grid.tsx`) solo lee
+   `GET /api/instagram/feed`, que devuelve las publicaciones normalizadas. No hay `NEXT_PUBLIC_*` ni route
+   handler de Next para Instagram.
+4. **Diagnóstico y renovación manual (admins):** `GET /api/instagram/token` (estado, origen y última falla)
+   y `POST /api/instagram/refresh` para adelantar la renovación.
 
 ---
 

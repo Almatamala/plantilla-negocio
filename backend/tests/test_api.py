@@ -166,16 +166,18 @@ def test_backorder_keeps_preorder_status(client, admin_headers):
 def test_pickup_point_with_slot_in_order(client, admin_headers):
     zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Punto de encuentro Talca", "type": "encuentro", "location": "Plaza de Armas, Talca"}).json()
     assert zone["location"] == "Plaza de Armas, Talca"
-    # 2026-09-15 es martes (2 en la convención 0 = domingo).
-    slot = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": zone["id"], "label": "Martes de encuentro", "start_time": "11:00", "end_time": "13:00", "weekdays": [2]}).json()
+    # 2026-09-15 es martes (2 en la convención 0 = domingo). La franja no tiene nombre: se
+    # identifica por su horario.
+    slot = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": zone["id"], "start_time": "11:00", "end_time": "13:00", "weekdays": [2]}).json()
     assert slot["weekdays"] == [2]
+    assert "label" not in slot
     assert slot["zone_name"] == "Punto de encuentro Talca"
     payload = {"customer_name": "Luis", "scheduled_date": "2026-09-15", "time_slot_id": slot["id"], "fulfillment": "encuentro", "shipping_zone_id": zone["id"], "location": zone["location"], "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]}
     order = client.post("/api/orders", json=payload)
     assert order.status_code == 201
     body = order.json()
     assert body["shipping_zone_name"] == "Punto de encuentro Talca"
-    assert body["time_slot_label"] == "Martes de encuentro"
+    assert body["time_slot_label"] == "11:00–13:00"
     assert body["fulfillment"] == "encuentro"
     # La nota del pedido se retiró (D17).
     assert "notes" not in body
@@ -189,7 +191,7 @@ def test_pickup_point_with_slot_in_order(client, admin_headers):
 def test_time_slots_belong_to_a_pickup_point(client, admin_headers):
     first = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Retiro presencial San Javier", "type": "retiro", "location": "Av. Principal 123"}).json()
     second = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Punto de encuentro Talca", "type": "encuentro"}).json()
-    base = {"label": "Tarde", "start_time": "16:00", "end_time": "19:00", "weekdays": [1]}
+    base = {"start_time": "16:00", "end_time": "19:00", "weekdays": [1]}
     # Una franja sin punto (o sin días) no se acepta, y el punto debe existir.
     assert client.post("/api/time-slots", headers=admin_headers, json=base).status_code == 422
     assert client.post("/api/time-slots", headers=admin_headers, json={**base, "zone_id": first["id"], "weekdays": []}).status_code == 422
@@ -201,12 +203,11 @@ def test_time_slots_belong_to_a_pickup_point(client, admin_headers):
     slot_id = created.json()["id"]
     assert [slot["id"] for slot in client.get(f"/api/time-slots?zone_id={first['id']}").json()] == [slot_id]
     assert client.get(f"/api/time-slots?zone_id={second['id']}").json() == []
-    # Edición parcial: cambia los días y el horario, sin tocar la etiqueta.
+    # Edición parcial: cambia los días y el horario.
     updated = client.patch(f"/api/time-slots/{slot_id}", headers=admin_headers, json={"weekdays": [5], "start_time": "10:00"})
     assert updated.status_code == 200
     assert updated.json()["weekdays"] == [5]
     assert updated.json()["start_time"] == "10:00"
-    assert updated.json()["label"] == "Tarde"
     assert client.patch(f"/api/time-slots/{slot_id}", json={"enabled": False}).status_code == 401
     # Deshabilitada: fuera del listado público y tampoco sirve para un pedido.
     assert client.patch(f"/api/time-slots/{slot_id}", headers=admin_headers, json={"enabled": False}).status_code == 200
@@ -215,7 +216,7 @@ def test_time_slots_belong_to_a_pickup_point(client, admin_headers):
     order = {"customer_name": "Luis", "scheduled_date": "2026-09-18", "time_slot_id": slot_id, "shipping_zone_id": first["id"], "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]}
     assert client.post("/api/orders", json=order).status_code == 409
     # Y una franja de otro punto se rechaza aunque el día calce.
-    other = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": second["id"], "label": "Sábado", "start_time": "11:00", "end_time": "13:00", "weekdays": [6]}).json()
+    other = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": second["id"], "start_time": "11:00", "end_time": "13:00", "weekdays": [6]}).json()
     assert client.post("/api/orders", json={**order, "time_slot_id": other["id"], "scheduled_date": "2026-09-19"}).status_code == 409
     assert client.post("/api/orders", json={**order, "time_slot_id": "00000000-0000-0000-0000-000000000000"}).status_code == 409
     # Al eliminar el punto se van sus franjas.
@@ -239,8 +240,8 @@ def test_pickup_point_can_be_edited(client, admin_headers):
     assert client.patch(f"/api/shipping-zones/{zone['id']}", headers=admin_headers, json={"name": ""}).status_code == 422
 
 
-def test_fresh_install_creates_tables_and_closes_sunday(monkeypatch):
-    """Instalación nueva (sin tablas): la API las crea y deja el domingo cerrado todas las semanas."""
+def test_fresh_install_creates_tables(monkeypatch):
+    """Instalación nueva (sin tablas): la API las crea y la agenda arranca vacía."""
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(main, "engine", engine)
@@ -255,26 +256,25 @@ def test_fresh_install_creates_tables_and_closes_sunday(monkeypatch):
     main.app.dependency_overrides[get_db] = override_db
     try:
         with TestClient(main.app) as fresh:
-            assert [day["weekday"] for day in fresh.get("/api/closed-weekdays").json()] == [0]
+            assert fresh.get("/api/time-slots").json() == []
+            assert fresh.get("/api/closed-days").json() == []
+            # Los cierres semanales se retiraron: la ruta ya no existe.
+            assert fresh.get("/api/closed-weekdays").status_code == 404
     finally:
         main.app.dependency_overrides.clear()
 
 
-def test_weekly_closed_days(client, admin_headers, db_session):
-    # Instalación nueva: el domingo queda cerrado por defecto y no se duplica (D19).
-    assert main.seed_default_closed_weekday(db_session) is True
-    assert main.seed_default_closed_weekday(db_session) is False
-    assert [day["weekday"] for day in client.get("/api/closed-weekdays").json()] == [0]
-    assert client.post("/api/closed-weekdays", json={"weekday": 1}).status_code == 401
-    assert client.post("/api/closed-weekdays", headers=admin_headers, json={"weekday": 9}).status_code == 422
-    created = client.post("/api/closed-weekdays", headers=admin_headers, json={"weekday": 1, "reason": "Solo producción"})
+def test_puntual_closed_dates_are_kept(client, admin_headers):
+    # Lo único que queda de «días cerrados» son las fechas puntuales (feriados, vacaciones).
+    assert client.get("/api/closed-days").json() == []
+    created = client.post("/api/closed-days", headers=admin_headers, json={"date": "2026-09-18"})
     assert created.status_code == 201
-    assert client.post("/api/closed-weekdays", headers=admin_headers, json={"weekday": 1}).status_code == 409
-    rows = client.get("/api/closed-weekdays").json()
-    assert [day["weekday"] for day in rows] == [0, 1]
-    assert next(day for day in rows if day["weekday"] == 1)["reason"] == "Solo producción"
-    assert client.delete(f"/api/closed-weekdays/{created.json()['id']}", headers=admin_headers).status_code == 204
-    assert [day["weekday"] for day in client.get("/api/closed-weekdays").json()] == [0]
+    # Sin motivo: la fecha se explica sola.
+    assert "reason" not in created.json()
+    assert client.get("/api/closed-days").json()[0]["date"] == "2026-09-18"
+    assert client.post(f"/api/closed-days", headers=admin_headers, json={"date": "2026-09-18"}).status_code == 409
+    assert client.delete(f"/api/closed-days/{created.json()['id']}", headers=admin_headers).status_code == 204
+    assert client.get("/api/closed-days").json() == []
 
 
 def test_reviews_are_moderated(client, admin_headers):

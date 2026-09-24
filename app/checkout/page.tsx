@@ -43,8 +43,6 @@ export default function CheckoutPage() {
   /** Puntos y franjas reales de la API. Si no responden, el checkout avisa en vez de inventarlos. */
   const [slots, setSlots] = useState<Slot[]>([]);
   const [closedDays, setClosedDays] = useState<string[]>([]);
-  /** Días de la semana cerrados todas las semanas (0 domingo … 6 sábado); el domingo es el default. */
-  const [closedWeekdays, setClosedWeekdays] = useState<number[]>([0]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [zoneId, setZoneId] = useState("");
   const [date, setDate] = useState("");
@@ -85,9 +83,6 @@ export default function CheckoutPage() {
       if (!rows.length) return;
       setZones(rows.map((zone) => ({ ...zone, type: zoneTypeOf(zone.type) })));
     }).catch(() => setScheduleOk(false));
-    apiFetch<{ weekday: number }[]>("/api/closed-weekdays")
-      .then((rows) => setClosedWeekdays(rows.map((row) => row.weekday)))
-      .catch(() => setScheduleOk(false));
   }, []);
 
   /** Sin catálogo o sin agenda no hay forma de agendar ni de registrar el pedido. */
@@ -112,7 +107,7 @@ export default function CheckoutPage() {
   const daySlots = useMemo(() => (date ? zoneSlots.filter((slot) => slot.weekdays.includes(weekdayFromIso(date))) : []), [date, zoneSlots]);
   const selectedSlot = daySlots.find((slot) => slot.id === slotId) ?? null;
   // Un día se puede agendar si el punto atiende ese día de la semana y no está cerrado.
-  const days = useMemo(() => Array.from({ length: SCHEDULE_WINDOW_DAYS }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; const weekday = d.getDay(); const closed = closedWeekdays.includes(weekday) || closedDays.includes(iso); const attends = zoneSlots.some((slot) => slot.weekdays.includes(weekday)); return { iso, day: d.getDate(), month: MONTHS_SHORT[d.getMonth()], weekday: WEEKDAY_LONG[weekday].toLowerCase(), closed, available: Boolean(selectedZone) && !closed && attends }; }), [closedDays, closedWeekdays, zoneSlots, selectedZone]);
+  const days = useMemo(() => Array.from({ length: SCHEDULE_WINDOW_DAYS }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; const weekday = d.getDay(); const closed = closedDays.includes(iso); const attends = zoneSlots.some((slot) => slot.weekdays.includes(weekday)); return { iso, day: d.getDate(), month: MONTHS_SHORT[d.getMonth()], weekday: WEEKDAY_LONG[weekday].toLowerCase(), closed, available: Boolean(selectedZone) && !closed && attends }; }), [closedDays, zoneSlots, selectedZone]);
 
   async function confirm() {
     setMessage("");
@@ -343,7 +338,7 @@ export default function CheckoutPage() {
                     {days.map((d) => <button key={d.iso} onClick={() => { setDate(d.iso); setSlotId(""); }} disabled={!d.available} title={d.available ? undefined : d.closed ? "Cerrado" : "Ese punto no atiende ese día"} className={`shrink-0 rounded-xl border px-3 py-2 text-center transition ${date === d.iso ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"} ${d.available ? "" : "cursor-not-allowed opacity-35"}`}><span className="block text-[10px] tracking-wider uppercase">{d.weekday}</span><span className="display block text-lg">{d.day}</span><span className="block text-[10px] text-[#748077]">{d.month}</span></button>)}
                   </div>
                   {daySlots.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">{daySlots.map((slot) => <button key={slot.id} onClick={() => setSlotId(slot.id)} className={`rounded-full border px-4 py-2 text-sm transition ${slotId === slot.id ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{slot.label} · {slot.start_time}–{slot.end_time}</button>)}</div>
+                    <div className="mt-4 flex flex-wrap gap-2">{daySlots.map((slot) => <button key={slot.id} onClick={() => setSlotId(slot.id)} className={`rounded-full border px-4 py-2 text-sm transition ${slotId === slot.id ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{slot.start_time}–{slot.end_time}</button>)}</div>
                   )}
                   {date && daySlots.length === 0 && <p className="mt-3 text-sm text-[#8a4a44]">Elige un día para ver sus horarios.</p>}
                   {date && daySlots.length > 0 && !selectedSlot && <p className="mt-2 text-xs text-[#748077]">Elige el horario en que irás a buscarlo.</p>}

@@ -17,11 +17,13 @@ export type Zone = {
   active?: boolean;
 };
 
-/** Franja horaria de un punto: `weekdays` usa 0 domingo … 6 sábado (D18). */
+/**
+ * Franja horaria de un punto: `weekdays` usa 0 domingo … 6 sábado (D18). No tiene nombre: se nombra
+ * por su horario, y los días libres salen de `weekdays` más las fechas cerradas puntuales.
+ */
 export type Slot = {
   id: string;
   zone_id: string;
-  label: string;
   start_time: string;
   end_time: string;
   weekdays: number[];

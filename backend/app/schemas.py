@@ -82,9 +82,9 @@ class ProductOut(ProductIn, ORMModel):
 
 class TimeSlotIn(BaseModel):
     # La franja pertenece a un punto de retiro (D18) y solo aplica los días de `weekdays`
-    # (0 domingo … 6 sábado, convención de JavaScript).
+    # (0 domingo … 6 sábado, convención de JavaScript). No tiene nombre: se nombra por su horario
+    # (los días libres son, además, las fechas cerradas puntuales de `closed_days`).
     zone_id: str
-    label: str = Field(min_length=1, max_length=120)
     start_time: str = Field(min_length=4, max_length=10)
     end_time: str = Field(min_length=4, max_length=10)
     # Toda franja debe decir al menos un día: sin días no se puede agendar nada con ella.
@@ -102,7 +102,6 @@ class TimeSlotIn(BaseModel):
 class TimeSlotPatch(BaseModel):
     """Edición parcial: solo se aplican los campos enviados."""
     zone_id: str | None = None
-    label: str | None = Field(default=None, min_length=1, max_length=120)
     start_time: str | None = Field(default=None, min_length=4, max_length=10)
     end_time: str | None = Field(default=None, min_length=4, max_length=10)
     weekdays: list[int] | None = Field(default=None, min_length=1, max_length=7)
@@ -125,22 +124,11 @@ class TimeSlotOut(TimeSlotIn, ORMModel):
 
 
 class ClosedDayIn(BaseModel):
+    """Fecha cerrada puntual. Sin motivo: la fecha se explica sola y el formulario era más ruido que ayuda."""
     date: date
-    reason: str | None = Field(default=None, max_length=240)
 
 
 class ClosedDayOut(ClosedDayIn, ORMModel):
-    id: str
-    created_at: datetime
-
-
-class ClosedWeekdayIn(BaseModel):
-    """Cierre que se repite todas las semanas (0 domingo … 6 sábado, D19)."""
-    weekday: int = Field(ge=0, le=6)
-    reason: str | None = Field(default=None, max_length=240)
-
-
-class ClosedWeekdayOut(ClosedWeekdayIn, ORMModel):
     id: str
     created_at: datetime
 

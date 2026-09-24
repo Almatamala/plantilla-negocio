@@ -104,7 +104,16 @@ export function AdminDashboard() {
     await endSession();
     router.push("/");
   }
-  const revenue = useMemo(() => orders.filter((order) => order.status !== "Cancelado").reduce((sum, order) => sum + order.total, 0), [orders]);
+  // «Ventas del último mes»: los últimos 30 días móviles (mismo criterio que el preset «Últimos 30 días»
+  // de Reportes). Antes sumaba todo el historial sin decir de qué período hablaba.
+  const revenue = useMemo(() => {
+    const from = new Date();
+    from.setDate(from.getDate() - 30);
+    const cutoff = from.getTime();
+    return orders
+      .filter((order) => order.status !== "Cancelado" && order.createdAt && new Date(order.createdAt).getTime() >= cutoff)
+      .reduce((sum, order) => sum + order.total, 0);
+  }, [orders]);
   function changeOrder(id: string, patch: Partial<Order>) {
     setOrders((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
     if (patch.status) {
@@ -120,7 +129,7 @@ export function AdminDashboard() {
 
 function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {
   const { section, catalog, orders, revenue, categories, onCatalogChange, setState } = props;
-  if (section === "inicio") return <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ventas del período" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Pedidos por gestionar" value={String(orders.filter((o) => !["Entregado", "Cancelado"].includes(o.status)).length)} icon={Box}/><Metric label="Productos activos" value={String(catalog.filter((p) => p.status === "active").length)} icon={Package}/><Metric label="Stock bajo" value={String(catalog.filter((p) => p.inventory > 0 && p.inventory <= 5).length)} icon={BarChart3}/></div><section className="mt-7 rounded-xl bg-white p-5"><div className="mb-4 flex items-center justify-between"><h2 className="display text-2xl">Pedidos recientes</h2><button onClick={() => props.onOrderChange(orders[0]?.id ?? "", { status: "Preparando" })} className="text-sm underline">Actualizar primero</button></div><OrderTable orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section></>;
+  if (section === "inicio") return <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ventas del último mes" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Pedidos por gestionar" value={String(orders.filter((o) => !["Entregado", "Cancelado"].includes(o.status)).length)} icon={Box}/><Metric label="Productos activos" value={String(catalog.filter((p) => p.status === "active").length)} icon={Package}/><Metric label="Stock bajo" value={String(catalog.filter((p) => p.inventory > 0 && p.inventory <= 5).length)} icon={BarChart3}/></div><section className="mt-7 rounded-xl bg-white p-5"><h2 className="display mb-4 text-2xl">Pedidos recientes</h2><OrderTable orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section></>;
   if (section === "productos") return <ProductSection catalog={catalog} categories={categories} onCatalogChange={onCatalogChange} setState={setState} creating={props.creatingProduct} onCreatingChange={props.onCreateProductChange} />;
   if (section === "pedidos") return <section className="rounded-xl bg-white p-5"><p className="mb-4 text-sm text-[#647167]">Los pedidos llegan desde el checkout de la tienda, o se ingresan a mano con «Nueva orden». Gestiona estados, entrega y pago; si un pedido se ingresó mal, edítalo.</p><OrdersSection orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section>;
   if (section === "agenda") return <AgendaSection setState={setState}/>;
@@ -559,7 +568,7 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Fecha agendada</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass}/></label>
-            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Franja horaria</span><select value={selectedSlotId} onChange={(e) => setSlotId(e.target.value)} className={SELECT_FIELD}><option value="">{zoneSlots.length === 0 ? "Sin franjas para ese día" : "Sin franja"}</option>{zoneSlots.map((slot) => <option key={slot.id} value={slot.id}>{slot.label} · {formatSlot(slot)}</option>)}</select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Franja horaria</span><select value={selectedSlotId} onChange={(e) => setSlotId(e.target.value)} className={SELECT_FIELD}><option value="">{zoneSlots.length === 0 ? "Sin franjas para ese día" : "Sin franja"}</option>{zoneSlots.map((slot) => <option key={slot.id} value={slot.id}>{formatSlot(slot)}</option>)}</select></label>
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Pago</span><select value={payment} onChange={(e) => setPayment(e.target.value)} className={SELECT_FIELD}><option>Transferencia</option><option>Webpay</option><option>Efectivo</option></select></label>
           </div>
         </div>

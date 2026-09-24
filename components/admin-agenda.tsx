@@ -10,18 +10,16 @@ import { WEEKDAY_LONG, WEEKDAY_ORDER, formatSlot, weekdayFromIso } from "@/lib/s
 export type ZoneRow = Zone & { active: boolean };
 /** Franja horaria de un punto tal como la devuelve el panel (`enabled` siempre viene). */
 export type SlotRow = Slot & { enabled: boolean };
-/** Fecha cerrada puntual. */
-type ClosedDayRow = { id: string; date: string; reason: string | null };
-/** Día de la semana cerrado todas las semanas (D19). */
-type ClosedWeekdayRow = { id: string; weekday: number; reason: string | null };
+/** Fecha cerrada puntual (lo único que queda de «días cerrados»). */
+type ClosedDayRow = { id: string; date: string };
 
 const zoneTypeLabel: Record<ZoneRow["type"], string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
 
 type ZoneDraft = { name: string; type: ZoneRow["type"]; location: string };
-type SlotDraft = { label: string; start_time: string; end_time: string; weekdays: number[] };
+type SlotDraft = { start_time: string; end_time: string; weekdays: number[] };
 
 const EMPTY_ZONE: ZoneDraft = { name: "", type: "retiro", location: "" };
-const EMPTY_SLOT: SlotDraft = { label: "", start_time: "10:00", end_time: "13:00", weekdays: [] };
+const EMPTY_SLOT: SlotDraft = { start_time: "10:00", end_time: "13:00", weekdays: [] };
 const FIELD = "rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]";
 const BUTTON = "rounded-lg bg-[#243128] px-4 py-2 text-sm text-white";
 const LINK_BUTTON = "rounded-lg border border-[#d9ddd5] px-4 py-2 text-sm transition hover:border-[#243128]";
@@ -39,14 +37,13 @@ function WeekdayChips({ value, onToggle }: { value: number[]; onToggle: (day: nu
   );
 }
 
-/** Nombre, horario y días de una franja (compartido entre crear y editar). */
+/** Horario y días de una franja (compartido entre crear y editar). */
 function SlotFields({ draft, setDraft }: { draft: SlotDraft; setDraft: (value: SlotDraft) => void }) {
   return (
     <>
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-        <input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} placeholder="Nombre (ej. Tarde)" className={FIELD}/>
-        <input type="time" aria-label="Hora de inicio" value={draft.start_time} onChange={(event) => setDraft({ ...draft, start_time: event.target.value })} className={FIELD}/>
-        <input type="time" aria-label="Hora de término" value={draft.end_time} onChange={(event) => setDraft({ ...draft, end_time: event.target.value })} className={FIELD}/>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <span className="block text-sm"><span className="mb-1.5 block text-xs text-[#647167]">Hora de inicio</span><input type="time" aria-label="Hora de inicio" value={draft.start_time} onChange={(event) => setDraft({ ...draft, start_time: event.target.value })} className={`${FIELD} w-full`}/></span>
+        <span className="block text-sm"><span className="mb-1.5 block text-xs text-[#647167]">Hora de término</span><input type="time" aria-label="Hora de término" value={draft.end_time} onChange={(event) => setDraft({ ...draft, end_time: event.target.value })} className={`${FIELD} w-full`}/></span>
       </div>
       <div className="mt-2">
         <p className="mb-1.5 text-xs text-[#647167]">Días en que se atiende esta franja</p>
@@ -60,15 +57,15 @@ function SlotFields({ draft, setDraft }: { draft: SlotDraft; setDraft: (value: S
 }
 
 /**
- * Agenda del panel (D18 / D19): cada **punto de retiro o encuentro** vive con su **ubicación** y
+ * Agenda del panel (D18): cada **punto de retiro o encuentro** vive con su **ubicación** y
  * sus **franjas horarias**, y cada franja declara los **días de la semana** en que se atiende.
- * Abajo, los cierres: **todas las semanas** (p. ej. el lunes de producción) y **fechas puntuales**.
+ * La franja no tiene nombre: se nombra por su horario. Abajo quedan las **fechas cerradas**
+ * puntuales (feriados, vacaciones).
  */
 export function AgendaSection({ setState }: { setState: (value: string) => void }) {
   const [zones, setZones] = useState<ZoneRow[]>([]);
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [closed, setClosed] = useState<ClosedDayRow[]>([]);
-  const [closedWeekdays, setClosedWeekdays] = useState<ClosedWeekdayRow[]>([]);
   const [zoneForm, setZoneForm] = useState<ZoneDraft>(EMPTY_ZONE);
   const [editZone, setEditZone] = useState<string | null>(null);
   const [zoneDraft, setZoneDraft] = useState<ZoneDraft>(EMPTY_ZONE);
@@ -76,19 +73,17 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   const [slotDraft, setSlotDraft] = useState<SlotDraft>(EMPTY_SLOT);
   const [editSlot, setEditSlot] = useState<string | null>(null);
   const [slotEditDraft, setSlotEditDraft] = useState<SlotDraft>(EMPTY_SLOT);
-  const [closedForm, setClosedForm] = useState({ date: "", reason: "" });
+  const [closedForm, setClosedForm] = useState({ date: "" });
 
   const reload = useCallback(async () => {
-    const [zoneRows, slotRows, closedRows, weekdayRows] = await Promise.all([
+    const [zoneRows, slotRows, closedRows] = await Promise.all([
       apiFetch<ZoneRow[]>("/api/shipping-zones?include_inactive=true", { admin: true }),
       apiFetch<SlotRow[]>("/api/time-slots?include_disabled=true", { admin: true }),
       apiFetch<ClosedDayRow[]>("/api/closed-days"),
-      apiFetch<ClosedWeekdayRow[]>("/api/closed-weekdays"),
     ]);
     setZones(zoneRows);
     setSlots(slotRows);
     setClosed(closedRows);
-    setClosedWeekdays(weekdayRows);
   }, []);
 
   useEffect(() => {
@@ -154,18 +149,18 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   }
 
   function addSlot(zoneId: string) {
-    if (!slotDraft.label.trim() || slotDraft.weekdays.length === 0) { setState("Ponle un nombre a la franja y elige al menos un día."); return; }
+    if (slotDraft.weekdays.length === 0) { setState("Elige al menos un día para la franja."); return; }
     void send(
-      () => apiFetch("/api/time-slots", { method: "POST", admin: true, body: { zone_id: zoneId, label: slotDraft.label.trim(), start_time: slotDraft.start_time, end_time: slotDraft.end_time, weekdays: slotDraft.weekdays } }),
+      () => apiFetch("/api/time-slots", { method: "POST", admin: true, body: { zone_id: zoneId, start_time: slotDraft.start_time, end_time: slotDraft.end_time, weekdays: slotDraft.weekdays } }),
       "Franja agregada.",
       () => { setSlotZone(null); setSlotDraft(EMPTY_SLOT); },
     );
   }
 
   function saveSlot(id: string) {
-    if (!slotEditDraft.label.trim() || slotEditDraft.weekdays.length === 0) { setState("La franja necesita un nombre y al menos un día."); return; }
+    if (slotEditDraft.weekdays.length === 0) { setState("La franja necesita al menos un día."); return; }
     void send(
-      () => apiFetch(`/api/time-slots/${id}`, { method: "PATCH", admin: true, body: { label: slotEditDraft.label.trim(), start_time: slotEditDraft.start_time, end_time: slotEditDraft.end_time, weekdays: slotEditDraft.weekdays } }),
+      () => apiFetch(`/api/time-slots/${id}`, { method: "PATCH", admin: true, body: { start_time: slotEditDraft.start_time, end_time: slotEditDraft.end_time, weekdays: slotEditDraft.weekdays } }),
       "Franja actualizada.",
       () => setEditSlot(null),
     );
@@ -179,23 +174,13 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
     void send(() => apiFetch(`/api/time-slots/${slot.id}`, { method: "DELETE", admin: true }), "Franja eliminada.");
   }
 
-  function toggleWeekday(day: number) {
-    const existing = closedWeekdays.find((row) => row.weekday === day);
-    void send(
-      () => existing
-        ? apiFetch(`/api/closed-weekdays/${existing.id}`, { method: "DELETE", admin: true })
-        : apiFetch("/api/closed-weekdays", { method: "POST", admin: true, body: { weekday: day } }),
-      existing ? `${WEEKDAY_LONG[day]}: vuelve a estar disponible.` : `${WEEKDAY_LONG[day]} cerrado todas las semanas.`,
-    );
-  }
-
   function addClosed(event: React.FormEvent) {
     event.preventDefault();
     if (!closedForm.date) return;
     void send(
-      () => apiFetch("/api/closed-days", { method: "POST", admin: true, body: { date: closedForm.date, reason: closedForm.reason.trim() || null } }),
+      () => apiFetch("/api/closed-days", { method: "POST", admin: true, body: { date: closedForm.date } }),
       "Fecha cerrada guardada.",
-      () => setClosedForm({ date: "", reason: "" }),
+      () => setClosedForm({ date: "" }),
     );
   }
 
@@ -264,11 +249,11 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
                       </div>
                     ) : (
                       <div key={slot.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-                        <span className="min-w-0"><span className="font-medium">{slot.label}</span> <span className="text-[#647167]">{formatSlot(slot)}</span></span>
+                        <span className="min-w-0 font-medium">{formatSlot(slot)}</span>
                         <span className="flex items-center gap-3">
                           <button onClick={() => toggleSlot(slot)} className={chip(slot.enabled)}>{slot.enabled ? "Habilitada" : "Deshabilitada"}</button>
-                          <button onClick={() => { setEditSlot(slot.id); setSlotEditDraft({ label: slot.label, start_time: slot.start_time, end_time: slot.end_time, weekdays: slot.weekdays }); }} aria-label={`Editar franja ${slot.label}`} title="Editar franja" className="text-[#647167] hover:text-[#243128]"><Pencil size={14}/></button>
-                          <button onClick={() => deleteSlot(slot)} aria-label={`Eliminar franja ${slot.label}`} title="Eliminar franja" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>
+                          <button onClick={() => { setEditSlot(slot.id); setSlotEditDraft({ start_time: slot.start_time, end_time: slot.end_time, weekdays: slot.weekdays }); }} aria-label={`Editar franja ${formatSlot(slot)}`} title="Editar franja" className="text-[#647167] hover:text-[#243128]"><Pencil size={14}/></button>
+                          <button onClick={() => deleteSlot(slot)} aria-label={`Eliminar franja ${formatSlot(slot)}`} title="Eliminar franja" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>
                         </span>
                       </div>
                     ))}
@@ -295,32 +280,20 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
       </section>
 
       <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Días cerrados</h2>
-        <p className="mt-2 text-sm text-[#647167]">Los cierres se aplican al agendar: esos días no aparecen disponibles en el checkout.</p>
+        <h2 className="display text-2xl">Fechas cerradas</h2>
+        <p className="mt-2 text-sm text-[#647167]">Los cierres se aplican al agendar: esas fechas no aparecen disponibles en el checkout. Los días que no se atiende todas las semanas se dejan fuera en los <strong>días de cada franja</strong>; acá van las excepciones puntuales.</p>
 
         <div className="mt-4">
-          <p className="text-sm font-medium">Todas las semanas</p>
-          <p className="mt-1 text-xs text-[#647167]">Marca los días que no se atiende nunca. Por ejemplo el <strong>lunes</strong>, si es día de solo producción: queda cerrado automáticamente en todas las semanas, sin cargar fechas a mano.</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {WEEKDAY_ORDER.map((day) => {
-              const row = closedWeekdays.find((item) => item.weekday === day);
-              return <button key={day} onClick={() => toggleWeekday(day)} title={row?.reason ?? "Disponible"} className={chip(Boolean(row))}>{WEEKDAY_LONG[day]}</button>;
-            })}
-          </div>
-        </div>
-
-        <div className="mt-6 border-t border-[#edf0e8] pt-4">
           <p className="text-sm font-medium">Fechas puntuales</p>
           <p className="mt-1 text-xs text-[#647167]">Feriados, vacaciones o días con producción especial.</p>
-          <form onSubmit={addClosed} className="mt-2 grid gap-2 md:grid-cols-[auto_1fr_auto]">
+          <form onSubmit={addClosed} className="mt-2 grid gap-2 md:grid-cols-[auto_auto]">
             <input required type="date" value={closedForm.date} onChange={(event) => setClosedForm({ ...closedForm, date: event.target.value })} className={FIELD}/>
-            <input value={closedForm.reason} onChange={(event) => setClosedForm({ ...closedForm, reason: event.target.value })} placeholder="Motivo (opcional)" className={FIELD}/>
             <button className={BUTTON}>Cerrar día</button>
           </form>
           <div className="mt-3 divide-y divide-[#edf0e8]">
             {closed.map((day) => (
               <div key={day.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                <span className="min-w-0"><span className="font-medium">{day.date}</span> <span className="text-[#647167]">{day.reason ?? ""}</span></span>
+                <span className="min-w-0 font-medium">{day.date}</span>
                 <span className="flex items-center gap-3">
                   <span className="text-xs text-[#748077]">{WEEKDAY_LONG[weekdayFromIso(day.date)]}</span>
                   <button onClick={() => deleteClosed(day.id)} aria-label={`Quitar ${day.date}`} title="Quitar cierre" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>

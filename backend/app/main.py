@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, Upl
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jwt import decode as jwt_decode, encode as jwt_encode
-from sqlalchemy import inspect, select, text
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
@@ -17,8 +17,8 @@ from . import instagram
 from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_verification_code
-from .models import Category, ClosedDay, ClosedWeekday, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, ClosedWeekdayIn, ClosedWeekdayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .models import Category, ClosedDay, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 
@@ -49,8 +49,9 @@ LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days")
 # por áreas; cada punto se define por **ubicación**. La **nota del pedido** también se retiró (D17).
 # Agenda por punto (D18): las franjas cuelgan del punto y guardan sus días; el horario en texto libre
 # del punto se retira (se deriva de sus franjas) y las franjas globales viejas se eliminan, porque
-# ahora toda franja pertenece a un punto. Los cierres semanales (D19) viven en `closed_weekdays`,
-# que `create_all` crea por ser tabla nueva.
+# ahora toda franja pertenece a un punto. La franja **no tiene nombre** (se nombra por su horario) y
+# los **cierres semanales** (`closed_weekdays`) se retiraron: la disponibilidad sale de los días de
+# cada franja más las **fechas cerradas** puntuales (`closed_days`).
 # Como `create_all` no altera tablas existentes, se aplica al arrancar en PostgreSQL.
 AGENDA_COLUMNS = (
     "ALTER TABLE shipping_zones ADD COLUMN IF NOT EXISTS location TEXT",
@@ -58,6 +59,9 @@ AGENDA_COLUMNS = (
     "ALTER TABLE shipping_zones DROP COLUMN IF EXISTS schedule",
     "ALTER TABLE time_slots ADD COLUMN IF NOT EXISTS zone_id VARCHAR(36) REFERENCES shipping_zones(id) ON DELETE CASCADE",
     "ALTER TABLE time_slots ADD COLUMN IF NOT EXISTS weekdays JSON NOT NULL DEFAULT '[]'",
+    "ALTER TABLE time_slots DROP COLUMN IF EXISTS label",
+    "DROP TABLE IF EXISTS closed_weekdays",
+    "ALTER TABLE closed_days DROP COLUMN IF EXISTS reason",
     "DELETE FROM time_slots WHERE zone_id IS NULL",
     "ALTER TABLE orders DROP COLUMN IF EXISTS notes",
 )
@@ -76,9 +80,6 @@ RETIRED_CATALOG_OBJECTS = (
     "ALTER TABLE products DROP COLUMN IF EXISTS seo_description",
     "DROP TABLE IF EXISTS pages",
 )
-
-# Día de la semana que queda cerrado en una instalación nueva (0 domingo … 6 sábado, D19).
-DEFAULT_CLOSED_WEEKDAY = 0
 
 # Columnas agregadas después de la primera versión del schema (`create_all` no altera tablas
 # existentes). `email_verified` entra con DEFAULT TRUE para que las cuentas ya creadas queden
@@ -114,18 +115,8 @@ VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
 VERIFICATION_MAX_ATTEMPTS = 5
 
 
-def seed_default_closed_weekday(db: Session) -> bool:
-    """Cierra el domingo en una instalación nueva. Devuelve `True` si lo agregó."""
-    if db.scalar(select(ClosedWeekday).where(ClosedWeekday.weekday == DEFAULT_CLOSED_WEEKDAY)):
-        return False
-    db.add(ClosedWeekday(weekday=DEFAULT_CLOSED_WEEKDAY, reason="Cerrado todas las semanas"))
-    db.commit()
-    return True
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    fresh_closed_weekdays = not inspect(engine).has_table("closed_weekdays")
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
@@ -141,11 +132,6 @@ async def lifespan(_: FastAPI):
                 connection.execute(text(statement))
             for statement in RETIRED_STORE_SETTINGS_COLUMNS:
                 connection.execute(text(statement))
-    if fresh_closed_weekdays:
-        # Instalación nueva: el domingo queda cerrado por defecto (el panel lo puede reabrir).
-        # Se siembra solo cuando la tabla se creó recién, para no volver a cerrarlo si el dueño lo quitó.
-        with Session(engine) as session:
-            seed_default_closed_weekday(session)
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
     # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.
     refresh_task = asyncio.create_task(instagram.refresh_loop(lambda: Session(engine)))
@@ -284,7 +270,7 @@ def find_or_404(db: Session, model, entity_id: str):
 
 def order_out(order: Order) -> OrderOut:
     data = OrderOut.model_validate(order)
-    data.time_slot_label = order.time_slot.label if order.time_slot else None
+    data.time_slot_label = f"{order.time_slot.start_time}–{order.time_slot.end_time}" if order.time_slot else None
     data.shipping_zone_name = order.shipping_zone.name if order.shipping_zone else None
     return data
 
@@ -578,24 +564,6 @@ def delete_time_slot(slot_id: str, db: Session = Depends(get_db)):
     db.delete(find_or_404(db, TimeSlot, slot_id)); db.commit(); return Response(status_code=204)
 
 
-@app.get("/api/closed-weekdays", response_model=list[ClosedWeekdayOut])
-def list_closed_weekdays(db: Session = Depends(get_db)):
-    """Días de la semana cerrados todas las semanas (0 domingo … 6 sábado, D19)."""
-    return db.scalars(select(ClosedWeekday).order_by(ClosedWeekday.weekday)).all()
-
-
-@app.post("/api/closed-weekdays", response_model=ClosedWeekdayOut, status_code=201, dependencies=[Depends(require_admin)])
-def create_closed_weekday(payload: ClosedWeekdayIn, db: Session = Depends(get_db)):
-    if db.scalar(select(ClosedWeekday).where(ClosedWeekday.weekday == payload.weekday)):
-        raise HTTPException(status_code=409, detail="Ese día de la semana ya está cerrado todas las semanas.")
-    return commit(db, ClosedWeekday(**payload.model_dump()))
-
-
-@app.delete("/api/closed-weekdays/{weekday_id}", status_code=204, dependencies=[Depends(require_admin)])
-def delete_closed_weekday(weekday_id: str, db: Session = Depends(get_db)):
-    db.delete(find_or_404(db, ClosedWeekday, weekday_id)); db.commit(); return Response(status_code=204)
-
-
 @app.get("/api/closed-days", response_model=list[ClosedDayOut])
 def list_closed_days(db: Session = Depends(get_db)): return db.scalars(select(ClosedDay).order_by(ClosedDay.date)).all()
 
@@ -685,8 +653,9 @@ def list_orders(db: Session = Depends(get_db)):
 def validate_schedule(db: Session, payload: OrderIn) -> None:
     """Verifica que la franja exista, esté habilitada, sea del punto elegido y aplique a ese día.
 
-    Los cierres (D19) son una regla de disponibilidad de la tienda: el checkout no ofrece esos días,
-    pero el admin puede registrar un pedido fuera de agenda (p. ej. una excepción acordada).
+    Las **fechas cerradas** puntuales son una regla de disponibilidad de la tienda: el checkout no
+    ofrece esos días, pero el admin puede registrar un pedido fuera de agenda (p. ej. una excepción
+    acordada).
     """
     if not payload.time_slot_id:
         return
