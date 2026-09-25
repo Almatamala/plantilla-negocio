@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import secrets
 import uuid
@@ -13,14 +14,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
 from authlib.integrations.httpx_client import OAuth2Client
-from . import instagram
+from . import instagram, stock
 from .config import get_settings
 from .database import Base, engine, get_db
-from .emails import send_verification_code
+from .emails import send_order_confirmation, send_verification_code
 from .models import Category, ClosedDay, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
 from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
+logger = logging.getLogger("bosque.main")
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -116,6 +118,13 @@ RETIRED_STORE_SETTINGS_COLUMNS = (
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS bank_account_info",
 )
 
+# Reserva de stock de los pedidos pendientes de pago: `create_all` no altera tablas existentes, así que
+# `orders.expires_at` (cuándo vence la reserva) se agrega al arrancar en PostgreSQL. La liberación la
+# hace `app/stock.py`.
+ORDER_HOLD_COLUMNS = (
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+)
+
 VERIFICATION_TTL_MINUTES = 15
 VERIFICATION_RESEND_SECONDS = 60
 VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
@@ -139,15 +148,22 @@ async def lifespan(_: FastAPI):
                 connection.execute(text(statement))
             for statement in RETIRED_STORE_SETTINGS_COLUMNS:
                 connection.execute(text(statement))
+            for statement in ORDER_HOLD_COLUMNS:
+                connection.execute(text(statement))
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
     # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.
     refresh_task = asyncio.create_task(instagram.refresh_loop(lambda: Session(engine)))
+    # Reserva de stock: la tarea libera los pedidos pendientes cuya reserva venció (ver `app/stock.py`).
+    release_task = asyncio.create_task(stock.release_loop(lambda: Session(engine)))
     try:
         yield
     finally:
         refresh_task.cancel()
+        release_task.cancel()
         with suppress(asyncio.CancelledError):
             await refresh_task
+        with suppress(asyncio.CancelledError):
+            await release_task
 
 
 app = FastAPI(title="BOSQUE API", version="2.0.0", lifespan=lifespan)
@@ -280,6 +296,37 @@ def order_out(order: Order) -> OrderOut:
     data.time_slot_label = f"{order.time_slot.start_time}–{order.time_slot.end_time}" if order.time_slot else None
     data.shipping_zone_name = order.shipping_zone.name if order.shipping_zone else None
     return data
+
+
+def notify_order_created(db: Session, order: Order, out: OrderOut) -> None:
+    """Avisa del pedido nuevo al **cliente** (correo del checkout) y a la **tienda** (Contenido › correo).
+
+    Es de **mejor esfuerzo**: sin Resend configurado se omite (queda en el log) y cualquier fallo se
+    registra, pero nunca tumba el registro del pedido. La tienda usa el correo de contacto de
+    `store_settings`; el cliente, el que dejó en el checkout.
+    """
+    store = db.get(StoreSettings, True)
+    try:
+        send_order_confirmation(
+            order_id=order.id[:8].upper(),
+            customer_name=order.customer_name or "",
+            customer_phone=order.customer_phone or "",
+            customer_email=order.customer_email or "",
+            items=[{"name": item.name, "quantity": item.quantity, "unit_price": item.unit_price} for item in order.items],
+            total=order.total,
+            scheduled_date=order.scheduled_date.isoformat() if order.scheduled_date else "",
+            time_slot=out.time_slot_label or "",
+            place=out.shipping_zone_name or order.location or "",
+            payment_method=order.payment_method or "",
+            store_name=settings.store_name,
+            store_url=settings.store_url,
+            store_email=(store.contact_email if store else None) or "",
+            api_key=settings.resend_api_key,
+            sender=settings.resend_email_from,
+            api_url=settings.resend_api_url,
+        )
+    except Exception:  # noqa: BLE001 — un correo caído no puede tumbar la compra
+        logger.exception("No se pudo enviar la confirmación del pedido %s", order.id)
 
 
 @app.get("/health")
@@ -681,12 +728,17 @@ def validate_schedule(db: Session, payload: OrderIn) -> None:
 
 @app.post("/api/orders", response_model=OrderOut, status_code=201)
 def create_order(payload: OrderIn, db: Session = Depends(get_db)):
+    # Antes de reservar se liberan las reservas vencidas: así la disponibilidad está al día sin esperar
+    # a que corra la tarea de fondo.
+    stock.release_expired_orders(db)
     validate_schedule(db, payload)
     total = sum(item.unit_price * item.quantity for item in payload.items)
     customer_profile = None
     if payload.customer_email:
         customer_profile = db.scalar(select(Profile).where(Profile.email == payload.customer_email.strip().lower()))
     order = Order(**payload.model_dump(exclude={"items", "customer_id"}), total=total)
+    # Reserva de stock: un pedido pendiente de pago vence si el pago no llega a tiempo (ver `app/stock.py`).
+    order.expires_at = stock.hold_until() if order.status == stock.PENDING_STATUS else None
     if customer_profile:
         order.customer_id = customer_profile.id
     elif payload.customer_id:
@@ -716,12 +768,26 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=409, detail="No se pudo registrar el pedido.") from error
     order = db.scalar(select(Order).options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone)).where(Order.id == order.id))
-    return order_out(order)
+    out = order_out(order)
+    notify_order_created(db, order, out)
+    return out
 
 
 @app.patch("/api/orders/{order_id}/status", response_model=OrderOut, dependencies=[Depends(require_admin)])
 def update_order_status(order_id: str, payload: OrderStatusPatch, db: Session = Depends(get_db)):
-    order = find_or_404(db, Order, order_id); order.status = payload.status; return commit(db, order)
+    """Cambia el estado del pedido.
+
+    Si un pedido que seguía **pendiente de pago** pasa a cancelado (o expirado), se devuelve el stock
+    reservado. Un pedido ya pagado no lo devuelve: esa mercadería ya salió. Al salir de `pending` la
+    reserva deja de estar vigente.
+    """
+    order = find_or_404(db, Order, order_id)
+    if payload.status in stock.RELEASING_STATUSES and order.status == stock.PENDING_STATUS:
+        stock.release_stock(db, order.items)
+    order.status = payload.status
+    if payload.status != stock.PENDING_STATUS:
+        order.expires_at = None
+    return commit(db, order)
 
 
 @app.put("/api/orders/{order_id}", response_model=OrderOut, dependencies=[Depends(require_admin)])

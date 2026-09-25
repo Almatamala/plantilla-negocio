@@ -11,6 +11,7 @@ import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { allergenInfo } from "@/lib/allergens";
 import { CartDrawer } from "@/components/cart-drawer";
+import { FloatingCart } from "@/components/floating-cart";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
@@ -114,6 +115,7 @@ export function ProductDetail({ slug }: { slug: string }) {
       {content}
       <StoreFooter config={config}/>
       <WhatsAppButton phone={config.whatsapp_phone}/>
+      <FloatingCart count={count} onOpen={() => setDrawer(true)}/>
       <CartDrawer open={drawer} onClose={() => setDrawer(false)} cart={cart} products={catalog} onChange={change}/>
     </main>
   );

@@ -137,6 +137,10 @@ class Order(Base):
     time_slot_id: Mapped[Optional[str]] = mapped_column(ForeignKey("time_slots.id", ondelete="SET NULL"))
     shipping_zone_id: Mapped[Optional[str]] = mapped_column(ForeignKey("shipping_zones.id", ondelete="SET NULL"))
     location: Mapped[Optional[str]] = mapped_column(Text)
+    # Reserva de stock de los pedidos **pendientes de pago**: el pedido descuenta stock al crearse y
+    # `expires_at` marca cuándo vence esa reserva (ver `app/stock.py`). Los pedidos ya pagados la dejan
+    # en `None`, así que nunca se libera un stock que ya se vendió.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     time_slot: Mapped[Optional[TimeSlot]] = relationship()

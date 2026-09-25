@@ -11,6 +11,7 @@ import { formatPrice, mapApiProduct, stockLabel, type ApiProduct, type Product }
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { CartDrawer } from "@/components/cart-drawer";
+import { FloatingCart } from "@/components/floating-cart";
 import { InstagramGrid } from "@/components/instagram-grid";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
@@ -85,6 +86,7 @@ export function Storefront({ products }: { products: Product[] }) {
     <InstagramGrid/>
     <StoreFooter config={config}/>
     <WhatsAppButton phone={config.whatsapp_phone}/>
+    <FloatingCart count={count} onOpen={() => setDrawer(true)}/>
     <CartDrawer open={drawer} onClose={() => setDrawer(false)} cart={cart} products={catalog} onChange={change}/>
   </main>;
 }

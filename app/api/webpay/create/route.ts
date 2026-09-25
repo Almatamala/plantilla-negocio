@@ -10,6 +10,9 @@ import { NextRequest } from "next/server";
  *   2. Define TBK_COMMERCE_CODE, TBK_API_KEY_ID y TBK_API_KEY_SECRET en el entorno.
  *   3. Instala el SDK oficial (p. ej. `transbank-sdk`) y reemplaza el TODO.
  *   4. Define NEXT_PUBLIC_WEBPAY_ENABLED=true para mostrar la opción en el checkout.
+ *
+ * El `returnUrl` de la transacción es `${origin}/api/webpay/confirm`: ese route handler confirma el
+ * pago y muestra la **página visible** `/checkout/retorno` con el resultado.
  */
 export async function POST(request: NextRequest) {
   const commerceCode = process.env.TBK_COMMERCE_CODE;

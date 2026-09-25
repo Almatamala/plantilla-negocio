@@ -11,6 +11,7 @@ import { formatPrice } from "@/lib/products";
 import { refreshSession } from "@/lib/session-client";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
+import { FloatingCart } from "@/components/floating-cart";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
@@ -28,6 +29,7 @@ type MyOrder = {
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pendiente", paid: "Pagado", preparing: "Preparando",
   shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado",
+  expired: "Expirado",
 };
 
 export default function CuentaPage() {
@@ -146,6 +148,7 @@ export default function CuentaPage() {
       </div>
       <StoreFooter config={config}/>
       <WhatsAppButton phone={config.whatsapp_phone}/>
+      <FloatingCart count={count}/>
     </main>
   );
 }

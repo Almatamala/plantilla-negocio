@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 ProductStatus = Literal["draft", "active", "sold_out", "preorder"]
-OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded"]
+OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded", "expired"]
 ReviewStatus = Literal["pending", "approved", "rejected"]
 
 
@@ -213,6 +213,8 @@ class OrderOut(ORMModel):
     time_slot_id: str | None
     shipping_zone_id: str | None
     location: str | None
+    # Cuándo vence la reserva de stock de un pedido pendiente de pago (`None` si ya no aplica).
+    expires_at: datetime | None = None
     created_at: datetime
     items: list[OrderItemOut] = Field(default_factory=list)
     time_slot_label: str | None = None

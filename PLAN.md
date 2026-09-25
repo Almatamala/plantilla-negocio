@@ -71,8 +71,8 @@ encarga del resto (consulta, caché y renovación).
 
 ## 3. Últimos ajustes del dueño (2026-09-25)
 
-**Implementado y verificado** (`pytest` 47/47; `tsc`, `lint` y `build` sin errores). Seis puntos, con tres
-decisiones nuevas (**D32**, **D33** y **D34**):
+**Implementado y verificado** (`pytest` 57/57; `tsc`, `lint` y `build` sin errores). Nueve puntos, con cuatro
+decisiones nuevas (**D32**, **D33**, **D34** y **D35**):
 
 | # | Ajuste pedido | Implementación |
 |---|---|---|
@@ -82,6 +82,9 @@ decisiones nuevas (**D32**, **D33** y **D34**):
 | **A40** | En **Agenda**: quitar el cierre «todas las semanas», mantener solo las fechas puntuales (sin motivo) y quitar el nombre de la franja | **D32:** los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran `closed_weekdays`, `time_slots.label` y `closed_days.reason`. La sección de cierres queda como **«Fechas cerradas»**. |
 | **A41** | Quitar todo lo relacionado con la cuenta bancaria y el pago por transferencia | **D34:** se retiran el ajuste **«Datos de transferencia bancaria»** de Contenido, el bloque **«Datos para transferir»** del checkout y el medio de pago **Transferencia** (más **Efectivo** en el panel). Checkout y panel quedan **solo con Webpay** (D8); hasta activarlo, el pago se coordina por WhatsApp. |
 | **A42** | Retiro presencial y punto de encuentro son lo mismo: unificarlos en solo retiro presencial | **D33:** se retira el tipo del punto (`shipping_zones.type`) y el de la entrega (`orders.fulfillment`). Agenda, Pedidos, Reportes, Checkout y Cuenta muestran siempre **Retiro presencial** (el punto se identifica por su nombre). |
+| **A43** | Página visible al volver de Webpay | **D8:** nueva **`/checkout/retorno`** con el estado del pago (**ok / rechazado / anulado / error**), la referencia del pedido y qué sigue; `/api/webpay/confirm` redirige ahí. El `commit` con el SDK queda pendiente de las credenciales TBK. |
+| **A44** | Correo de confirmación del pedido | **D8:** al registrar un pedido el backend envía con **Resend** la **confirmación al cliente** (correo del checkout) y el **aviso a la tienda** (correo de Contenido). Es de **mejor esfuerzo**: sin Resend se omite y nunca tumba la compra. WhatsApp automático queda descartado por ahora. |
+| **A45** | Reserva y expiración del stock de pedidos pendientes de pago | **D35:** el pedido descuenta stock al crearse (**reserva**) y vence en `STOCK_HOLD_MINUTES` (30 por defecto). Una **tarea de fondo** (más una revisión antes de crear un pedido) libera el stock y deja el pedido en **`expired`**. Al pagar la reserva se cierra; al cancelar un pendiente, el stock **se devuelve**. |
 
 **Decisión D32 (nueva):** los días que no se atiende salen de los **días de cada franja** (por punto, D18) y
 de las **fechas cerradas puntuales** (`closed_days`). Se retira el cierre semanal `closed_weekdays` porque
@@ -93,6 +96,12 @@ solo tipo (se retiran `shipping_zones.type` y `orders.fulfillment`), y **D34** s
 la web (se retiran `store_settings.bank_account_info` y el medio de pago; checkout y panel quedan **solo con
 Webpay**, D8, y hasta activarlo el pago se coordina por WhatsApp).
 
+**Decisión D35 (nueva):** el stock de un pedido **pendiente de pago** es una **reserva** con vencimiento
+(`orders.expires_at`): se descuenta al crear el pedido y, si el pago no llega en `STOCK_HOLD_MINUTES`
+(**30** por defecto), `app/stock.py` la libera —devuelve el stock y deja el pedido en **`expired`**—. Corre
+en una tarea de fondo y antes de crear un pedido; al **pagar** la reserva se cierra y al **cancelar** un
+pendiente el stock se devuelve.
+
 **Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
 deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
@@ -101,15 +110,130 @@ deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
 
 ## 4. Pendientes
 
-1. **Webpay Plus (D8):** solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*`. Es el **único
-   medio de pago** del checkout y del panel; hasta activarlo, el pedido se registra y el pago se coordina
-   por WhatsApp.
+1. **Webpay Plus (D8):** solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*` (el `create`
+   que arma la transacción y su `returnUrl`, y el `commit` del retorno). Ya están hechas la **página de
+   retorno** (`/checkout/retorno`) y la **confirmación por correo** al cliente y a la tienda. Antes de
+   activarlo hay que cumplir la **checklist de §5**. Es el **único medio de pago** del checkout y del
+   panel; hasta activarlo, el pedido se registra y el pago se coordina por WhatsApp.
 2. **Notificación automática de WhatsApp (D9):** elegir proveedor (API de Meta Cloud vs. enlace `wa.me`). El
    botón flotante `wa.me` ya funciona.
 3. **Credenciales externas:** OAuth Client de Google (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), cuenta y
    dominio **verificados** en **Resend** (`RESEND_API_KEY`/`RESEND_EMAIL_FROM`) y **rotar** el token de Instagram.
-4. **Seed de agenda:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
-   su ubicación y sus **franjas** (días + horario).
+4. **Seed de agenda e inventario:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
+   su ubicación y sus **franjas** (días + horario), y todos los productos reales del inventario.
 5. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
-6. **Revisión visual con el dueño** de carta, ficha, footer y checkout en móvil y escritorio (referencia:
-   https://simplysweet.cl), y de los **Reportes** con pedidos reales cargados.
+
+---
+
+## 5. Webpay Plus — restricciones y «por si acaso» (checklist de activación)
+
+Referencias: `https://www.transbankdevelopers.cl/documentacion/webpay-plus` y
+`https://ayuda.transbank.cl/errores-webpay-plus`. El objetivo es que **ninguna** transacción deje la tienda
+en un estado raro: ni un pedido **pagado sin marcar**, ni un pedido marcado **dos veces**, ni un token
+expuesto.
+
+### 5.1 Credenciales y entornos
+- Dos juegos de credenciales: **integración** (`webpay3gint.transbank.cl`) y **producción**
+  (`webpay3g.transbank.cl`). No se mezclan: un `TBK_COMMERCE_CODE`/llaves apunta a **un** entorno.
+- Variables: `TBK_COMMERCE_CODE`, `TBK_API_KEY_ID`, `TBK_API_KEY_SECRET`, `TBK_ENVIRONMENT`
+  (`integration`|`production`) en el **servidor**, y `NEXT_PUBLIC_WEBPAY_ENABLED` (solo UI) en el frontend.
+- En **integración** el código de comercio es **compartido** entre integradores: un `buyOrder` repetido
+  puede chocar con otra integración (falla al anular). El `buyOrder` debe ser único de verdad.
+- Las llaves **nunca** van en `NEXT_PUBLIC_*` ni al navegador: solo en los route handlers y en el backend.
+  Si se filtraron, se regeneran en el portal de Transbank (igual que el token de Instagram).
+
+### 5.2 Datos de la transacción (límites duros)
+| Campo | Restricción | En nuestro caso |
+|---|---|---|
+| `buyOrder` | obligatorio, **único**, ≤ **26** caracteres | El id del pedido es un UUID de 36 → **no sirve directo**. Guardar un `buy_order` propio por intento (`BO-` + 20 chars). |
+| `sessionId` | obligatorio, no vacío, ≤ **61** caracteres | Usar el id del pedido acotado. |
+| `amount` | entero en **pesos**, sin decimales, > 0 | Recalcular en el servidor desde los ítems; **nunca** confiar en el monto que manda el cliente. |
+| `returnUrl` | absoluta, http/https, **estable** | `NEXT_PUBLIC_SITE_URL` + `/api/webpay/confirm`; jamás armarla desde un parámetro del cliente. |
+
+### 5.3 Flujo y métodos HTTP
+- `POST /transactions` crea (devuelve `token` + `url`), `PUT /transactions/{token}` **confirma** (commit),
+  `GET /transactions/{token}` consulta estado y `POST /transactions/{token}/refund` reversa.
+- El **retorno del navegador llega por POST** con `token_ws` en el cuerpo (form): el route handler debe
+  exportar **`POST`** además de `GET`. Hoy `app/api/webpay/confirm/route.ts` solo tiene `GET` → **corregir
+  antes de activar** (si no, el commit falla con 405).
+- **Compra anulada:** llega por **GET** con `TBK_TOKEN`, `TBK_ORDEN_COMPRA` y `TBK_ID_SESION` (sin
+  `token_ws`). Se muestra `anulado` (ya implementado).
+- El commit se hace **solo** en el retorno: Webpay no tiene webhook, no hay que confirmar dos veces.
+
+### 5.4 Idempotencia y «por si acaso» del retorno
+- **Refrescar la página de retorno** (F5) o volver atrás repite el POST: guardar el resultado por `token` y
+  **cortocircuitar** (si ya se confirmó, no volver a llamar a Transbank).
+- El `token_ws` es **de un solo uso y de vida corta**: si expiró o ya se usó, mostrar `error`/`rechazado`
+  con salida por WhatsApp, sin reintentar el commit.
+- El redirect final **no debe llevar `token_ws`** en la URL (evita reprocesos y filtración en el historial):
+  usar `estado` + `pedido` (ya implementado).
+- **No depender de la cookie de sesión** en el POST de retorno: es navegación *cross-site* y `SameSite=Lax`
+  no la envía en POST. El **invitado** debe poder confirmar igual (la cookie sí sirve en el GET posterior).
+- Deshabilitar el botón de pago mientras se crea la transacción: dos clics no pueden crear dos transacciones.
+- `proxy.ts` no debe interceptar `/api/webpay/*` ni `/checkout/retorno`.
+
+### 5.5 Dinero, stock y estado del pedido
+- El pedido se crea **antes** de pagar y descuenta stock: la **reserva** ya está implementada (**D35**,
+  `app/stock.py`). Si el pago no llega en `STOCK_HOLD_MINUTES` (**30** por defecto), la reserva **expira**
+  —se devuelve el stock y el pedido queda **`expired`**—. La liberación corre en una **tarea de fondo** y
+  antes de crear un pedido.
+- Estados: `pending` → `paid` (solo al confirmar) → …; el commit debe ser **idempotente** (marcar pagado
+  una sola vez aunque lleguen dos confirmaciones).
+- Comparar **monto confirmado vs. total del pedido**: si no coinciden, **no** marcar pagado y alertar.
+- Asociar `buyOrder`/`sessionId`/`token` al pedido en la base para poder consultar y auditar.
+
+### 5.6 Confirmación segura en el backend (fuente de verdad)
+- El route handler **no** puede marcar un pedido pagado con un endpoint público: hoy
+  `PATCH /api/orders/{id}/status` exige admin. Agregar un endpoint dedicado (p. ej.
+  `POST /api/orders/{id}/payment`) con **secreto compartido** (`API_ADMIN_TOKEN` o uno propio) que reciba
+  token, `buyOrder`, monto, código de autorización, tipo de pago y fecha; que **valide el monto** y sea
+  **idempotente**. La llamada es **servidor a servidor**.
+
+### 5.7 Reconciliación (por si el cliente cierra el navegador)
+- Si el cliente paga y **cierra la pestaña** sin volver, el pago queda autorizado en Transbank y el pedido
+  sin marcar. Guardar el `token` y ofrecer al admin **consultar el estado** (`GET /transactions/{token}`)
+  desde el panel, más un trabajo periódico que revise los pendientes con token. El retorno **no** siempre
+  ocurre: la reconciliación es la red de seguridad.
+
+### 5.8 Reembolsos y anulaciones
+- La reversa (`refund`) es solo para admin, con confirmación y monto ≤ pagado; dejar el pedido en
+  `refunded` y guardar el resultado. Definir explícitamente si la reversa **devuelve stock** (no es
+  automático).
+
+### 5.9 Despliegue (AWS)
+- El `returnUrl` debe ser **público y con HTTPS** (el dominio real, no el interno) e **idéntico** al
+  registrado. Detrás de un ALB, `request.nextUrl.origin` puede dar `http://localhost` o el host interno:
+  armar el `returnUrl` con `NEXT_PUBLIC_SITE_URL` (o `x-forwarded-host`/`x-forwarded-proto`).
+- Frontend y route handlers deben usar el **mismo** juego de credenciales; al pasar a producción se
+  cambian llaves y `TBK_ENVIRONMENT` juntos. El gate real es tener credenciales: `NEXT_PUBLIC_WEBPAY_ENABLED`
+  solo esconde la UI.
+
+### 5.10 Pruebas antes de activar
+- **Nunca** llamar a Transbank en la suite: reemplazar el SDK (`create`/`commit`/`status`/`refund`) con
+  mocks, como se hace con Instagram.
+- Casos: create OK · commit `AUTHORIZED` · commit rechazado · commit `null`/anulado · token expirado o ya
+  usado · retorno duplicado (**idempotencia**) · monto distinto · pedido inexistente · red/5xx de Transbank.
+- Probar en **integración** con las tarjetas de prueba (aprobada/rechazada) de Transbank Developers antes
+  de producción.
+
+### 5.11 Errores de la API (para el manejo de errores)
+- `400` JSON inválido · `401` llaves malas · `404` transacción no encontrada · `405` método incorrecto
+  (POST para crear, PUT para confirmar) · `415` `Content-Type` incorrecto · `422` validación/lógica ·
+  `500` error inesperado.
+- Límites por comercio: `-97` monto acumulado del día · `-98` monto máximo por transacción · `-99`
+  cantidad de transacciones del día.
+- Si hay fallas generales, revisar `https://status.transbankdevelopers.cl/`. **Nunca** marcar un pedido
+  como pagado sin una respuesta `AUTHORIZED`.
+
+### 5.12 Checklist de activación
+- [ ] `POST` en `/api/webpay/confirm` (hoy solo `GET`).
+- [ ] `buyOrder`/`sessionId` propios, únicos y ≤ 26/61 caracteres, guardados por pedido.
+- [ ] Monto recalculado en el servidor y validado contra la confirmación.
+- [ ] Endpoint interno **idempotente** para marcar pagado (con secreto).
+- [ ] Página de retorno sin `token_ws` en la URL y sin depender de la cookie.
+- [ ] Reintento de pago **sin duplicar el pedido**.
+- [ ] Reconciliación de pagos sin retorno (consulta de estado).
+- [ ] Reembolso admin (con política de stock).
+- [ ] `returnUrl` absoluto con HTTPS vía `NEXT_PUBLIC_SITE_URL`.
+- [ ] Pruebas con mocks + integración con tarjetas de prueba.
+

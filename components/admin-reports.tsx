@@ -48,8 +48,10 @@ const MAX_RANGE_MONTHS = 12;
 /** Mismo tratamiento que los demás selects del panel (PLAN §0.9, A17). */
 const SELECT = "select-field rounded-lg border border-[#d9ddd5] bg-white px-3 py-2 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128]";
 
-/** Los pedidos cancelados no son ventas, pero sí se cuentan como pedidos. */
+/** Los pedidos cancelados y los expirados (reserva de stock vencida) no son ventas, pero sí se cuentan como pedidos. */
 const CANCELLED = "Cancelado";
+const EXPIRED = "Expirado";
+const NOT_SALES = [CANCELLED, EXPIRED];
 
 function startOfDay(date: Date): Date {
   const copy = new Date(date);
@@ -183,7 +185,7 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
       ? orders.filter((order) => inRange(order, period.previous!.from, period.previous!.to))
       : [];
 
-    const sales = (rows: ReportOrder[]) => rows.filter((order) => order.status !== CANCELLED);
+    const sales = (rows: ReportOrder[]) => rows.filter((order) => !NOT_SALES.includes(order.status));
     const revenue = (rows: ReportOrder[]) => sales(rows).reduce((sum, order) => sum + order.total, 0);
     const units = (rows: ReportOrder[]) => sales(rows).reduce((sum, order) => sum + order.items.reduce((total, item) => total + item.quantity, 0), 0);
 
@@ -296,7 +298,7 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
         />
         <Metric label="Pedidos" value={String(data.count)} icon={Box} hint={`${data.units} unidades vendidas`} />
         <Metric label="Ticket promedio" value={formatPrice(ticket)} icon={BarChart3}/>
-        <Metric label="Pendientes de retirar" value={String(data.orders.filter((order) => !["Entregado", CANCELLED].includes(order.status)).length)} icon={Package}/>
+        <Metric label="Pendientes de retirar" value={String(data.orders.filter((order) => !["Entregado", ...NOT_SALES].includes(order.status)).length)} icon={Package}/>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

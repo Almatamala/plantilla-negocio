@@ -52,7 +52,7 @@ export function StoreHeader({
           (`px-5 md:px-10` en el contenedor y `mx-auto max-w-7xl` adentro). Antes el padding iba dentro
           del `max-w-7xl`, así que en PC el borde del header caía 40 px más adentro que la carta. La nav y
           el logo siguen posicionándose contra la ventana porque acá no se agrega `relative`. */}
-      <header className="px-5 py-6 md:px-10">
+      <header id="store-header" className="px-5 py-6 md:px-10">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="Abrir menú"><Menu size={22}/></button>
           <nav className={`${menu ? "flex" : "hidden"} absolute top-28 left-5 right-5 z-20 flex-col gap-4 rounded-2xl bg-white p-6 shadow-lg md:static md:flex md:flex-row md:bg-transparent md:p-0 md:shadow-none`}>
