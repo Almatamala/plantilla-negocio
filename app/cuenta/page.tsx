@@ -22,7 +22,6 @@ type MyOrder = {
   scheduled_date: string | null;
   time_slot_label: string | null;
   shipping_zone_name: string | null;
-  fulfillment: string | null;
   items: { name: string; unit_price: number; quantity: number }[];
 };
 
@@ -128,7 +127,7 @@ export default function CuentaPage() {
                         <p className="flex items-center gap-2 font-medium"><Package size={14} className="text-[#56745c]"/>{order.id.slice(0, 8).toUpperCase()}</p>
                         <p className="mt-0.5 text-xs text-[#748077]">
                           {order.scheduled_date ? `${order.scheduled_date}${order.time_slot_label ? ` · ${order.time_slot_label}` : ""}` : "Sin fecha agendada"}
-                          {order.fulfillment ? ` · ${order.fulfillment === "encuentro" ? "Punto de encuentro" : "Retiro presencial"}` : ""}
+                          {" · Retiro presencial"}
                           {order.payment_method ? ` · ${order.payment_method}` : ""}
                         </p>
                         <p className="mt-0.5 text-xs text-[#748077]">{order.items.map((i) => `${i.quantity} × ${i.name}`).join(", ")}</p>

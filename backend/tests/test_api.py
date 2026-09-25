@@ -164,33 +164,37 @@ def test_backorder_keeps_preorder_status(client, admin_headers):
 
 
 def test_pickup_point_with_slot_in_order(client, admin_headers):
-    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Punto de encuentro Talca", "type": "encuentro", "location": "Plaza de Armas, Talca"}).json()
+    # El punto es solo **retiro presencial** (D33): ni el punto ni la entrega tienen tipo.
+    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Retiro presencial Talca", "location": "Plaza de Armas, Talca"}).json()
     assert zone["location"] == "Plaza de Armas, Talca"
+    assert "type" not in zone
     # 2026-09-15 es martes (2 en la convención 0 = domingo). La franja no tiene nombre: se
     # identifica por su horario.
     slot = client.post("/api/time-slots", headers=admin_headers, json={"zone_id": zone["id"], "start_time": "11:00", "end_time": "13:00", "weekdays": [2]}).json()
     assert slot["weekdays"] == [2]
     assert "label" not in slot
-    assert slot["zone_name"] == "Punto de encuentro Talca"
-    payload = {"customer_name": "Luis", "scheduled_date": "2026-09-15", "time_slot_id": slot["id"], "fulfillment": "encuentro", "shipping_zone_id": zone["id"], "location": zone["location"], "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]}
+    assert slot["zone_name"] == "Retiro presencial Talca"
+    payload = {"customer_name": "Luis", "scheduled_date": "2026-09-15", "time_slot_id": slot["id"], "shipping_zone_id": zone["id"], "location": zone["location"], "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]}
     order = client.post("/api/orders", json=payload)
     assert order.status_code == 201
     body = order.json()
-    assert body["shipping_zone_name"] == "Punto de encuentro Talca"
+    assert body["shipping_zone_name"] == "Retiro presencial Talca"
     assert body["time_slot_label"] == "11:00–13:00"
-    assert body["fulfillment"] == "encuentro"
-    # La nota del pedido se retiró (D17).
+    # La nota del pedido se retiró (D17) y el tipo de entrega (D33).
     assert "notes" not in body
+    assert "fulfillment" not in body
     # La franja pertenece a un día: el 2026-09-16 es miércoles.
     assert client.post("/api/orders", json={**payload, "scheduled_date": "2026-09-16"}).status_code == 409
-    # El despacho a domicilio ya no es un tipo de entrega válido (D16).
-    assert client.post("/api/orders", json={**payload, "fulfillment": "domicilio"}).status_code == 422
-    assert client.post("/api/shipping-zones", headers=admin_headers, json={"name": "A domicilio", "type": "domicilio"}).status_code == 422
+    # El despacho a domicilio no existe (D16) y el tipo se unificó en retiro presencial (D33): un
+    # `type` desconocido ya no define nada, el punto se crea igual como retiro presencial.
+    ignored = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "A domicilio", "type": "domicilio"})
+    assert ignored.status_code == 201
+    assert "type" not in ignored.json()
 
 
 def test_time_slots_belong_to_a_pickup_point(client, admin_headers):
-    first = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Retiro presencial San Javier", "type": "retiro", "location": "Av. Principal 123"}).json()
-    second = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Punto de encuentro Talca", "type": "encuentro"}).json()
+    first = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Retiro presencial San Javier", "location": "Av. Principal 123"}).json()
+    second = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "Retiro presencial Talca"}).json()
     base = {"start_time": "16:00", "end_time": "19:00", "weekdays": [1]}
     # Una franja sin punto (o sin días) no se acepta, y el punto debe existir.
     assert client.post("/api/time-slots", headers=admin_headers, json=base).status_code == 422
@@ -225,12 +229,12 @@ def test_time_slots_belong_to_a_pickup_point(client, admin_headers):
 
 
 def test_pickup_point_can_be_edited(client, admin_headers):
-    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "San Javier", "type": "retiro", "location": "Av. Principal 123"}).json()
+    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "San Javier", "location": "Av. Principal 123"}).json()
     assert client.patch(f"/api/shipping-zones/{zone['id']}", json={"name": "Otro"}).status_code == 401
-    updated = client.patch(f"/api/shipping-zones/{zone['id']}", headers=admin_headers, json={"name": "Retiro presencial San Javier", "type": "encuentro", "location": "Plaza de San Javier"})
+    updated = client.patch(f"/api/shipping-zones/{zone['id']}", headers=admin_headers, json={"name": "Retiro presencial San Javier", "location": "Plaza de San Javier"})
     assert updated.status_code == 200
     assert updated.json()["name"] == "Retiro presencial San Javier"
-    assert updated.json()["type"] == "encuentro"
+    assert "type" not in updated.json()
     assert updated.json()["location"] == "Plaza de San Javier"
     assert updated.json()["active"] is True
     # `location: null` la borra y el resto del punto no cambia.

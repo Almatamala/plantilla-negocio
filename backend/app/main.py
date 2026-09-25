@@ -46,7 +46,9 @@ def google_client() -> OAuth2Client:
 LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days")
 
 # Puntos de retiro (D16): se retiró el despacho a domicilio (no existe el servicio) y la cobertura
-# por áreas; cada punto se define por **ubicación**. La **nota del pedido** también se retiró (D17).
+# por áreas; cada punto se define por **ubicación**. La **nota del pedido** también se retiró (D17)
+# y el **tipo del punto** y el **tipo de entrega del pedido** se unificaron en retiro presencial
+# (D33): `shipping_zones.type` y `orders.fulfillment` se eliminan al arrancar en PostgreSQL.
 # Agenda por punto (D18): las franjas cuelgan del punto y guardan sus días; el horario en texto libre
 # del punto se retira (se deriva de sus franjas) y las franjas globales viejas se eliminan, porque
 # ahora toda franja pertenece a un punto. La franja **no tiene nombre** (se nombra por su horario) y
@@ -55,6 +57,7 @@ LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days")
 # Como `create_all` no altera tablas existentes, se aplica al arrancar en PostgreSQL.
 AGENDA_COLUMNS = (
     "ALTER TABLE shipping_zones ADD COLUMN IF NOT EXISTS location TEXT",
+    "ALTER TABLE shipping_zones DROP COLUMN IF EXISTS type",
     "ALTER TABLE shipping_zones DROP COLUMN IF EXISTS areas",
     "ALTER TABLE shipping_zones DROP COLUMN IF EXISTS schedule",
     "ALTER TABLE time_slots ADD COLUMN IF NOT EXISTS zone_id VARCHAR(36) REFERENCES shipping_zones(id) ON DELETE CASCADE",
@@ -64,6 +67,7 @@ AGENDA_COLUMNS = (
     "ALTER TABLE closed_days DROP COLUMN IF EXISTS reason",
     "DELETE FROM time_slots WHERE zone_id IS NULL",
     "ALTER TABLE orders DROP COLUMN IF EXISTS notes",
+    "ALTER TABLE orders DROP COLUMN IF EXISTS fulfillment",
 )
 
 # Contenido retirado del catálogo: los campos SEO y el SKU del producto, las **variantes** (tabla
@@ -101,12 +105,15 @@ STORE_CONTENT_COLUMNS = (
 )
 
 # Ajustes retirados de `store_settings`: los productos por página de «Productos destacados» quedaron
-# **fijos en 8** (D26) y la **URL del iframe del widget de Instagram** sale al reemplazar el widget de
-# terceros por el feed propio con la API de Instagram (D30), así que ambos salen del panel y de la API y
-# las columnas se eliminan al arrancar para que una base ya creada quede igual que una nueva.
+# **fijos en 8** (D26), la **URL del iframe del widget de Instagram** sale al reemplazar el widget de
+# terceros por el feed propio con la API de Instagram (D30) y los **datos bancarios** salen porque la
+# web dejó de ofrecer transferencia (el pago se coordina por WhatsApp, D34). Así que los tres
+# salen del panel y de la API y las columnas se eliminan al arrancar para que una base ya creada quede
+# igual que una nueva.
 RETIRED_STORE_SETTINGS_COLUMNS = (
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS products_per_page",
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS instagram_embed_url",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS bank_account_info",
 )
 
 VERIFICATION_TTL_MINUTES = 15

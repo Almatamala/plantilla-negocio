@@ -5,7 +5,6 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 ProductStatus = Literal["draft", "active", "sold_out", "preorder"]
 OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded"]
-FulfillmentType = Literal["retiro", "encuentro"]
 ReviewStatus = Literal["pending", "approved", "rejected"]
 
 
@@ -133,9 +132,10 @@ class ClosedDayOut(ClosedDayIn, ORMModel):
     created_at: datetime
 
 
+# Punto de retiro presencial (D33): retiro y punto de encuentro eran lo mismo en la práctica, así
+# que el punto no tiene tipo. Se define por su nombre, su ubicación y sus franjas.
 class ShippingZoneIn(BaseModel):
     name: str = Field(min_length=1, max_length=160)
-    type: FulfillmentType = "retiro"
     location: str | None = Field(default=None, max_length=300)
     active: bool = True
 
@@ -143,7 +143,6 @@ class ShippingZoneIn(BaseModel):
 class ShippingZonePatch(BaseModel):
     """Edición parcial del punto: solo se aplican los campos enviados."""
     name: str | None = Field(default=None, min_length=1, max_length=160)
-    type: FulfillmentType | None = None
     location: str | None = Field(default=None, max_length=300)
     active: bool | None = None
 
@@ -187,7 +186,6 @@ class OrderIn(BaseModel):
     payment_method: str | None = Field(default=None, max_length=80)
     scheduled_date: date | None = None
     time_slot_id: str | None = None
-    fulfillment: FulfillmentType | None = None
     shipping_zone_id: str | None = None
     location: str | None = None
     items: list[OrderItemIn] = Field(min_length=1)
@@ -213,7 +211,6 @@ class OrderOut(ORMModel):
     payment_method: str | None
     scheduled_date: date | None
     time_slot_id: str | None
-    fulfillment: FulfillmentType | None
     shipping_zone_id: str | None
     location: str | None
     created_at: datetime
@@ -240,7 +237,6 @@ class SettingsIn(BaseModel):
     contact_phone: str | None = Field(default=None, max_length=50)
     whatsapp_phone: str | None = Field(default=None, max_length=50)
     instagram_url: str | None = Field(default=None, max_length=300)
-    bank_account_info: str | None = None
     announcement: str | None = Field(default=None, max_length=240)
     hero_title: str | None = Field(default=None, max_length=200)
     hero_description: str | None = None

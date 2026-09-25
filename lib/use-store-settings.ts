@@ -6,12 +6,11 @@ import { loadCached } from "@/lib/offline-cache";
 import { mergeSettings, storeConfig, type ApiSettings, type StoreConfig } from "@/lib/store-config";
 
 /**
- * Ajustes de tienda (nombre, anuncio, hero, historia, WhatsApp, Instagram y datos de transferencia) con
- * respaldo de **última versión conocida** si la API no responde.
+ * Ajustes de tienda (nombre, anuncio, hero, historia, WhatsApp, Instagram y paleta) con respaldo de
+ * **última versión conocida** si la API no responde.
  *
  * Antes la tienda, la ficha, la cuenta y el checkout repetían el mismo efecto (fetch + `mergeSettings` +
- * caché) e incluso mantenían su propio estado para los datos de transferencia. Devuelve los valores de la
- * plantilla hasta que responde la API.
+ * caché). Devuelve los valores de la plantilla hasta que responde la API.
  */
 export function useStoreSettings(): StoreConfig {
   const [config, setConfig] = useState<StoreConfig>(storeConfig);

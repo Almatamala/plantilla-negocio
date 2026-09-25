@@ -110,7 +110,7 @@ export function StoreFooter({ config }: { config: ShellConfig }) {
         <div>
           <p className="display text-3xl">{config.name}</p>
           <p className={`mt-3 max-w-xs text-sm leading-6 ${muted}`}>
-            Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial o punto de encuentro.
+            Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.
           </p>
         </div>
         {hasContact && (

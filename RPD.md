@@ -1,11 +1,11 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (repostería artesanal)
-**Versión del documento:** 1.10
-**Fecha:** 2026-09-24
+**Versión del documento:** 1.11
+**Fecha:** 2026-09-25
 **Estado:** Documento vivo — estado actual del código y decisiones
 
-**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D32). El
+**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D34). El
 historial de cambios por versión y el plan de trabajo por fases ya no se mantienen: lo aprobado está
 implementado. Los **pendientes** se listan en `PLAN.md` §4.
 
@@ -17,7 +17,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 |---|---|
 | **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`; carrito en `localStorage` (`lib/cart.ts`); panel admin en `app/admin` → `components/admin-dashboard.tsx`; login por correo/contraseña + Google en `app/login`; cuenta `app/cuenta` dentro del layout de la tienda; `proxy.ts` protege `/admin` (rol admin). Sesión compartida (`lib/session-client.ts`), respaldo de lecturas públicas (`lib/offline-cache.ts`) y ajustes de tienda (`lib/use-store-settings.ts`). |
 | **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
-| **Datos** | `backend/app/models.py` (SQLAlchemy): `profiles`, `categories`, `products`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con sus días y **sin nombre**), `closed_days` (fechas cerradas puntuales, **sin motivo**), `shipping_zones`, `reviews`, `store_settings` e `instagram_token`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
+| **Datos** | `backend/app/models.py` (SQLAlchemy): `profiles`, `categories`, `products`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con sus días y **sin nombre**), `closed_days` (fechas cerradas puntuales, **sin motivo**), `shipping_zones` (**solo retiro presencial, sin tipo**), `reviews`, `store_settings` e `instagram_token`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
 | **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (puntos con sus franjas y fechas cerradas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
 | **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, puntos, reviews, órdenes con stock server-side, ajustes, imágenes y feed de Instagram. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
 | **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**, incluida la **paleta de la tienda** (`theme_colors`: acento, tinta, bloque suave, texto secundario y detalle cálido — D29). |
@@ -33,14 +33,14 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | D3 | Regla de stock | Híbrido: estado manual + auto `sold_out` cuando `inventory = 0`, salvo `allow_backorder`. | API, etiquetas de la tienda |
 | D4 | "Bajo pedido" | Solo `allow_backorder`, sin días de anticipación (`lead_time_days`). | Schema, tienda |
 | D7 | Fuente de verdad | **API FastAPI dockerizada (AWS)** como única fuente de verdad. | Arquitectura |
-| D8 | Orden de pagos | **Transferencia bancaria implementada** (confirmación manual desde el panel). **Webpay pendiente** de credenciales TBK. | Checkout, panel |
+| D8 | Orden de pagos | **Webpay Plus pendiente** de credenciales TBK: es el **único medio** del checkout y del panel (se retiró la transferencia, D34). Hasta activarlo el pedido se registra y el pago se coordina por WhatsApp. | Checkout, panel |
 | D9 | WhatsApp | **Botón flotante `wa.me` implementado** (redondo, solo ícono). **Notificación automática pendiente** de proveedor. | Tienda, ficha, checkout |
 | D10 | Comentarios | Anónimos por producto y **moderados** por el admin antes de publicarse (tabla `reviews`). | Ficha, panel › Comentarios |
 | D12 | Panel móvil | El panel tiene menú desplegable en pantallas pequeñas (hamburguesa). | Panel |
 | D13 | Protección del panel | Sesión server-side en cookie httpOnly + `proxy.ts` por rol admin; login por correo/contraseña + Google. | Seguridad |
 | D14 | Confirmación de cuenta | Código temporal de 6 dígitos por correo (Resend). **Pendiente externo:** cuenta y dominio verificado en Resend. | `profiles`, auth, `/login` |
 | D15 | Referencia de diseño | https://simplysweet.cl para la ficha y el checkout; https://www.studiopasacademy.com como referencia de la sección de Instagram. | Ficha, checkout, carta |
-| D16 | Entrega | Sin despacho a domicilio: solo **retiro presencial** y **puntos de encuentro** (San Javier / Talca) con ubicación y horarios; ventana de 2 semanas. | `shipping_zones`, checkout, admin |
+| D16 | Entrega | Sin despacho a domicilio: solo **retiro presencial** (en San Javier / Talca) con ubicación y horarios; ventana de 2 semanas. **Ajustada por D33:** dejó de distinguirse «punto de encuentro». | `shipping_zones`, checkout, admin |
 | D17 | Nota del pedido | Eliminada del checkout, del admin y del schema (`orders.notes`). | Checkout, admin |
 | D18 | Franjas horarias | Cada franja **cuelga de un punto** y declara los **días** en que atiende; el punto no tiene un horario en texto libre. El cliente elige punto → día → franja. | `time_slots`, checkout, agenda |
 | D19 | Días cerrados | **Ajustada por D32:** quedan los **días de cada franja** y las **fechas cerradas puntuales**; el cierre semanal se retiró. | Checkout, agenda |
@@ -56,6 +56,8 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | D30 | Feed de Instagram | **Feed propio** con la **API de Instagram** (15 últimas en 3 filas de 5 columnas, con likes, comentarios y descripción al pasar el mouse); el token vive **solo en la API**. Retira el widget de terceros (D23). | Instagram |
 | D31 | Renovación del token de Instagram | **Automática y dentro de la API**: el token de larga duración vive en `instagram_token` y una **tarea de fondo** lo renueva (revisa cada 12 h, renueva a los 50 días); la API sirve el feed y expone estado y renovación manual a los admins. | Backend Instagram |
 | D32 | Días libres, franja y cierre | Los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran el **cierre semanal** `closed_weekdays`, el **nombre de la franja** (`time_slots.label`) y el **motivo** de la fecha cerrada (`closed_days.reason`). Ajusta D18 y D19. | Backend, agenda, checkout |
+| D33 | Puntos de entrega | **Un solo tipo: retiro presencial.** En la práctica «retiro presencial» y «punto de encuentro» eran lo mismo (una dirección y unos horarios donde el cliente pasa a buscar), así que se retiran `shipping_zones.type` y `orders.fulfillment`: el punto se define por su nombre, su ubicación y sus franjas. Ajusta D16. | Backend, agenda, pedidos, reportes, checkout |
+| D34 | Pago sin transferencia | La web **no ofrece transferencia bancaria**: se retiran `store_settings.bank_account_info`, el bloque «Datos para transferir» del checkout y el medio de pago. Checkout y panel quedan **solo con Webpay** (D8); hasta cargar las credenciales TBK el pedido se registra y el pago se coordina por WhatsApp. | Backend, panel, checkout |
 
 ---
 
@@ -75,7 +77,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | `components/admin-agenda.tsx` | Agenda del panel: una tarjeta por punto con sus franjas, más las **fechas cerradas** puntuales (D18, D19, D32) |
 | `components/admin-reports.tsx` | Sección **Reportes** con las métricas de negocio y el selector de período (D21) |
 | `lib/schedule.ts` | Días de la semana compartidos y formato compacto de franjas (D18) |
-| `lib/agenda.ts` | Tipos compartidos de **punto y franja** (`Zone`, `Slot`, `ZoneType`) y `zoneTypeOf` |
+| `lib/agenda.ts` | Tipos compartidos de **punto de retiro presencial y franja** (`Zone`, `Slot`); el punto no tiene tipo (D33) |
 | `lib/months.ts` | Claves de mes `YYYY-MM`, etiquetas y rango por meses enteros con tope de un año (`moveRange`) |
 | `lib/theme.ts` | Paleta de marca editable: los cinco tonos, su normalización y las variables CSS que aplican las vistas cálidas (D29) |
 | `store_settings.theme_colors` | Paleta guardada como JSON (`accent`, `ink`, `surface`, `muted`, `detail`); sin valores guardados manda la del código (D29) |

@@ -1,15 +1,15 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D32)
-**Fecha:** 2026-09-24 · **Estado:** documento vivo — despliegue y pendientes
+**Basado en:** `RPD.md` (decisiones D1–D34)
+**Fecha:** 2026-09-25 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
 
 ## 0. Cómo usar este documento
 
 - **Qué queda acá:** lo que **falta hacer** y cómo **desplegar**. El **estado actual del código** y las
-  **decisiones** (D1–D32) viven en `RPD.md`.
+  **decisiones** (D1–D34) viven en `RPD.md`.
 - **Regla del proyecto (AGENTS.md):** antes de escribir código, leer la guía correspondiente en
   `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking changes respecto de lo conocido).
 - **Verificación de cada cambio:** `npx tsc --noEmit`, `npm run lint` y `npm run build`; en `backend/`,
@@ -29,7 +29,9 @@ Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend
    tablas existentes. Para mantener al día una base ya creada, la API ejecuta al arrancar listas
    idempotentes de `ALTER TABLE …`/`DROP … IF EXISTS` **solo en PostgreSQL** (catálogo retirado, columnas de
    verificación y de contenido, agenda y ajustes retirados). Entre los últimos retiros están
-   `time_slots.label`, `closed_days.reason` y la tabla `closed_weekdays` (**D32**). El usuario de la base
+   `time_slots.label`, `closed_days.reason` y la tabla `closed_weekdays` (**D32**), el tipo del punto y el de
+   la entrega `shipping_zones.type` / `orders.fulfillment` (**D33**) y los datos bancarios
+   `store_settings.bank_account_info` (**D34**). El usuario de la base
    debe tener permiso DDL; en RDS, verificar que no esté restringido. En una base nueva no hace nada.
 3. **Variables de entorno.** `AUTH_JWT_SECRET` debe ser **el mismo** en Next.js y en la API (si difiere, las
    sesiones dejan de validar); `CORS_ORIGINS` debe incluir el dominio de producción; `ADMIN_EMAILS` define
@@ -67,10 +69,10 @@ encarga del resto (consulta, caché y renovación).
 
 ---
 
-## 3. Últimos ajustes del dueño (2026-09-24)
+## 3. Últimos ajustes del dueño (2026-09-25)
 
-**Implementado y verificado** (`pytest` 47/47; `tsc`, `lint` y `build` sin errores). Cuatro puntos, con una
-decisión nueva (**D32**):
+**Implementado y verificado** (`pytest` 47/47; `tsc`, `lint` y `build` sin errores). Seis puntos, con tres
+decisiones nuevas (**D32**, **D33** y **D34**):
 
 | # | Ajuste pedido | Implementación |
 |---|---|---|
@@ -78,11 +80,18 @@ decisión nueva (**D32**):
 | **A38** | Los enlaces Productos / Beneficios / Nosotros con la misma tipografía que el nombre | Se probó con la clase `display` y se **revirtió** el mismo día a pedido del dueño: queda como estaba. |
 | **A39** | En **Inicio** del panel, «Ventas del período» no decía de qué período y sobraba el botón «Actualizar primero» | La métrica pasa a **«Ventas del último mes»** (los **últimos 30 días móviles**) y se **elimina el botón** «Actualizar primero». |
 | **A40** | En **Agenda**: quitar el cierre «todas las semanas», mantener solo las fechas puntuales (sin motivo) y quitar el nombre de la franja | **D32:** los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran `closed_weekdays`, `time_slots.label` y `closed_days.reason`. La sección de cierres queda como **«Fechas cerradas»**. |
+| **A41** | Quitar todo lo relacionado con la cuenta bancaria y el pago por transferencia | **D34:** se retiran el ajuste **«Datos de transferencia bancaria»** de Contenido, el bloque **«Datos para transferir»** del checkout y el medio de pago **Transferencia** (más **Efectivo** en el panel). Checkout y panel quedan **solo con Webpay** (D8); hasta activarlo, el pago se coordina por WhatsApp. |
+| **A42** | Retiro presencial y punto de encuentro son lo mismo: unificarlos en solo retiro presencial | **D33:** se retira el tipo del punto (`shipping_zones.type`) y el de la entrega (`orders.fulfillment`). Agenda, Pedidos, Reportes, Checkout y Cuenta muestran siempre **Retiro presencial** (el punto se identifica por su nombre). |
 
 **Decisión D32 (nueva):** los días que no se atiende salen de los **días de cada franja** (por punto, D18) y
 de las **fechas cerradas puntuales** (`closed_days`). Se retira el cierre semanal `closed_weekdays` porque
 duplicaba los días de la franja y, al ser global, cerraba el día para todos los puntos. La franja **no tiene
 nombre** (se identifica por su horario) y la fecha cerrada **no pide motivo**.
+
+**Decisiones D33 y D34 (nuevas):** **D33** unifica **retiro presencial** y **punto de encuentro** en un
+solo tipo (se retiran `shipping_zones.type` y `orders.fulfillment`), y **D34** saca la **transferencia** de
+la web (se retiran `store_settings.bank_account_info` y el medio de pago; checkout y panel quedan **solo con
+Webpay**, D8, y hasta activarlo el pago se coordina por WhatsApp).
 
 **Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
@@ -92,14 +101,15 @@ deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
 
 ## 4. Pendientes
 
-1. **Webpay Plus (D8):** solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*`. Hasta entonces
-   el checkout cobra por **transferencia** con confirmación manual desde el panel.
+1. **Webpay Plus (D8):** solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*`. Es el **único
+   medio de pago** del checkout y del panel; hasta activarlo, el pedido se registra y el pago se coordina
+   por WhatsApp.
 2. **Notificación automática de WhatsApp (D9):** elegir proveedor (API de Meta Cloud vs. enlace `wa.me`). El
    botón flotante `wa.me` ya funciona.
 3. **Credenciales externas:** OAuth Client de Google (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), cuenta y
    dominio **verificados** en **Resend** (`RESEND_API_KEY`/`RESEND_EMAIL_FROM`) y **rotar** el token de Instagram.
-4. **Seed de agenda:** cargar en Agenda los **puntos reales** (retiro presencial y puntos de encuentro de San
-   Javier / Talca) con su ubicación y sus **franjas** (días + horario).
+4. **Seed de agenda:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
+   su ubicación y sus **franjas** (días + horario).
 5. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
 6. **Revisión visual con el dueño** de carta, ficha, footer y checkout en móvil y escritorio (referencia:
    https://simplysweet.cl), y de los **Reportes** con pedidos reales cargados.

@@ -18,7 +18,6 @@ export type StoreConfig = {
   contact_phone: string;
   whatsapp_phone: string;
   instagram_url: string;
-  bank_account_info: string;
   /** Paleta de marca ya normalizada (ver `lib/theme.ts`), editable en Contenido › Colores. */
   theme_colors: ThemeColors;
 };
@@ -35,7 +34,6 @@ export type ApiSettings = {
   contact_phone: string | null;
   whatsapp_phone: string | null;
   instagram_url: string | null;
-  bank_account_info: string | null;
   theme_colors: Partial<Record<string, string>> | null;
 };
 
@@ -53,7 +51,6 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
     contact_phone: data.contact_phone ?? current.contact_phone,
     whatsapp_phone: data.whatsapp_phone ?? current.whatsapp_phone,
     instagram_url: data.instagram_url ?? current.instagram_url,
-    bank_account_info: data.bank_account_info ?? current.bank_account_info,
     // La paleta se normaliza acá (no se copia tal cual): así un valor viejo o incompleto no deja la
     // tienda sin color y los tonos que falten caen a la paleta por defecto.
     theme_colors: data.theme_colors ? normalizeThemeColors(data.theme_colors) : current.theme_colors,
@@ -74,6 +71,5 @@ export const storeConfig: StoreConfig = {
   contact_phone: "",
   whatsapp_phone: "",
   instagram_url: "",
-  bank_account_info: "",
   theme_colors: defaultThemeColors,
 };

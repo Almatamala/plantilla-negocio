@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Banknote, Clock, CreditCard, MapPin, Store } from "lucide-react";
+import { ArrowLeft, Clock, CreditCard, Store } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
@@ -11,15 +11,12 @@ import { formatPrice, mapApiProduct, products as demoProducts, type ApiProduct, 
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { CheckoutFooter, CheckoutHeader } from "@/components/checkout-shell";
 import { WEEKDAY_LONG, formatSlot, weekdayFromIso } from "@/lib/schedule";
-import { zoneTypeOf, type Slot, type Zone, type ZoneType } from "@/lib/agenda";
+import type { Slot, Zone } from "@/lib/agenda";
 import { MONTHS_SHORT } from "@/lib/months";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
-type PaymentMethod = "transferencia" | "webpay";
-type PlacedOrder = { id: string; total: number; items: { name: string; quantity: number; price: number }[]; place: string; zone: string; date: string; slot: string; payment: string };
+type PlacedOrder = { id: string; total: number; items: { name: string; quantity: number; price: number }[]; zone: string; date: string; slot: string; payment: string };
 
-/** Tipo de retiro tal como se muestra al cliente y se guarda en la orden. */
-const FULFILLMENT_LABEL: Record<ZoneType, string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
 /** El cliente puede agendar hasta dos semanas de anticipación (D16). */
 const SCHEDULE_WINDOW_DAYS = 14;
 
@@ -47,7 +44,6 @@ export default function CheckoutPage() {
   const [zoneId, setZoneId] = useState("");
   const [date, setDate] = useState("");
   const [slotId, setSlotId] = useState("");
-  const [payment, setPayment] = useState<PaymentMethod>("transferencia");
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "" });
   const session = useSession();
   const user = session.user;
@@ -61,7 +57,7 @@ export default function CheckoutPage() {
   const summaryRef = useRef<HTMLDivElement>(null);
 
   // Acá la última versión conocida sólo cubre el **catálogo** (para que el carrito no muestre precios
-  // falsos) y los **ajustes** (nombre de la tienda y datos de transferencia, vía `useStoreSettings`).
+  // falsos) y los **ajustes** (nombre de la tienda, vía `useStoreSettings`).
   // Puntos de retiro, franjas y cierres **no** se respaldan: con la API caída no se puede registrar el
   // pedido igual, así que es más honesto avisar que ofrecer horarios que quizá ya no existen
   // (PLAN §0.9, D20).
@@ -78,10 +74,8 @@ export default function CheckoutPage() {
     apiFetch<{ date: string }[]>("/api/closed-days")
       .then((rows) => setClosedDays(rows.map((d) => d.date)))
       .catch(() => setScheduleOk(false));
-    // `type` se normaliza porque los puntos creados antes de D16 podían traer otros valores.
     apiFetch<Zone[]>("/api/shipping-zones").then((rows) => {
-      if (!rows.length) return;
-      setZones(rows.map((zone) => ({ ...zone, type: zoneTypeOf(zone.type) })));
+      if (rows.length) setZones(rows);
     }).catch(() => setScheduleOk(false));
   }, []);
 
@@ -122,8 +116,8 @@ export default function CheckoutPage() {
         method: "POST",
         body: {
           customer_name: contact.name, customer_phone: contact.phone, customer_email: contact.email || null,
-          payment_method: payment === "transferencia" ? "Transferencia" : "Webpay",
-          scheduled_date: date, time_slot_id: slotId, fulfillment: zone.type, shipping_zone_id: zone.id,
+          payment_method: "Webpay",
+          scheduled_date: date, time_slot_id: slotId, shipping_zone_id: zone.id,
           location: zone.location || zone.name,
           items,
         },
@@ -132,15 +126,14 @@ export default function CheckoutPage() {
         id: order.id.slice(0, 8).toUpperCase(),
         total,
         items: items.map(({ name, quantity, unit_price }) => ({ name, quantity, price: unit_price })),
-        place: FULFILLMENT_LABEL[zone.type],
         zone: zone.name,
         date,
         slot: `${slot.start_time}–${slot.end_time}`,
-        payment: payment === "transferencia" ? "Transferencia bancaria" : "Webpay Plus",
+        payment: "Webpay Plus",
       });
       clearCart();
       if (process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL) {
-        fetch(process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, customer: contact.name, total, date, slot: `${slot.start_time}–${slot.end_time}`, zone: zone.name, payment }) }).catch(() => undefined);
+        fetch(process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, customer: contact.name, total, date, slot: `${slot.start_time}–${slot.end_time}`, zone: zone.name, payment: "Webpay" }) }).catch(() => undefined);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo registrar el pedido. Intenta nuevamente.");
@@ -189,7 +182,7 @@ export default function CheckoutPage() {
               ))}
             </div>
             <div className="mt-4 space-y-1.5 text-sm">
-              <div className="flex justify-between"><span className="text-[#647167]">Retiro</span><span>{placedOrder.place} · {placedOrder.zone}</span></div>
+              <div className="flex justify-between"><span className="text-[#647167]">Retiro</span><span>{placedOrder.zone}</span></div>
               <div className="flex justify-between"><span className="text-[#647167]">Fecha</span><span>{placedOrder.date} · {placedOrder.slot}</span></div>
               <div className="flex justify-between"><span className="text-[#647167]">Pago</span><span>{placedOrder.payment}</span></div>
               <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(placedOrder.total)}</strong></div>
@@ -226,7 +219,7 @@ export default function CheckoutPage() {
       </div>
       <div className="mt-3 shrink-0 space-y-1.5 border-t border-[#e2e5df] pt-3 text-sm">
         <div className="flex justify-between"><span className="text-[#647167]">Subtotal</span><span>{formatPrice(total)}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-[#647167]">Retiro</span><span className="text-right">{selectedZone ? `${FULFILLMENT_LABEL[selectedZone.type]} · ${selectedZone.name}` : "Por elegir"}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-[#647167]">Retiro</span><span className="text-right">{selectedZone ? selectedZone.name : "Por elegir"}</span></div>
         <div className="flex justify-between gap-3"><span className="text-[#647167]">Agenda</span><span className="text-right">{date ? `${date}${selectedSlot ? ` · ${selectedSlot.start_time}–${selectedSlot.end_time}` : ""}` : "Por elegir"}</span></div>
         <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
       </div>
@@ -304,9 +297,8 @@ export default function CheckoutPage() {
                       <input type="radio" name="zone" checked={zoneId === zone.id} onChange={() => { setZoneId(zone.id); setDate(""); setSlotId(""); }} className="mt-0.5 h-4 w-4 shrink-0 accent-[#243128]"/>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
-                          {zone.type === "retiro" ? <Store size={15} className="shrink-0 text-[#56745c]"/> : <MapPin size={15} className="shrink-0 text-[#56745c]"/>}
+                          <Store size={15} className="shrink-0 text-[#56745c]"/>
                           <span className="break-words">{zone.name}</span>
-                          <span className="rounded-full bg-[#edf0e8] px-2 py-0.5 text-[10px] tracking-wider text-[#56745c] uppercase">{FULFILLMENT_LABEL[zone.type]}</span>
                         </span>
                         {zone.location && <span className="mt-1 block break-words text-xs text-[#647167]">{zone.location}</span>}
                         <span className="mt-1 flex items-start gap-1.5 text-xs text-[#647167]">
@@ -348,17 +340,15 @@ export default function CheckoutPage() {
 
             <section className={SECTION}>
               <h2 className="text-sm font-semibold">4 · Pago</h2>
-              <div className="mt-3">
-                <label className={`flex cursor-pointer items-start gap-3 border-y border-[#e2e5df] py-4 ${payment === "transferencia" ? "" : "opacity-70"}`}>
-                  <input type="radio" name="payment" checked={payment === "transferencia"} onChange={() => setPayment("transferencia")} className="mt-0.5 h-4 w-4 accent-[#243128]"/>
-                  <span className="flex-1"><span className="flex items-center gap-2 text-sm font-medium"><Banknote size={15} className="text-[#56745c]"/>Transferencia bancaria</span><span className="mt-0.5 block text-xs text-[#647167]">Confirmamos manualmente tu pago</span></span>
-                </label>
-                <label className={`flex items-start gap-3 border-b border-[#e2e5df] py-4 ${webpayEnabled ? "cursor-pointer" : "opacity-60"}`}>
-                  <input type="radio" name="payment" checked={payment === "webpay"} disabled={!webpayEnabled} onChange={() => setPayment("webpay")} className="mt-0.5 h-4 w-4 accent-[#243128]"/>
-                  <span className="flex-1"><span className="flex items-center gap-2 text-sm font-medium"><CreditCard size={15} className="text-[#56745c]"/>Webpay Plus (débito/crédito)</span><span className="mt-0.5 block text-xs text-[#647167]">{webpayEnabled ? "Pago en línea con tarjeta" : "Disponible próximamente"}</span></span>
-                </label>
+              {/* Único medio: Webpay Plus (D8). Hasta cargar las credenciales TBK aparece deshabilitado;
+                  el pedido se registra igual y el pago se coordina por WhatsApp. */}
+              <div className={`mt-3 flex items-start gap-3 border-y border-[#e2e5df] py-4 ${webpayEnabled ? "" : "opacity-60"}`}>
+                <CreditCard size={15} className="mt-0.5 shrink-0 text-[#56745c]"/>
+                <span className="flex-1">
+                  <span className="block text-sm font-medium">Webpay Plus (débito/crédito)</span>
+                  <span className="mt-0.5 block text-xs text-[#647167]">{webpayEnabled ? "Pago en línea con tarjeta" : "Disponible próximamente: por ahora coordinamos el pago por WhatsApp tras agendar"}</span>
+                </span>
               </div>
-              {payment === "transferencia" && <div className="mt-4 rounded-xl bg-[#edf0e8] p-4"><p className="text-xs tracking-[.16em] text-[#56745c] uppercase">Datos para transferir</p><p className="mt-2 break-words text-sm whitespace-pre-line text-[#526058]">{config.bank_account_info || "Transferencia a confirmar — te enviaremos los datos por WhatsApp tras agendar."}</p></div>}
             </section>
 
           </div>

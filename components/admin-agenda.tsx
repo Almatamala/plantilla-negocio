@@ -3,28 +3,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { MapPin, Pencil, Plus, Store, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { zoneTypeOf, type Slot, type Zone } from "@/lib/agenda";
+import type { Slot, Zone } from "@/lib/agenda";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, formatSlot, weekdayFromIso } from "@/lib/schedule";
 
-/** Punto de retiro o encuentro tal como lo devuelve el panel (`active` siempre viene). */
+/** Punto de retiro presencial tal como lo devuelve el panel (`active` siempre viene). */
 export type ZoneRow = Zone & { active: boolean };
 /** Franja horaria de un punto tal como la devuelve el panel (`enabled` siempre viene). */
 export type SlotRow = Slot & { enabled: boolean };
 /** Fecha cerrada puntual (lo único que queda de «días cerrados»). */
 type ClosedDayRow = { id: string; date: string };
 
-const zoneTypeLabel: Record<ZoneRow["type"], string> = { retiro: "Retiro presencial", encuentro: "Punto de encuentro" };
-
-type ZoneDraft = { name: string; type: ZoneRow["type"]; location: string };
+type ZoneDraft = { name: string; location: string };
 type SlotDraft = { start_time: string; end_time: string; weekdays: number[] };
 
-const EMPTY_ZONE: ZoneDraft = { name: "", type: "retiro", location: "" };
+const EMPTY_ZONE: ZoneDraft = { name: "", location: "" };
 const EMPTY_SLOT: SlotDraft = { start_time: "10:00", end_time: "13:00", weekdays: [] };
 const FIELD = "rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]";
 const BUTTON = "rounded-lg bg-[#243128] px-4 py-2 text-sm text-white";
 const LINK_BUTTON = "rounded-lg border border-[#d9ddd5] px-4 py-2 text-sm transition hover:border-[#243128]";
 const chip = (active: boolean) => `rounded-full px-3 py-1.5 text-xs transition ${active ? "bg-[#243128] text-white" : "border border-[#d9ddd5] text-[#647167] hover:border-[#243128]"}`;
-const zoneAccent = (type: ZoneRow["type"]) => (type === "encuentro" ? "bg-[#e2f0e2] text-[#3c6b3f]" : "bg-[#e4e9f5] text-[#3d5384]");
 
 /** Días de la semana como chips (0 domingo … 6 sábado). */
 function WeekdayChips({ value, onToggle }: { value: number[]; onToggle: (day: number) => void }) {
@@ -57,7 +54,7 @@ function SlotFields({ draft, setDraft }: { draft: SlotDraft; setDraft: (value: S
 }
 
 /**
- * Agenda del panel (D18): cada **punto de retiro o encuentro** vive con su **ubicación** y
+ * Agenda del panel (D18): cada **punto de retiro presencial** vive con su **ubicación** y
  * sus **franjas horarias**, y cada franja declara los **días de la semana** en que se atiende.
  * La franja no tiene nombre: se nombra por su horario. Abajo quedan las **fechas cerradas**
  * puntuales (feriados, vacaciones).
@@ -115,7 +112,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
     if (!zoneForm.name.trim()) return;
     void send(
       async () => {
-        const created = await apiFetch<ZoneRow>("/api/shipping-zones", { method: "POST", admin: true, body: { name: zoneForm.name.trim(), type: zoneForm.type, location: zoneForm.location.trim() || null } });
+        const created = await apiFetch<ZoneRow>("/api/shipping-zones", { method: "POST", admin: true, body: { name: zoneForm.name.trim(), location: zoneForm.location.trim() || null } });
         setZoneForm(EMPTY_ZONE);
         // Un punto sin franjas no se puede agendar: se abre de inmediato el formulario.
         setSlotZone(created.id);
@@ -127,13 +124,13 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
 
   function startEditingZone(zone: ZoneRow) {
     setEditZone(zone.id);
-    setZoneDraft({ name: zone.name, type: zone.type, location: zone.location ?? "" });
+    setZoneDraft({ name: zone.name, location: zone.location ?? "" });
   }
 
   function saveZone(id: string) {
     if (!zoneDraft.name.trim()) { setState("El punto necesita un nombre."); return; }
     void send(
-      () => apiFetch(`/api/shipping-zones/${id}`, { method: "PATCH", admin: true, body: { name: zoneDraft.name.trim(), type: zoneDraft.type, location: zoneDraft.location.trim() || null } }),
+      () => apiFetch(`/api/shipping-zones/${id}`, { method: "PATCH", admin: true, body: { name: zoneDraft.name.trim(), location: zoneDraft.location.trim() || null } }),
       "Punto actualizado.",
       () => setEditZone(null),
     );
@@ -191,31 +188,22 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   return (
     <div className="space-y-6">
       <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Puntos de retiro y encuentro</h2>
+        <h2 className="display text-2xl">Puntos de retiro presencial</h2>
         <p className="mt-2 text-sm text-[#647167]">No hay despacho a domicilio: el cliente elige un punto y ahí se agenda. Cada punto tiene su <strong>ubicación</strong> y sus <strong>franjas horarias</strong>, y cada franja indica los <strong>días de la semana</strong> en que se atiende (una franja que solo corre los sábados no se puede agendar un miércoles).</p>
-        <form onSubmit={addZone} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_1fr_auto]">
-          <input required value={zoneForm.name} onChange={(event) => setZoneForm({ ...zoneForm, name: event.target.value })} placeholder="Nombre (ej. Punto de encuentro Talca)" className={FIELD}/>
-          <select value={zoneForm.type} onChange={(event) => setZoneForm({ ...zoneForm, type: event.target.value as ZoneRow["type"] })} className={`${FIELD} select-field bg-white transition hover:border-[#243128]`}>
-            <option value="retiro">Retiro presencial</option>
-            <option value="encuentro">Punto de encuentro</option>
-          </select>
+        <form onSubmit={addZone} className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+          <input required value={zoneForm.name} onChange={(event) => setZoneForm({ ...zoneForm, name: event.target.value })} placeholder="Nombre (ej. Retiro San Javier)" className={FIELD}/>
           <input value={zoneForm.location} onChange={(event) => setZoneForm({ ...zoneForm, location: event.target.value })} placeholder="Ubicación (dirección o referencia)" className={FIELD}/>
           <button className={BUTTON}>Agregar punto</button>
         </form>
 
         <div className="mt-5 space-y-4">
           {zones.map((zone) => {
-            const Icon = zone.type === "encuentro" ? MapPin : Store;
             const zoneSlots = slots.filter((slot) => slot.zone_id === zone.id);
             return (
               <article key={zone.id} className="rounded-xl border border-[#e2e5df] p-4">
                 {editZone === zone.id ? (
-                  <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr_auto]">
+                  <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
                     <input required value={zoneDraft.name} onChange={(event) => setZoneDraft({ ...zoneDraft, name: event.target.value })} className={FIELD}/>
-                    <select value={zoneDraft.type} onChange={(event) => setZoneDraft({ ...zoneDraft, type: event.target.value as ZoneRow["type"] })} className={`${FIELD} select-field bg-white transition hover:border-[#243128]`}>
-                      <option value="retiro">Retiro presencial</option>
-                      <option value="encuentro">Punto de encuentro</option>
-                    </select>
                     <input value={zoneDraft.location} onChange={(event) => setZoneDraft({ ...zoneDraft, location: event.target.value })} placeholder="Ubicación" className={FIELD}/>
                     <div className="flex gap-2">
                       <button onClick={() => saveZone(zone.id)} className={BUTTON}>Guardar</button>
@@ -225,7 +213,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
                 ) : (
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="flex flex-wrap items-center gap-2 font-medium"><Icon size={15} className="text-[#56745c]"/>{zone.name}<span className={`rounded-full px-2.5 py-0.5 text-xs ${zoneAccent(zone.type)}`}>{zoneTypeLabel[zoneTypeOf(zone.type)]}</span>{zoneSlots.length === 0 && <span className="rounded-full bg-[#f7ecd9] px-2.5 py-0.5 text-xs text-[#8a6a2f]">Sin horarios: no se puede agendar</span>}</p>
+                      <p className="flex flex-wrap items-center gap-2 font-medium"><Store size={15} className="text-[#56745c]"/>{zone.name}{zoneSlots.length === 0 && <span className="rounded-full bg-[#f7ecd9] px-2.5 py-0.5 text-xs text-[#8a6a2f]">Sin horarios: no se puede agendar</span>}</p>
                       <p className="mt-1 flex items-start gap-1.5 text-xs text-[#647167]"><MapPin size={12} className="mt-0.5 shrink-0"/>{zone.location || "Sin ubicación definida"}</p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -275,7 +263,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
               </article>
             );
           })}
-          {zones.length === 0 && <p className="py-3 text-sm text-[#647167]">Sin puntos configurados. Agrega el primero arriba (retiro presencial o punto de encuentro).</p>}
+          {zones.length === 0 && <p className="py-3 text-sm text-[#647167]">Sin puntos configurados. Agrega el primero arriba (solo retiro presencial).</p>}
         </div>
       </section>
 

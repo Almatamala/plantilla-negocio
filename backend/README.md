@@ -1,7 +1,7 @@
 # BOSQUE API (FastAPI dockerizada)
 
 La API es la **única fuente de verdad** de la tienda: catálogo (fotos, ingredientes, alérgenos,
-stock), agenda (franjas horarias, días cerrados, **puntos de retiro y encuentro con ubicación y
+stock), agenda (franjas horarias, fechas cerradas, **puntos de retiro presencial con ubicación y
 horario**), reviews, órdenes (sin despacho a domicilio, ver PLAN §0.7 / D16), ajustes de la tienda y
 subida de imágenes. Se despliega dockerizada (AWS) y el frontend la consume
 vía HTTP (`NEXT_PUBLIC_API_URL`).
@@ -12,7 +12,7 @@ vía HTTP (`NEXT_PUBLIC_API_URL`).
 |---|---|---|
 | `/api/products`, `/api/products/slug/{slug}` | GET | Público |
 | `/api/products` | POST/PUT/DELETE | Admin (`X-Admin-Token`) |
-| `/api/shipping-zones`, `/api/time-slots?zone_id=&include_disabled=`, `/api/closed-days`, `/api/closed-weekdays` | GET | Público |
+| `/api/shipping-zones`, `/api/time-slots?zone_id=&include_disabled=`, `/api/closed-days` | GET | Público |
 | Ídem | POST/PATCH/DELETE | Admin |
 | `/api/time-slots` | POST con `zone_id`, `weekdays`, `start_time`, `end_time` (la franja siempre cuelga de un punto) | Admin |
 | `/api/reviews` | GET (aprobadas), POST | Público |
@@ -53,8 +53,9 @@ posteriores de columnas se aplican al arrancar **solo en PostgreSQL** con `ALTER
 `orders.notes` y de `store_settings.products_per_page`, ya que la cantidad de productos por página
 quedó **fija en 8**, y de `store_settings.instagram_embed_url`, al reemplazar el widget de terceros por el
 **feed propio** con la API de Instagram (D30); más la columna de contenido `theme_colors` —la **paleta
-editable** desde el panel—; ver PLAN §0.7, §0.8, §0.13, §0.15 y §0.17). En una instalación nueva, el domingo queda como
-**día cerrado semanal** por defecto (`closed_weekdays`).
+editable** desde el panel—. También se eliminan `shipping_zones.type` y `orders.fulfillment` (retiro
+presencial y punto de encuentro se unificaron, D33) y `store_settings.bank_account_info` (la web no
+publica datos bancarios, D34); ver PLAN §0.7, §0.8, §0.13, §0.15 y §0.17).
 
 ## Variables de entorno
 
@@ -142,8 +143,8 @@ pytest
 Las pruebas usan SQLite en memoria y cubren: token administrativo (clave y JWT), catálogo,
 CRUD de categorías, reglas de entrada, cálculo de órdenes, **decremento de stock con
 auto-desactivación**, bajo pedido, agenda por punto (**franjas con días de la semana**: la API rechaza
-franjas deshabilitadas, de otro punto o de un día que no corresponde), **puntos de retiro con ubicación**
-(el tipo `domicilio` se rechaza), **cierres semanales** con domingo por defecto, moderación de reviews y
+franjas deshabilitadas, de otro punto o de un día que no corresponde), **puntos de retiro presencial con
+ubicación** (sin tipo de punto ni de entrega, D33), **fechas cerradas puntuales**, moderación de reviews y
 sesión de
 usuarios (auth sin credenciales, `/api/auth/me`, roles admin/customer, vínculo orden→perfil y
 **confirmación por correo**: código correcto/incorrecto, expiración, límite de intentos, reenvíos y

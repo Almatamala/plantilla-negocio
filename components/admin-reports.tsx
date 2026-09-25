@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, Box, CircleDollarSign, MapPin, Package, Store, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, BarChart3, Box, CircleDollarSign, Package, Store, TrendingDown, TrendingUp } from "lucide-react";
 import { formatPrice, type ProductStatus } from "@/lib/products";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, weekdayFromIso } from "@/lib/schedule";
 import { monthAfter, monthFromKey, monthKey, monthLabel, moveRange, rangeMonths, type MonthKey, type MonthRange } from "@/lib/months";
@@ -21,7 +21,6 @@ type ReportOrder = {
   createdAt?: string | null;
   scheduledDate?: string | null;
   timeSlot?: string | null;
-  fulfillment: "retiro" | "encuentro";
   location: string;
   zone?: string | null;
   items: { name: string; quantity: number; price: number; productId?: string | null }[];
@@ -191,11 +190,11 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
     const ranking = rankProducts(sales(currentOrders), catalog);
     const ranked = new Set(ranking.map((stat) => stat.name));
 
-    // Dónde retiran los pedidos: punto de retiro y tipo (retiro presencial o encuentro).
-    const places = new Map<string, { label: string; type: string; orders: number; units: number; revenue: number }>();
+    // Dónde retiran los pedidos: el punto de retiro (todos son presenciales, D33).
+    const places = new Map<string, { label: string; orders: number; units: number; revenue: number }>();
     for (const order of sales(currentOrders)) {
       const key = order.zone || order.location || "Sin punto definido";
-      const place = places.get(key) ?? { label: key, type: order.fulfillment, orders: 0, units: 0, revenue: 0 };
+      const place = places.get(key) ?? { label: key, orders: 0, units: 0, revenue: 0 };
       place.orders += 1;
       place.units += order.items.reduce((total, item) => total + item.quantity, 0);
       place.revenue += order.total;
@@ -328,7 +327,7 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
               <Row
                 key={place.label}
                 label={place.label}
-                detail={`${place.type === "encuentro" ? "Punto de encuentro" : "Retiro presencial"} · ${place.orders} pedidos · ${place.units} u.`}
+                detail={`${place.orders} pedidos · ${place.units} u.`}
                 value={formatPrice(place.revenue)}
                 percent={place.revenue}
                 max={maxPlace}
@@ -380,7 +379,7 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
       </div>
 
       <p className="flex items-center gap-2 text-xs text-[#748077]">
-        {data.places.some((place) => place.type === "encuentro") ? <MapPin size={13}/> : <Store size={13}/>}
+        <Store size={13}/>
         Las ventas y los pedidos se calculan con la fecha de creación de cada orden; los cancelados no suman dinero. El día y la franja corresponden a la agenda del pedido. El rango personalizado trabaja con meses completos y no se compara con otro período.
       </p>
     </div>

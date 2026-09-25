@@ -4,14 +4,13 @@ import { Slider } from "@base-ui/react/slider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, MapPin, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Tags, Trash2, Upload, X } from "lucide-react";
+import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Tags, Trash2, Upload, X } from "lucide-react";
 import { apiFetch, endSession, uploadImage } from "@/lib/api";
 import { useSession } from "@/lib/account";
 import { formatPrice, type ApiProduct, type Product, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
 import { defaultThemeColors, isHexColor, normalizeThemeColors, themeColorFields, type ThemeColorKey, type ThemeColors } from "@/lib/theme";
-import { zoneTypeOf } from "@/lib/agenda";
 import { AgendaSection, type SlotRow, type ZoneRow } from "@/components/admin-agenda";
 import { ReportsSection } from "@/components/admin-reports";
 import { formatSlot, weekdayFromIso } from "@/lib/schedule";
@@ -19,16 +18,12 @@ import { formatSlot, weekdayFromIso } from "@/lib/schedule";
 type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "contenido" | "reportes";
 type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
 type OrderStatus = "Pendiente" | "Pagado" | "Preparando" | "Enviado" | "Entregado" | "Cancelado";
-type Order = { id: string; customer: string; total: number; status: OrderStatus; fulfillment: "retiro" | "encuentro"; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; createdAt?: string | null };
+type Order = { id: string; customer: string; total: number; status: OrderStatus; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; createdAt?: string | null };
 type AdminProduct = Product & { category_id: string | null };
 type CategoryRow = { id: string; name: string; slug: string };
-type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; fulfillment: "retiro" | "encuentro" | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; created_at: string; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
+type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; created_at: string; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
 
 
-const fulfillmentMeta: Record<Order["fulfillment"], { label: string; icon: typeof Store; className: string }> = {
-  retiro: { label: "Retiro presencial", icon: Store, className: "bg-[#e4e9f5] text-[#3d5384]" },
-  encuentro: { label: "Punto de encuentro", icon: MapPin, className: "bg-[#e2f0e2] text-[#3c6b3f]" },
-};
 const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", paid: "Pagado", preparing: "Preparando", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado" };
 const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Pagado: "paid", Preparando: "preparing", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
 const displayOrderId = (id: string) => (id.startsWith("#") ? id : id.slice(0, 8).toUpperCase());
@@ -50,7 +45,7 @@ function productPayload(p: AdminProduct): Record<string, unknown> {
 }
 
 function mapApiOrder(o: ApiOrder): Order {
-  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", fulfillment: o.fulfillment === "encuentro" ? "encuentro" : "retiro", location: o.location ?? "", scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, createdAt: o.created_at, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
+  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", location: o.location ?? "", scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, createdAt: o.created_at, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
 }
 
 export function AdminDashboard() {
@@ -140,22 +135,21 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
 function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className={SELECT_FIELD_SM}><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
-function FulfillmentCell({ order }: { order: Order }) { const meta = fulfillmentMeta[order.fulfillment]; const Icon = meta.icon; return <div className="flex items-center gap-2"><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs whitespace-nowrap ${meta.className}`}><Icon size={12}/>{meta.label}</span><span className="text-xs text-[#748077]">Retira en: {order.location || order.zone || "—"}</span></div>; }
+// Todos los pedidos son **retiro presencial** (D33): la celda ya no distingue tipo, solo el punto.
+function FulfillmentCell({ order }: { order: Order }) { return <div className="flex items-center gap-2"><span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#e4e9f5] px-2 py-1 text-xs whitespace-nowrap text-[#3d5384]"><Store size={12}/>Retiro presencial</span><span className="text-xs text-[#748077]">Retira en: {order.location || order.zone || "—"}</span></div>; }
 function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"activos" | "all" | OrderStatus>("activos");
-  const [fulfillment, setFulfillment] = useState<"all" | Order["fulfillment"]>("all");
   const query = search.trim().toLowerCase();
   const filtered = useMemo(() => orders.filter((order) => {
     if (status === "activos" && ["Entregado", "Cancelado"].includes(order.status)) return false;
     if (status !== "activos" && status !== "all" && order.status !== status) return false;
-    if (fulfillment !== "all" && order.fulfillment !== fulfillment) return false;
     if (query && !(order.customer.toLowerCase().includes(query) || order.location.toLowerCase().includes(query) || order.id.toLowerCase().includes(query))) return false;
     return true;
-  }), [orders, status, fulfillment, query]);
+  }), [orders, status, query]);
   return (
     <>
-      <div className="mb-5 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+      <div className="mb-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
         <div className="relative">
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[#748077]"/>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cliente o ubicación..." className="w-full rounded-lg border border-[#d9ddd5] bg-white py-2.5 pr-3 pl-9 text-sm outline-none focus:border-[#243128]"/>
@@ -169,11 +163,6 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
           <option value="Enviado">Enviado</option>
           <option value="Entregado">Entregado</option>
           <option value="Cancelado">Cancelado</option>
-        </select>
-        <select value={fulfillment} onChange={(e) => setFulfillment(e.target.value as typeof fulfillment)} className={SELECT_FIELD}>
-          <option value="all">Todo tipo de retiro</option>
-          <option value="retiro">Retiro presencial</option>
-          <option value="encuentro">Punto de encuentro</option>
         </select>
         <p className="self-center text-sm whitespace-nowrap text-[#647167]">{filtered.length} de {orders.length} pedidos</p>
       </div>
@@ -483,7 +472,8 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
   const [zoneId, setZoneId] = useState(order?.shippingZoneId ?? "");
   const [date, setDate] = useState(order?.scheduledDate ?? "");
   const [slotId, setSlotId] = useState(order?.timeSlotId ?? "");
-  const [payment, setPayment] = useState(order?.paymentMethod ?? "Transferencia");
+  // Único medio de pago: Webpay (D8). Los pedidos viejos con otro método se normalizan a Webpay.
+  const [payment, setPayment] = useState("Webpay");
   const [items, setItems] = useState(() => initialOrderItems(order, catalog));
   const [picker, setPicker] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -493,10 +483,8 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
     apiFetch<ZoneRow[]>("/api/shipping-zones").then(setZones).catch(() => undefined);
   }, []);
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-  // El tipo de retiro se deriva del punto elegido: ya no hay despacho a domicilio (D16).
+  // Solo hay retiro presencial (D33): el punto elegido define dónde se retira y con qué franjas.
   const selectedZone = zones.find((zone) => zone.id === zoneId) ?? null;
-  // Los puntos anteriores a D16 (tipo `domicilio`) se agrupan como retiro para que sigan elegibles.
-  const zonesByType = (type: ZoneRow["type"]) => zones.filter((zone) => zoneTypeOf(zone.type) === type);
   // Solo las franjas del punto elegido y que atienden ese día de la semana (D18).
   const zoneSlots = slots.filter((slot) => (!zoneId || slot.zone_id === zoneId) && (!date || slot.weekdays.includes(weekdayFromIso(date))));
   const selectedSlotId = zoneSlots.some((slot) => slot.id === slotId) ? slotId : "";
@@ -522,7 +510,7 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
         body: {
           customer_name: customer.name.trim(), customer_phone: customer.phone.trim() || null, customer_email: customer.email.trim() || null,
           payment_method: payment, scheduled_date: date || null, time_slot_id: selectedSlotId || null,
-          fulfillment: selectedZone ? zoneTypeOf(selectedZone.type) : null, shipping_zone_id: zoneId || null,
+          shipping_zone_id: zoneId || null,
           location: selectedZone ? (selectedZone.location || selectedZone.name) : null,
           items: items.map((item) => ({ product_id: item.product.id || null, name: item.product.name, unit_price: item.product.price, quantity: item.quantity })),
         },
@@ -563,13 +551,13 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Punto de retiro</span><select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={SELECT_FIELD}><option value="">Sin punto definido</option>{zonesByType("retiro").length > 0 && <optgroup label="Retiro presencial">{zonesByType("retiro").map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</optgroup>}{zonesByType("encuentro").length > 0 && <optgroup label="Puntos de encuentro">{zonesByType("encuentro").map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</optgroup>}</select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Punto de retiro</span><select value={zoneId} onChange={(e) => setZoneId(e.target.value)} className={SELECT_FIELD}><option value="">Sin punto definido</option>{zones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label>
             {selectedZone && <p className="self-end pb-2.5 text-xs text-[#647167]">{selectedZone.location || "Sin ubicación definida"}</p>}
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Fecha agendada</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass}/></label>
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Franja horaria</span><select value={selectedSlotId} onChange={(e) => setSlotId(e.target.value)} className={SELECT_FIELD}><option value="">{zoneSlots.length === 0 ? "Sin franjas para ese día" : "Sin franja"}</option>{zoneSlots.map((slot) => <option key={slot.id} value={slot.id}>{formatSlot(slot)}</option>)}</select></label>
-            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Pago</span><select value={payment} onChange={(e) => setPayment(e.target.value)} className={SELECT_FIELD}><option>Transferencia</option><option>Webpay</option><option>Efectivo</option></select></label>
+            <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Pago</span><select value={payment} onChange={(e) => setPayment(e.target.value)} className={SELECT_FIELD}><option>Webpay</option></select></label>
           </div>
         </div>
         <div className="mt-5 flex items-center justify-between border-t border-[#e2e5df] pt-4 text-sm"><span className="text-[#647167]">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
@@ -585,7 +573,7 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
   const [settings, setSettings] = useState({
     name: storeConfig.name, announcement: storeConfig.announcement, hero_title: storeConfig.headline, hero_description: storeConfig.description,
     story_headline: storeConfig.storyHeadline, story_description: storeConfig.storyDescription, contact_email: "", contact_phone: "",
-    whatsapp_phone: "", instagram_url: "", bank_account_info: "",
+    whatsapp_phone: "", instagram_url: "",
   });
   // Paleta de marca (D29): se editan los cinco tonos y el borrador guarda lo que se está escribiendo en
   // el campo de texto, para no volcar a la paleta (ni a la API) un hex a medio escribir.
@@ -593,7 +581,7 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
   const [drafts, setDrafts] = useState<ThemeColors>(defaultThemeColors);
   useEffect(() => {
     apiFetch<typeof settings & { theme_colors?: Partial<Record<string, string>> | null }>("/api/settings").then((data) => {
-      setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "", bank_account_info: data.bank_account_info ?? "" }));
+      setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "" }));
       const palette = normalizeThemeColors(data.theme_colors);
       setColors(palette);
       setDrafts(palette);
@@ -641,7 +629,6 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
         {field("whatsapp_phone", "WhatsApp (formato +569…)")}
         {field("instagram_url", "Instagram (URL del perfil)")}
       </div>
-      <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Datos de transferencia bancaria</span><textarea value={settings.bank_account_info} onChange={(e) => set("bank_account_info", e.target.value)} rows={3} placeholder={"Banco, titular, RUT y número de cuenta"} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>
       <fieldset className="rounded-xl border border-[#e2e5df] p-4">
         <legend className="px-1 text-sm font-medium">Colores de la tienda</legend>
         <p className="mt-1 text-xs text-[#647167]">La paleta viste la carta, la ficha de producto y el pie de página. Prueba la combinación que quieras: al guardar, la tienda la toma al refrescar. Con «Intercambiar con…» dos tonos cambian de lugar entre sí. El panel, el checkout y la cuenta mantienen sus colores.</p>

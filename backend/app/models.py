@@ -67,8 +67,8 @@ class TimeSlot(Base):
     """Franja horaria **de un punto de retiro** (D18): a qué horas y qué días atiende ese punto.
 
     `weekdays` usa la convención de JavaScript (`Date.getDay()`): `0` domingo … `6` sábado. La
-    franja solo se ofrece los días listados, así un punto de encuentro que funciona solo los
-    sábados no permite agendar un miércoles. Los **días libres** salen de los días de la franja y de
+    franja solo se ofrece los días listados, así un punto que atiende solo los sábados no permite
+    agendar un miércoles. Los **días libres** salen de los días de la franja y de
     las **fechas cerradas** puntuales (`closed_days`); no hay nombre de franja (se nombra por su
     horario).
     """
@@ -94,16 +94,15 @@ class ClosedDay(Base):
 class ShippingZone(Base):
     """Puntos donde el cliente retira su pedido (no hay despacho a domicilio, D16).
 
-    `type` distingue **retiro presencial** (en el local) de **punto de encuentro** (Talca o San
-    Javier). Cada punto se define por su **ubicación** y sus **franjas horarias** (tabla
-    `time_slots`, que cuelga de este punto — D18); el cliente elige cuál y qué día/franja ir a
-    buscarlo dentro de las dos semanas siguientes. Los días libres salen de los **días de cada
-    franja** más las **fechas cerradas** puntuales (`closed_days`).
+    Todos los puntos son **retiro presencial** (D33): el antiguo «punto de encuentro» era lo mismo
+    en la práctica, así que no hay tipo. Cada punto se define por su **ubicación** y sus **franjas
+    horarias** (tabla `time_slots`, que cuelga de este punto — D18); el cliente elige cuál y qué
+    día/franja ir a buscarlo dentro de las dos semanas siguientes. Los días libres salen de los
+    **días de cada franja** más las **fechas cerradas** puntuales (`closed_days`).
     """
     __tablename__ = "shipping_zones"
     id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    type: Mapped[str] = mapped_column(String(20), nullable=False, default="retiro")
     location: Mapped[Optional[str]] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -136,7 +135,6 @@ class Order(Base):
     payment_method: Mapped[Optional[str]] = mapped_column(String(80))
     scheduled_date: Mapped[Optional[date]] = mapped_column(Date)
     time_slot_id: Mapped[Optional[str]] = mapped_column(ForeignKey("time_slots.id", ondelete="SET NULL"))
-    fulfillment: Mapped[Optional[str]] = mapped_column(String(20))
     shipping_zone_id: Mapped[Optional[str]] = mapped_column(ForeignKey("shipping_zones.id", ondelete="SET NULL"))
     location: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -186,7 +184,6 @@ class StoreSettings(Base):
     # poder sumar tonos sin migrar la tabla; sin valores guardados, la vista usa la paleta por defecto
     # del frontend (`lib/theme.ts`).
     theme_colors: Mapped[Optional[dict]] = mapped_column(JSON)
-    bank_account_info: Mapped[Optional[str]] = mapped_column(Text)
     announcement: Mapped[Optional[str]] = mapped_column(String(240))
     hero_title: Mapped[Optional[str]] = mapped_column(String(200))
     hero_description: Mapped[Optional[str]] = mapped_column(Text)
