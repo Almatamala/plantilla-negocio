@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D34)
+**Basado en:** `RPD.md` (decisiones D1–D36)
 **Fecha:** 2026-09-25 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
@@ -9,7 +9,7 @@
 ## 0. Cómo usar este documento
 
 - **Qué queda acá:** lo que **falta hacer** y cómo **desplegar**. El **estado actual del código** y las
-  **decisiones** (D1–D34) viven en `RPD.md`.
+  **decisiones** (D1–D36) viven en `RPD.md`.
 - **Regla del proyecto (AGENTS.md):** antes de escribir código, leer la guía correspondiente en
   `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking changes respecto de lo conocido).
 - **Verificación de cada cambio:** `npx tsc --noEmit`, `npm run lint` y `npm run build`; en `backend/`,
@@ -30,8 +30,11 @@ Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend
    idempotentes de `ALTER TABLE …`/`DROP … IF EXISTS` **solo en PostgreSQL** (catálogo retirado, columnas de
    verificación y de contenido, agenda y ajustes retirados). Entre los últimos retiros están
    `time_slots.label`, `closed_days.reason` y la tabla `closed_weekdays` (**D32**), el tipo del punto y el de
-   la entrega `shipping_zones.type` / `orders.fulfillment` (**D33**) y los datos bancarios
-   `store_settings.bank_account_info` (**D34**). El usuario de la base
+   la entrega   `shipping_zones.type` / `orders.fulfillment` (**D33**), los datos bancarios
+   `store_settings.bank_account_info` (**D34**) y la reserva de stock `orders.expires_at` junto con
+   `products.allow_backorder` (el «bajo pedido» ahora es **implícito**); además se **agrega**
+   `products.preparation_days` (los **días de preparación**, **D35**). Un `UPDATE` convierte a `active` los
+   productos con estados retirados (`draft`, `sold_out`, `preorder`, **D36**). El usuario de la base
    debe tener permiso DDL; en RDS, verificar que no esté restringido. En una base nueva no hace nada.
 3. **Variables de entorno.** `AUTH_JWT_SECRET` debe ser **el mismo** en Next.js y en la API (si difiere, las
    sesiones dejan de validar); `CORS_ORIGINS` debe incluir el dominio de producción; `ADMIN_EMAILS` define
@@ -71,8 +74,8 @@ encarga del resto (consulta, caché y renovación).
 
 ## 3. Últimos ajustes del dueño (2026-09-25)
 
-**Implementado y verificado** (`pytest` 57/57; `tsc`, `lint` y `build` sin errores). Nueve puntos, con cuatro
-decisiones nuevas (**D32**, **D33**, **D34** y **D35**):
+**Implementado y verificado** (`pytest` 54/54; `tsc`, `lint` y `build` sin errores). Diez puntos, con cinco
+decisiones nuevas (**D32**, **D33**, **D34**, **D35** y **D36**):
 
 | # | Ajuste pedido | Implementación |
 |---|---|---|
@@ -84,7 +87,8 @@ decisiones nuevas (**D32**, **D33**, **D34** y **D35**):
 | **A42** | Retiro presencial y punto de encuentro son lo mismo: unificarlos en solo retiro presencial | **D33:** se retira el tipo del punto (`shipping_zones.type`) y el de la entrega (`orders.fulfillment`). Agenda, Pedidos, Reportes, Checkout y Cuenta muestran siempre **Retiro presencial** (el punto se identifica por su nombre). |
 | **A43** | Página visible al volver de Webpay | **D8:** nueva **`/checkout/retorno`** con el estado del pago (**ok / rechazado / anulado / error**), la referencia del pedido y qué sigue; `/api/webpay/confirm` redirige ahí. El `commit` con el SDK queda pendiente de las credenciales TBK. |
 | **A44** | Correo de confirmación del pedido | **D8:** al registrar un pedido el backend envía con **Resend** la **confirmación al cliente** (correo del checkout) y el **aviso a la tienda** (correo de Contenido). Es de **mejor esfuerzo**: sin Resend se omite y nunca tumba la compra. WhatsApp automático queda descartado por ahora. |
-| **A45** | Reserva y expiración del stock de pedidos pendientes de pago | **D35:** el pedido descuenta stock al crearse (**reserva**) y vence en `STOCK_HOLD_MINUTES` (30 por defecto). Una **tarea de fondo** (más una revisión antes de crear un pedido) libera el stock y deja el pedido en **`expired`**. Al pagar la reserva se cierra; al cancelar un pendiente, el stock **se devuelve**. |
+| **A45** | Días de preparación para una tienda que trabaja **bajo pedido** | **D35:** todo el catálogo se vende **bajo pedido** (se retira `allow_backorder`; el stock no bloquea la compra ni se descuenta) y cada producto declara **días de preparación**, que empujan el primer día agendable del checkout. Se elimina la **reserva de stock** con expiración. |
+| **A46** | Los estados del inventario quedan solo en **activo** e **inactivo** | **D36:** solo **activo** (visible en la tienda) e **inactivo** (oculto en la tienda, visible en el panel). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. El filtro de stock «Bajo pedido (sin stock)» pasa a **«Sin stock»**. |
 
 **Decisión D32 (nueva):** los días que no se atiende salen de los **días de cada franja** (por punto, D18) y
 de las **fechas cerradas puntuales** (`closed_days`). Se retira el cierre semanal `closed_weekdays` porque
@@ -96,11 +100,18 @@ solo tipo (se retiran `shipping_zones.type` y `orders.fulfillment`), y **D34** s
 la web (se retiran `store_settings.bank_account_info` y el medio de pago; checkout y panel quedan **solo con
 Webpay**, D8, y hasta activarlo el pago se coordina por WhatsApp).
 
-**Decisión D35 (nueva):** el stock de un pedido **pendiente de pago** es una **reserva** con vencimiento
-(`orders.expires_at`): se descuenta al crear el pedido y, si el pago no llega en `STOCK_HOLD_MINUTES`
-(**30** por defecto), `app/stock.py` la libera —devuelve el stock y deja el pedido en **`expired`**—. Corre
-en una tarea de fondo y antes de crear un pedido; al **pagar** la reserva se cierra y al **cancelar** un
-pendiente el stock se devuelve.
+**Decisión D35 (nueva):** toda la tienda trabaja **bajo pedido**: la compra nunca se bloquea por stock y el
+pedido **no descuenta ni reserva** inventario (se retiran `app/stock.py`, `orders.expires_at`, el estado
+`expired` y el ajuste `allow_backorder`). Cada producto declara sus **días de preparación**
+(`preparation_days`, **0** por defecto); el checkout empuja el primer día agendable para que el pedido
+alcance a prepararse y el **calendario arranca en el primer día disponible**, sin mostrar los días
+bloqueados previos.
+
+**Decisión D36 (nueva):** el producto tiene **solo dos estados**, `active` e `inactive`. El **inactivo** no se
+ve en la tienda pero sí en el panel de inventario, así que el catálogo público filtra por `active` y el panel
+pide todo con `?include_inactive=true`. Se retiran `draft`, `sold_out` y `preorder` (unificados en `active`),
+los productos guardados en esos estados se convierten a `active` al arrancar la API, y un producto nuevo
+nace **activo**.
 
 **Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
@@ -173,10 +184,8 @@ expuesto.
 - `proxy.ts` no debe interceptar `/api/webpay/*` ni `/checkout/retorno`.
 
 ### 5.5 Dinero, stock y estado del pedido
-- El pedido se crea **antes** de pagar y descuenta stock: la **reserva** ya está implementada (**D35**,
-  `app/stock.py`). Si el pago no llega en `STOCK_HOLD_MINUTES` (**30** por defecto), la reserva **expira**
-  —se devuelve el stock y el pedido queda **`expired`**—. La liberación corre en una **tarea de fondo** y
-  antes de crear un pedido.
+- La tienda trabaja **bajo pedido** (**D35**): el pedido se crea antes de pagar y **no** toca el stock (no
+  hay reserva ni expiración ni devolución: nunca se retuvo nada).
 - Estados: `pending` → `paid` (solo al confirmar) → …; el commit debe ser **idempotente** (marcar pagado
   una sola vez aunque lleguen dos confirmaciones).
 - Comparar **monto confirmado vs. total del pedido**: si no coinciden, **no** marcar pagado y alertar.

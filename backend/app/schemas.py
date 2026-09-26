@@ -3,8 +3,8 @@ from datetime import date, datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
-ProductStatus = Literal["draft", "active", "sold_out", "preorder"]
-OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded", "expired"]
+ProductStatus = Literal["active", "inactive"]
+OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded"]
 ReviewStatus = Literal["pending", "approved", "rejected"]
 
 
@@ -68,9 +68,12 @@ class ProductIn(BaseModel):
     images: list[str] = Field(default_factory=list)
     ingredients: str | None = None
     allergens: list[str] = Field(default_factory=list)
-    status: ProductStatus = "draft"
+    # Solo dos estados: `active` (visible en la tienda) e `inactive` (oculto en la tienda, visible en el panel).
+    status: ProductStatus = "active"
     inventory: int = Field(default=0, ge=0)
-    allow_backorder: bool = False
+    # Días de preparación antes de poder retirar el pedido (D35). En esta plantilla todo se hace
+    # **bajo pedido**, así que la compra nunca se bloquea por stock.
+    preparation_days: int = Field(default=0, ge=0)
 
 
 class ProductOut(ProductIn, ORMModel):
@@ -213,8 +216,6 @@ class OrderOut(ORMModel):
     time_slot_id: str | None
     shipping_zone_id: str | None
     location: str | None
-    # Cuándo vence la reserva de stock de un pedido pendiente de pago (`None` si ya no aplica).
-    expires_at: datetime | None = None
     created_at: datetime
     items: list[OrderItemOut] = Field(default_factory=list)
     time_slot_label: str | None = None

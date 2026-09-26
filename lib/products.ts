@@ -1,4 +1,5 @@
-export type ProductStatus = "draft" | "active" | "sold_out" | "preorder";
+/** Solo dos estados: `active` (visible en la tienda) e `inactive` (oculto en la tienda, visible en el panel). */
+export type ProductStatus = "active" | "inactive";
 
 export type Product = {
   id: string;
@@ -15,7 +16,8 @@ export type Product = {
   allergens?: string[];
   inventory: number;
   status: ProductStatus;
-  allow_backorder?: boolean;
+  /** Días de preparación antes de poder retirar el pedido (D35). */
+  preparation_days: number;
 };
 
 export const products: Product[] = [
@@ -24,26 +26,26 @@ export const products: Product[] = [
     description: "Una descripción breve y clara de este producto.", tone: "warm", badge: "Más vendido",
     ingredients: "Harina de trigo, mantequilla, azúcar de caña, huevos de campo.",
     allergens: ["gluten", "lacteos", "huevo"],
-    inventory: 8, status: "active", allow_backorder: false,
+    inventory: 8, status: "active", preparation_days: 1,
   },
   {
     id: "2", slug: "producto-dos", name: "Producto Dos", price: 42990, category: "Novedades",
     description: "Ideal para presentar una nueva línea o colección.", tone: "light",
     ingredients: "Harina, frutos secos tostados, miel local.",
     allergens: ["gluten", "frutos-secos"],
-    inventory: 3, status: "active", allow_backorder: true,
+    inventory: 3, status: "active", preparation_days: 2,
   },
   {
     id: "3", slug: "producto-tres", name: "Producto Tres", price: 48990, category: "Destacados",
     description: "Información adaptable a cualquier tipo de inventario.", tone: "deep", badge: "Edición limitada",
     ingredients: "Masa madre, chocolate, avellanas.", allergens: ["gluten", "frutos-secos"],
-    inventory: 0, status: "preorder", allow_backorder: true,
+    inventory: 0, status: "active", preparation_days: 3,
   },
   {
     id: "4", slug: "producto-cuatro", name: "Producto Cuatro", price: 37990, category: "Colección",
     description: "Un producto más para completar tu catálogo inicial.", tone: "classic",
     ingredients: "Harina integral, semillas.", allergens: ["gluten", "sesamo"],
-    inventory: 0, status: "sold_out", allow_backorder: false,
+    inventory: 0, status: "active", preparation_days: 2,
   },
 ];
 
@@ -56,7 +58,7 @@ export type ApiProduct = {
   description: string | null;
   status: ProductStatus;
   inventory: number;
-  allow_backorder: boolean;
+  preparation_days: number;
   images: string[];
   image_url: string | null;
   ingredients?: string | null;
@@ -82,18 +84,20 @@ export function mapApiProduct(row: ApiProduct, index: number, categories: Map<st
     allergens: row.allergens ?? [],
     status: row.status,
     inventory: row.inventory,
-    allow_backorder: row.allow_backorder ?? false,
+    preparation_days: row.preparation_days ?? 0,
   };
 }
 
 export const formatPrice = (price: number) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(price);
 
-export function stockLabel(product: Pick<Product, "inventory" | "status" | "allow_backorder">): { label: string; className: string; available: boolean } {
-  if (product.status === "sold_out" || (product.inventory <= 0 && !product.allow_backorder)) {
-    return { label: "Agotado", className: "bg-[#f3e2e0] text-[#8a4a44]", available: false };
+/**
+ * Etiqueta de disponibilidad. En esta plantilla **todo se trabaja bajo pedido** (D35): el stock no
+ * bloquea la compra, solo distingue lo que hay listo («Disponible») de lo que se prepara al pedirlo
+ * («Bajo Pedido»). Por eso `available` siempre es `true`.
+ */
+export function stockLabel(product: Pick<Product, "inventory">): { label: string; className: string; available: boolean } {
+  if (product.inventory > 0) {
+    return { label: "Disponible", className: "bg-[#e2f0e2] text-[#3c6b3f]", available: true };
   }
-  if (product.inventory <= 0 && product.allow_backorder) {
-    return { label: "Bajo Pedido", className: "bg-[#fff0d8] text-[#8a6420]", available: true };
-  }
-  return { label: "Disponible", className: "bg-[#e2f0e2] text-[#3c6b3f]", available: true };
+  return { label: "Bajo Pedido", className: "bg-[#fff0d8] text-[#8a6420]", available: true };
 }

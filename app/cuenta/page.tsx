@@ -29,7 +29,6 @@ type MyOrder = {
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pendiente", paid: "Pagado", preparing: "Preparando",
   shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado",
-  expired: "Expirado",
 };
 
 export default function CuentaPage() {

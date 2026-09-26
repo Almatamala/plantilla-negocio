@@ -24,11 +24,6 @@ class Settings(BaseSettings):
     # Datos que aparecen en los correos de la tienda.
     store_name: str = "BOSQUE"
     store_url: str = "http://localhost:3000"
-    # Reserva de stock de los pedidos pendientes de pago: el pedido descuenta stock al crearse y, si el
-    # pago no llega dentro de `stock_hold_minutes`, la reserva expira (se devuelve el stock y el pedido
-    # queda `expired`). Una tarea de fondo revisa cada `stock_hold_check_minutes`.
-    stock_hold_minutes: int = 30
-    stock_hold_check_minutes: int = 5
     # Feed de Instagram propio (D30). El token de larga duración y el ID de la cuenta profesional viven
     # **solo acá** (la API es la única fuente de verdad, D7): `/api/instagram/feed` entrega las
     # publicaciones ya normalizadas y una **tarea de fondo** renueva el token antes de que venza.

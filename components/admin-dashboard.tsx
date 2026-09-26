@@ -17,17 +17,15 @@ import { formatSlot, weekdayFromIso } from "@/lib/schedule";
 
 type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "contenido" | "reportes";
 type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
-type OrderStatus = "Pendiente" | "Pagado" | "Preparando" | "Enviado" | "Entregado" | "Cancelado" | "Expirado";
-type Order = { id: string; customer: string; total: number; status: OrderStatus; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; createdAt?: string | null; expiresAt?: string | null };
+type OrderStatus = "Pendiente" | "Pagado" | "Preparando" | "Enviado" | "Entregado" | "Cancelado";
+type Order = { id: string; customer: string; total: number; status: OrderStatus; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; createdAt?: string | null };
 type AdminProduct = Product & { category_id: string | null };
 type CategoryRow = { id: string; name: string; slug: string };
-type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; expires_at: string | null; created_at: string; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
+type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; created_at: string; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
 
 
-const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", paid: "Pagado", preparing: "Preparando", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado", expired: "Expirado" };
-const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Pagado: "paid", Preparando: "preparing", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled", Expirado: "expired" };
-/** Hora local `HH:MM` de un instante (la reserva de stock de un pedido pendiente). */
-const holdTime = (value: string) => new Date(value).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", paid: "Pagado", preparing: "Preparando", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado" };
+const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Pagado: "paid", Preparando: "preparing", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
 const displayOrderId = (id: string) => (id.startsWith("#") ? id : id.slice(0, 8).toUpperCase());
 /**
  * Campos de selección del panel.
@@ -43,11 +41,11 @@ const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
 ];
 
 function productPayload(p: AdminProduct): Record<string, unknown> {
-  return { category_id: p.category_id, name: p.name, slug: p.slug, description: p.description, price: p.price, image_url: p.image_url ?? null, images: p.images ?? [], ingredients: p.ingredients ?? null, allergens: p.allergens ?? [], status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false };
+  return { category_id: p.category_id, name: p.name, slug: p.slug, description: p.description, price: p.price, image_url: p.image_url ?? null, images: p.images ?? [], ingredients: p.ingredients ?? null, allergens: p.allergens ?? [], status: p.status, inventory: p.inventory, preparation_days: p.preparation_days ?? 0 };
 }
 
 function mapApiOrder(o: ApiOrder): Order {
-  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", location: o.location ?? "", scheduledDate: o.scheduled_date, expiresAt: o.expires_at, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, createdAt: o.created_at, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
+  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", location: o.location ?? "", scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, createdAt: o.created_at, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
 }
 
 export function AdminDashboard() {
@@ -71,13 +69,14 @@ export function AdminDashboard() {
       try {
         const [cats, products, ordersRows] = await Promise.all([
           apiFetch<CategoryRow[]>("/api/categories", { admin: true }),
-          apiFetch<ApiProduct[]>("/api/products", { admin: true }),
+          // El panel ve todo el catálogo, incluidos los productos inactivos (ocultos en la tienda).
+          apiFetch<ApiProduct[]>("/api/products?include_inactive=true", { admin: true }),
           apiFetch<ApiOrder[]>("/api/orders", { admin: true }),
         ]);
         if (cancelled) return;
         const map = new Map(cats.map((c) => [c.id, c.name]));
         setCategories(cats);
-        setCatalog(products.map((p, i) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Sin categoría", category_id: p.category_id ?? null, status: p.status, inventory: p.inventory, allow_backorder: p.allow_backorder ?? false, images: p.images ?? [], image_url: p.image_url, ingredients: p.ingredients ?? undefined, allergens: p.allergens ?? [], tone: (["warm", "light", "deep", "classic"] as const)[i % 4] })));
+        setCatalog(products.map((p, i) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Sin categoría", category_id: p.category_id ?? null, status: p.status, inventory: p.inventory, preparation_days: p.preparation_days ?? 0, images: p.images ?? [], image_url: p.image_url, ingredients: p.ingredients ?? undefined, allergens: p.allergens ?? [], tone: (["warm", "light", "deep", "classic"] as const)[i % 4] })));
         setOrders(ordersRows.map(mapApiOrder));
       } catch (e) {
         if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login para acceder al panel." : e.message) : "No se pudo conectar con la API.");
@@ -136,7 +135,7 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
 }
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
-function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}{order.expiresAt && order.status === "Pendiente" && <span className="mt-0.5 block text-xs text-[#8a6a2f]">Reserva hasta {holdTime(order.expiresAt)}</span>}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className={SELECT_FIELD_SM}><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option><option>Expirado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
+function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className={SELECT_FIELD_SM}><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
 // Todos los pedidos son **retiro presencial** (D33): la celda ya no distingue tipo, solo el punto.
 function FulfillmentCell({ order }: { order: Order }) { return <div className="flex items-center gap-2"><span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#e4e9f5] px-2 py-1 text-xs whitespace-nowrap text-[#3d5384]"><Store size={12}/>Retiro presencial</span><span className="text-xs text-[#748077]">Retira en: {order.location || order.zone || "—"}</span></div>; }
 function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
@@ -144,7 +143,7 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
   const [status, setStatus] = useState<"activos" | "all" | OrderStatus>("activos");
   const query = search.trim().toLowerCase();
   const filtered = useMemo(() => orders.filter((order) => {
-    if (status === "activos" && ["Entregado", "Cancelado", "Expirado"].includes(order.status)) return false;
+    if (status === "activos" && ["Entregado", "Cancelado"].includes(order.status)) return false;
     if (status !== "activos" && status !== "all" && order.status !== status) return false;
     if (query && !(order.customer.toLowerCase().includes(query) || order.location.toLowerCase().includes(query) || order.id.toLowerCase().includes(query))) return false;
     return true;
@@ -165,7 +164,6 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
           <option value="Enviado">Enviado</option>
           <option value="Entregado">Entregado</option>
           <option value="Cancelado">Cancelado</option>
-          <option value="Expirado">Expirado</option>
         </select>
         <p className="self-center text-sm whitespace-nowrap text-[#647167]">{filtered.length} de {orders.length} pedidos</p>
       </div>
@@ -181,12 +179,13 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
   const [category, setCategory] = useState("Todas");
   const [price, setPrice] = useState<{ min: number; max: number } | null>(null);
   const [priceOpen, setPriceOpen] = useState(false);
-  const [stockFilter, setStockFilter] = useState<"all" | "available" | "low" | "out" | "preorder">("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "available" | "low" | "out">("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<AdminProduct | null>(null);
+  // Producto al que se le está agregando stock desde el botón «+» de la tabla.
   const [stocking, setStocking] = useState<AdminProduct | null>(null);
   const [sort, setSort] = useState<{ key: "name" | "price" | "inventory"; dir: "asc" | "desc" } | null>(null);
-  const blankProduct: AdminProduct = { id: "", slug: "", name: "", price: 0, category: "Sin categoría", description: "", ingredients: "", images: [], allergens: [], tone: "light", status: "draft", inventory: 0, allow_backorder: false, category_id: null };
+  const blankProduct: AdminProduct = { id: "", slug: "", name: "", price: 0, category: "Sin categoría", description: "", ingredients: "", images: [], allergens: [], tone: "light", status: "active", inventory: 0, preparation_days: 0, category_id: null };
   const options = [...new Set(catalog.map((p) => p.category).filter(Boolean))].sort();
   const bounds = useMemo(() => {
     const prices = catalog.map((p) => p.price);
@@ -203,7 +202,6 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
     if (stockFilter === "available" && p.inventory <= 0) return false;
     if (stockFilter === "low" && !(p.inventory > 0 && p.inventory <= 5)) return false;
     if (stockFilter === "out" && p.inventory !== 0) return false;
-    if (stockFilter === "preorder" && !(p.allow_backorder && p.inventory === 0)) return false;
     return true;
   }), [catalog, category, price, stockFilter, query]);
   const sorted = useMemo(() => {
@@ -218,11 +216,10 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
   function toggleSort(key: "name" | "price" | "inventory") {
     setSort((current) => (current?.key !== key ? { key, dir: "asc" } : { key, dir: current.dir === "asc" ? "desc" : "asc" }));
   }
+  // Dos estados: `active` se ve en la tienda; `inactive` solo en el panel de inventario.
   const statusMeta: Record<ProductStatus, { label: string; className: string }> = {
-    draft: { label: "Borrador", className: "bg-[#edf0e8] text-[#647167]" },
     active: { label: "Activo", className: "bg-[#e2f0e2] text-[#3c6b3f]" },
-    sold_out: { label: "Agotado", className: "bg-[#f3e2e0] text-[#8a4a44]" },
-    preorder: { label: "Bajo pedido", className: "bg-[#fff0d8] text-[#8a6420]" },
+    inactive: { label: "Inactivo", className: "bg-[#edf0e8] text-[#647167]" },
   };
   async function saveProduct(data: AdminProductData) {
     if (!editing) return;
@@ -237,13 +234,14 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
     const slug = data.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "producto";
     try {
       const row = await apiFetch<ApiProduct>("/api/products", { method: "POST", admin: true, body: { ...data, slug, image_url: data.image_url ?? null } });
-      onCatalogChange((items) => [{ id: row.id, slug: row.slug, name: row.name, price: row.price, description: row.description ?? "", ingredients: row.ingredients ?? undefined, images: row.images ?? [], image_url: row.image_url, allergens: row.allergens ?? [], category: categories.find((c) => c.id === row.category_id)?.name ?? "Sin categoría", category_id: row.category_id ?? null, inventory: row.inventory, status: row.status, allow_backorder: row.allow_backorder, tone: "light" as const }, ...items]);
+      onCatalogChange((items) => [{ id: row.id, slug: row.slug, name: row.name, price: row.price, description: row.description ?? "", ingredients: row.ingredients ?? undefined, images: row.images ?? [], image_url: row.image_url, allergens: row.allergens ?? [], category: categories.find((c) => c.id === row.category_id)?.name ?? "Sin categoría", category_id: row.category_id ?? null, inventory: row.inventory, status: row.status, preparation_days: row.preparation_days, tone: "light" as const }, ...items]);
       setState("Producto creado.");
       onCreatingChange(false);
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo crear."); }
   }
+  /** Suma unidades al stock del producto desde el modal (D35). */
   async function addStock(product: AdminProduct, amount: number) {
-    const updated: AdminProduct = { ...product, inventory: product.inventory + amount, status: product.inventory + amount > 0 && product.status === "sold_out" ? "active" : product.status };
+    const updated: AdminProduct = { ...product, inventory: product.inventory + amount };
     try {
       await apiFetch(`/api/products/${product.id}`, { method: "PUT", admin: true, body: productPayload(updated) });
       onCatalogChange((items) => items.map((p) => p.id === product.id ? updated : p));
@@ -302,8 +300,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
             <option value="all">Todo el stock</option>
             <option value="available">Disponible</option>
             <option value="low">Stock bajo (≤ 5)</option>
-            <option value="out">Agotado</option>
-            <option value="preorder">Bajo pedido</option>
+            <option value="out">Sin stock</option>
           </select>
           <button onClick={() => { setCategory("Todas"); setPrice(null); setPriceOpen(false); setStockFilter("all"); setSearch(""); setSort(null); }} disabled={!filtersActive} aria-label="Quitar todos los filtros" title="Quitar todos los filtros" className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm transition hover:border-[#243128] disabled:cursor-not-allowed disabled:opacity-40">
             <RotateCcw size={14}/>Limpiar filtros
@@ -330,108 +327,9 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
           {filtered.length === 0 && <p className="py-8 text-center text-sm text-[#647167]">No hay productos que coincidan con los filtros.</p>}
         </div>
       </section>
+      {stocking && <StockModal product={stocking} onCancel={() => setStocking(null)} onAdd={(amount) => addStock(stocking, amount)}/>}
       {editing && <ProductEditor product={editing} categories={categories} onCancel={() => setEditing(null)} onSave={saveProduct} setState={setState}/>}
       {creating && <ProductEditor product={blankProduct} categories={categories} mode="create" onCancel={() => onCreatingChange(false)} onSave={createProduct} setState={setState}/>}
-      {stocking && <StockModal product={stocking} onCancel={() => setStocking(null)} onAdd={(amount) => addStock(stocking, amount)}/>}
-    </div>
-  );
-}
-type AdminProductData = { name: string; price: number; inventory: number; status: ProductStatus; category_id: string | null; description: string; ingredients: string; images: string[]; image_url: string | null; allergens: string[]; allow_backorder: boolean };
-function ProductEditor({ product, categories, onCancel, onSave, setState, mode = "edit" }: { product: AdminProduct; categories: { id: string; name: string }[]; onCancel: () => void; onSave: (data: AdminProductData) => void; setState: (value: string) => void; mode?: "edit" | "create" }) {
-  const isCreate = mode === "create";
-  const [name, setName] = useState(product.name);
-  const [price, setPrice] = useState(String(product.price));
-  const [description, setDescription] = useState(product.description);
-  const [ingredients, setIngredients] = useState(product.ingredients ?? "");
-  const [images, setImages] = useState<string[]>(product.images ?? []);
-  const [imageUrl] = useState(product.image_url ?? "");
-  const [urlInput, setUrlInput] = useState("");
-  const [allergens, setAllergens] = useState<string[]>(product.allergens ?? []);
-  const [inventory, setInventory] = useState(String(product.inventory));
-  const [status, setStatus] = useState<ProductStatus>(product.status);
-  const [allowBackorder, setAllowBackorder] = useState(product.allow_backorder ?? false);
-  const [categoryId, setCategoryId] = useState(product.category_id ?? "");
-  function toggleAllergen(code: string) { setAllergens((current) => current.includes(code) ? current.filter((a) => a !== code) : [...current, code]); }
-  async function upload(file: File) {
-    try {
-      const url = await uploadImage(file);
-      setImages((imgs) => [...imgs, url]);
-      setState("Imagen subida.");
-    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo subir la imagen."); }
-  }
-  function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const finalImages = [...images, ...(urlInput.trim() ? [urlInput.trim()] : [])];
-    onSave({ name, price: Number(price), inventory: Number(inventory), status, category_id: categoryId || null, description, ingredients, images: finalImages, image_url: imageUrl || (finalImages[0] ?? null), allergens, allow_backorder: allowBackorder });
-  }
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">{isCreate ? "Nuevo producto" : "Editar producto"}</h2>
-          <button type="button" onClick={onCancel} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
-        <div className="space-y-4">
-          <label className="block text-sm">
-            <span className="mb-1.5 block text-[#647167]">Nombre</span>
-            <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-[#647167]">Precio (CLP)</span>
-              <input required type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-[#647167]">Stock</span>
-              <input required type="number" min="0" value={inventory} onChange={(e) => setInventory(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-            </label>
-          </div>
-          <label className="block text-sm">
-            <span className="mb-1.5 block text-[#647167]">Descripción</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block text-[#647167]">Ingredientes principales</span>
-            <textarea value={ingredients} onChange={(e) => setIngredients(e.target.value)} rows={2} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
-          </label>
-          <div className="block text-sm">
-            <span className="mb-1.5 block text-[#647167]">Fotos</span>
-            <div className="mb-2 flex flex-wrap gap-2">{images.map((src) => <span key={src} className="relative"><img src={src} alt="" className="h-16 w-14 rounded-lg object-cover"/><button type="button" onClick={() => setImages((imgs) => imgs.filter((i) => i !== src))} aria-label="Quitar imagen" className="absolute -top-1.5 -right-1.5 grid h-5 w-5 place-items-center rounded-full bg-[#243128] text-white"><X size={11}/></button></span>)}</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2 text-xs hover:border-[#243128]"><Upload size={13}/>Subir foto<input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) upload(file); }}/></label>
-              <input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="…o pega una URL de imagen" className="min-w-0 flex-1 rounded-lg border border-[#d9ddd5] px-3 py-2 text-xs outline-none focus:border-[#243128]"/>
-              <button type="button" onClick={() => { if (urlInput.trim()) { setImages((imgs) => [...imgs, urlInput.trim()]); setUrlInput(""); } }} className="rounded-lg bg-[#243128] px-3 py-2 text-xs text-white">Agregar</button>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-[#647167]">Estado</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as ProductStatus)} className={SELECT_FIELD}>
-                <option value="draft">Borrador</option>
-                <option value="active">Activo</option>
-                <option value="sold_out">Agotado</option>
-                <option value="preorder">Bajo pedido</option>
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block text-[#647167]">Categoría</span>
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={SELECT_FIELD}>
-                <option value="">Sin categoría</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="block text-sm">
-            <span className="mb-1.5 block text-[#647167]">Alérgenos</span>
-            <div className="flex flex-wrap gap-2">{Object.entries(ALLERGENS).map(([code, info]) => <button key={code} type="button" onClick={() => toggleAllergen(code)} className={`rounded-full border px-3 py-1.5 text-xs transition ${allergens.includes(code) ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{info.icon} {info.label}</button>)}</div>
-          </div>
-          <label className="flex items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm"><input type="checkbox" checked={allowBackorder} onChange={(e) => setAllowBackorder(e.target.checked)}/>Acepta bajo pedido</label>
-        </div>
-        <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
-          <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">{isCreate ? "Crear producto" : "Guardar cambios"}</button>
-        </div>
-      </form>
     </div>
   );
 }
@@ -459,11 +357,112 @@ function StockModal({ product, onCancel, onAdd }: { product: AdminProduct; onCan
   );
 }
 
+type AdminProductData = { name: string; price: number; inventory: number; status: ProductStatus; category_id: string | null; description: string; ingredients: string; images: string[]; image_url: string | null; allergens: string[]; preparation_days: number };
+function ProductEditor({ product, categories, onCancel, onSave, setState, mode = "edit" }: { product: AdminProduct; categories: { id: string; name: string }[]; onCancel: () => void; onSave: (data: AdminProductData) => void; setState: (value: string) => void; mode?: "edit" | "create" }) {
+  const isCreate = mode === "create";
+  const [name, setName] = useState(product.name);
+  const [price, setPrice] = useState(String(product.price));
+  const [description, setDescription] = useState(product.description);
+  const [ingredients, setIngredients] = useState(product.ingredients ?? "");
+  const [images, setImages] = useState<string[]>(product.images ?? []);
+  const [imageUrl] = useState(product.image_url ?? "");
+  const [urlInput, setUrlInput] = useState("");
+  const [allergens, setAllergens] = useState<string[]>(product.allergens ?? []);
+  const [inventory, setInventory] = useState(String(product.inventory));
+  const [status, setStatus] = useState<ProductStatus>(product.status);
+  const [preparationDays, setPreparationDays] = useState(String(product.preparation_days ?? 0));
+  const [categoryId, setCategoryId] = useState(product.category_id ?? "");
+  function toggleAllergen(code: string) { setAllergens((current) => current.includes(code) ? current.filter((a) => a !== code) : [...current, code]); }
+  async function upload(file: File) {
+    try {
+      const url = await uploadImage(file);
+      setImages((imgs) => [...imgs, url]);
+      setState("Imagen subida.");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo subir la imagen."); }
+  }
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const finalImages = [...images, ...(urlInput.trim() ? [urlInput.trim()] : [])];
+    onSave({ name, price: Number(price), inventory: Number(inventory), status, category_id: categoryId || null, description, ingredients, images: finalImages, image_url: imageUrl || (finalImages[0] ?? null), allergens, preparation_days: Math.max(0, Number(preparationDays) || 0) });
+  }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
+      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="display text-2xl">{isCreate ? "Nuevo producto" : "Editar producto"}</h2>
+          <button type="button" onClick={onCancel} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
+        </div>
+        <div className="space-y-4">
+          <label className="block text-sm">
+            <span className="mb-1.5 block text-[#647167]">Nombre</span>
+            <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Precio (CLP)</span>
+              <input required type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Stock</span>
+              <input required type="number" min="0" value={inventory} onChange={(e) => setInventory(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Días de preparación</span>
+              <input required type="number" min="0" value={preparationDays} onChange={(e) => setPreparationDays(e.target.value)} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+            </label>
+          </div>
+          <label className="block text-sm">
+            <span className="mb-1.5 block text-[#647167]">Descripción</span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1.5 block text-[#647167]">Ingredientes principales</span>
+            <textarea value={ingredients} onChange={(e) => setIngredients(e.target.value)} rows={2} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+          </label>
+          <div className="block text-sm">
+            <span className="mb-1.5 block text-[#647167]">Fotos</span>
+            <div className="mb-2 flex flex-wrap gap-2">{images.map((src) => <span key={src} className="relative"><img src={src} alt="" className="h-16 w-14 rounded-lg object-cover"/><button type="button" onClick={() => setImages((imgs) => imgs.filter((i) => i !== src))} aria-label="Quitar imagen" className="absolute -top-1.5 -right-1.5 grid h-5 w-5 place-items-center rounded-full bg-[#243128] text-white"><X size={11}/></button></span>)}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#d9ddd5] px-3 py-2 text-xs hover:border-[#243128]"><Upload size={13}/>Subir foto<input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) upload(file); }}/></label>
+              <input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="…o pega una URL de imagen" className="min-w-0 flex-1 rounded-lg border border-[#d9ddd5] px-3 py-2 text-xs outline-none focus:border-[#243128]"/>
+              <button type="button" onClick={() => { if (urlInput.trim()) { setImages((imgs) => [...imgs, urlInput.trim()]); setUrlInput(""); } }} className="rounded-lg bg-[#243128] px-3 py-2 text-xs text-white">Agregar</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Estado</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value as ProductStatus)} className={SELECT_FIELD}>
+                <option value="active">Activo</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Categoría</span>
+              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={SELECT_FIELD}>
+                <option value="">Sin categoría</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="block text-sm">
+            <span className="mb-1.5 block text-[#647167]">Alérgenos</span>
+            <div className="flex flex-wrap gap-2">{Object.entries(ALLERGENS).map(([code, info]) => <button key={code} type="button" onClick={() => toggleAllergen(code)} className={`rounded-full border px-3 py-1.5 text-xs transition ${allergens.includes(code) ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{info.icon} {info.label}</button>)}</div>
+          </div>
+          <p className="rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-xs leading-5 text-[#647167]">Todos los productos se venden <strong>bajo pedido</strong>: el stock no bloquea la compra ni se descuenta. Los días de preparación empujan el primer día agendable en el checkout.</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
+          <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">{isCreate ? "Crear producto" : "Guardar cambios"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
 function initialOrderItems(order: Order | undefined, catalog: AdminProduct[]): { product: AdminProduct; quantity: number }[] {
   if (!order) return [];
   return order.items.map((item) => {
     const found = item.productId ? catalog.find((product) => product.id === item.productId) : undefined;
-    return { product: found ?? { id: item.productId ?? "", slug: "", name: item.name, price: item.price, category: "", description: "", tone: "light" as const, status: "active" as const, inventory: 0, category_id: null }, quantity: item.quantity };
+    return { product: found ?? { id: item.productId ?? "", slug: "", name: item.name, price: item.price, category: "", description: "", tone: "light" as const, status: "active" as const, inventory: 0, preparation_days: 0, category_id: null }, quantity: item.quantity };
   });
 }
 

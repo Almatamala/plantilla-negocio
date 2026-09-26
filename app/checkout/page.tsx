@@ -97,16 +97,43 @@ export default function CheckoutPage() {
   const selectedZone = zones.find((z) => z.id === zoneId) ?? null;
   /** Franjas del punto elegido (D18): cada una declara los días de la semana en que atiende. */
   const zoneSlots = useMemo(() => slots.filter((slot) => slot.zone_id === selectedZone?.id), [slots, selectedZone?.id]);
+  /** Días de preparación del pedido (D35): manda el producto que más tarda del carrito. */
+  const preparationDays = useMemo(() => lines.reduce((max, { product }) => Math.max(max, product.preparation_days ?? 0), 0), [lines]);
+  // Un día se puede agendar si el punto atiende ese día de la semana, no está cerrado y el pedido
+  // alcanza a prepararse (pasaron sus días de preparación).
+  // El calendario arranca en el **primer día disponible**: si no, mostraría varios días bloqueados
+  // seguidos antes de llegar al primero al que de verdad se puede agendar (D35).
+  const days = useMemo(() => {
+    const toIso = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const earliest = new Date(today);
+    earliest.setDate(earliest.getDate() + preparationDays);
+    const scan = Array.from({ length: SCHEDULE_WINDOW_DAYS + preparationDays + 7 }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const iso = toIso(d);
+      const weekday = d.getDay();
+      const closed = closedDays.includes(iso);
+      const attends = zoneSlots.some((slot) => slot.weekdays.includes(weekday));
+      const prepared = d.getTime() >= earliest.getTime();
+      return { iso, day: d.getDate(), month: MONTHS_SHORT[d.getMonth()], weekday: WEEKDAY_LONG[weekday].toLowerCase(), closed, prepared, available: Boolean(selectedZone) && prepared && !closed && attends };
+    });
+    const first = scan.findIndex((day) => day.available);
+    return (first > 0 ? scan.slice(first) : scan).slice(0, SCHEDULE_WINDOW_DAYS);
+  }, [closedDays, zoneSlots, selectedZone, preparationDays]);
+
+  // Si cambia el carrito (más días de preparación) el día elegido puede quedar fuera de la agenda: en
+  // vez de limpiarlo con un efecto, se **deriva** el día válido durante el render.
+  const selectedDate = days.some((day) => day.iso === date && day.available) ? date : "";
   /** Franjas que aplican al día elegido; el cliente solo puede elegir entre ellas. */
-  const daySlots = useMemo(() => (date ? zoneSlots.filter((slot) => slot.weekdays.includes(weekdayFromIso(date))) : []), [date, zoneSlots]);
+  const daySlots = useMemo(() => (selectedDate ? zoneSlots.filter((slot) => slot.weekdays.includes(weekdayFromIso(selectedDate))) : []), [selectedDate, zoneSlots]);
   const selectedSlot = daySlots.find((slot) => slot.id === slotId) ?? null;
-  // Un día se puede agendar si el punto atiende ese día de la semana y no está cerrado.
-  const days = useMemo(() => Array.from({ length: SCHEDULE_WINDOW_DAYS }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; const weekday = d.getDay(); const closed = closedDays.includes(iso); const attends = zoneSlots.some((slot) => slot.weekdays.includes(weekday)); return { iso, day: d.getDate(), month: MONTHS_SHORT[d.getMonth()], weekday: WEEKDAY_LONG[weekday].toLowerCase(), closed, available: Boolean(selectedZone) && !closed && attends }; }), [closedDays, zoneSlots, selectedZone]);
 
   async function confirm() {
     setMessage("");
     if (unavailable) { setMessage("No podemos conectar con la tienda. Vuelve a intentarlo en unos minutos."); return; }
-    if (!selectedZone || !date || !selectedSlot) { setMessage("Elige punto de retiro, día y horario."); return; }
+    if (!selectedZone || !selectedDate || !selectedSlot) { setMessage("Elige punto de retiro, día y horario."); return; }
     if (!contact.name || !contact.phone) { setMessage("Completa tu nombre y teléfono."); return; }
     const zone = selectedZone;
     const slot = selectedSlot;
@@ -117,7 +144,7 @@ export default function CheckoutPage() {
         body: {
           customer_name: contact.name, customer_phone: contact.phone, customer_email: contact.email || null,
           payment_method: "Webpay",
-          scheduled_date: date, time_slot_id: slotId, shipping_zone_id: zone.id,
+          scheduled_date: selectedDate, time_slot_id: slotId, shipping_zone_id: zone.id,
           location: zone.location || zone.name,
           items,
         },
@@ -127,7 +154,7 @@ export default function CheckoutPage() {
         total,
         items: items.map(({ name, quantity, unit_price }) => ({ name, quantity, price: unit_price })),
         zone: zone.name,
-        date,
+        date: selectedDate,
         slot: `${slot.start_time}–${slot.end_time}`,
         payment: "Webpay Plus",
       });
@@ -220,12 +247,12 @@ export default function CheckoutPage() {
       <div className="mt-3 shrink-0 space-y-1.5 border-t border-[#e2e5df] pt-3 text-sm">
         <div className="flex justify-between"><span className="text-[#647167]">Subtotal</span><span>{formatPrice(total)}</span></div>
         <div className="flex justify-between gap-3"><span className="text-[#647167]">Retiro</span><span className="text-right">{selectedZone ? selectedZone.name : "Por elegir"}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-[#647167]">Agenda</span><span className="text-right">{date ? `${date}${selectedSlot ? ` · ${selectedSlot.start_time}–${selectedSlot.end_time}` : ""}` : "Por elegir"}</span></div>
+        <div className="flex justify-between gap-3"><span className="text-[#647167]">Agenda</span><span className="text-right">{selectedDate ? `${selectedDate}${selectedSlot ? ` · ${selectedSlot.start_time}–${selectedSlot.end_time}` : ""}` : "Por elegir"}</span></div>
         <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
       </div>
       <button onClick={confirm} disabled={lines.length === 0 || unavailable} className="mt-4 w-full shrink-0 rounded-full bg-[#243128] py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40">{unavailable ? "Sin conexión con la tienda" : "Confirmar pedido"}</button>
       {message && <p className="mt-3 shrink-0 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{message}</p>}
-      <p className="mt-2 shrink-0 text-xs leading-5 text-[#748077]">Al confirmar reservamos tu pedido. {config.name} te confirmará el pago por WhatsApp.</p>
+      <p className="mt-2 shrink-0 text-xs leading-5 text-[#748077]">Al confirmar registramos tu pedido con su día de retiro. {config.name} te confirmará el pago por WhatsApp.</p>
     </>
   );
 
@@ -325,10 +352,17 @@ export default function CheckoutPage() {
                 <p className="mt-2 text-sm text-[#8a4a44]">Ese punto todavía no tiene horarios publicados. Escríbenos por WhatsApp y lo coordinamos.</p>
               ) : (
                 <>
-                  <p className="mt-2 text-xs text-[#647167]">Hasta {SCHEDULE_WINDOW_DAYS / 7} semanas de anticipación. Solo aparecen los días en que ese punto atiende, y después los horarios de ese día.</p>
+                  <p className="mt-2 text-xs text-[#647167]">
+                    {preparationDays > 0 ? `Tu pedido necesita ${preparationDays} ${preparationDays === 1 ? "día" : "días"} de preparación, así que el calendario empieza en el primer día disponible. ` : ""}
+                    Hasta {SCHEDULE_WINDOW_DAYS / 7} semanas de anticipación. Solo aparecen los días en que ese punto atiende, y después los horarios de ese día.
+                  </p>
+                  {days.length === 0 ? (
+                    <p className="mt-3 text-sm text-[#8a4a44]">No hay días disponibles en las próximas semanas para este pedido. Escríbenos por WhatsApp y lo coordinamos.</p>
+                  ) : (
                   <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
                     {days.map((d) => <button key={d.iso} onClick={() => { setDate(d.iso); setSlotId(""); }} disabled={!d.available} title={d.available ? undefined : d.closed ? "Cerrado" : "Ese punto no atiende ese día"} className={`shrink-0 rounded-xl border px-3 py-2 text-center transition ${date === d.iso ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"} ${d.available ? "" : "cursor-not-allowed opacity-35"}`}><span className="block text-[10px] tracking-wider uppercase">{d.weekday}</span><span className="display block text-lg">{d.day}</span><span className="block text-[10px] text-[#748077]">{d.month}</span></button>)}
                   </div>
+                  )}
                   {daySlots.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">{daySlots.map((slot) => <button key={slot.id} onClick={() => setSlotId(slot.id)} className={`rounded-full border px-4 py-2 text-sm transition ${slotId === slot.id ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{slot.start_time}–{slot.end_time}</button>)}</div>
                   )}

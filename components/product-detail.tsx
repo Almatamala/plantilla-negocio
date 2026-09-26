@@ -42,6 +42,9 @@ export function ProductDetail({ slug }: { slug: string }) {
   const [product, setProduct] = useState<Product | null | undefined>(undefined);
   const [image, setImage] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
+  // La cantidad se puede escribir: se mantiene el texto aparte para poder borrarlo y reescribirlo
+  // sin que el número quede en 0 a medio tipear.
+  const [qtyText, setQtyText] = useState("1");
   const [added, setAdded] = useState(false);
   const [catalog, setCatalog] = useState<Product[]>([]);
   const config = useStoreSettings();
@@ -84,6 +87,12 @@ export function ProductDetail({ slug }: { slug: string }) {
       });
     return () => { active = false; };
   }, [slug, applyDetail]);
+
+  function setQuantity(next: number) {
+    const value = Math.min(99, Math.max(1, Math.floor(next) || 1));
+    setQty(value);
+    setQtyText(String(value));
+  }
 
   function addToCart() {
     if (!product) return;
@@ -177,9 +186,22 @@ export function ProductDetail({ slug }: { slug: string }) {
           {!stock.available && <p className="mt-6 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">Este producto está agotado. Vuelve pronto o consulta por WhatsApp.</p>}
           <div className="mt-7 flex items-center gap-4">
             <div className="flex items-center gap-3 rounded-full border border-[var(--brand-surface)] px-4 py-2.5">
-              <button onClick={() => setQty(Math.max(1, qty - 1))} aria-label="Disminuir cantidad"><Minus size={16}/></button>
-              <span className="w-6 text-center text-sm">{qty}</span>
-              <button onClick={() => setQty(qty + 1)} aria-label="Aumentar cantidad"><Plus size={16}/></button>
+              <button onClick={() => setQuantity(qty - 1)} aria-label="Disminuir cantidad"><Minus size={16}/></button>
+              <input
+                value={qtyText}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/\D/g, "").slice(0, 2);
+                  setQtyText(raw);
+                  if (raw) setQuantity(Number(raw));
+                }}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={() => setQtyText(String(qty))}
+                inputMode="numeric"
+                aria-label="Cantidad"
+                title="Haz clic para escribir la cantidad"
+                className="w-8 cursor-text bg-transparent text-center text-sm outline-none"
+              />
+              <button onClick={() => setQuantity(qty + 1)} aria-label="Aumentar cantidad"><Plus size={16}/></button>
             </div>
             <button onClick={addToCart} disabled={!stock.available} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--brand-accent)] px-6 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"><ShoppingBag size={16}/>Agregar al carrito</button>
           </div>

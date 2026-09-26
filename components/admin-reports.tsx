@@ -48,10 +48,9 @@ const MAX_RANGE_MONTHS = 12;
 /** Mismo tratamiento que los demás selects del panel (PLAN §0.9, A17). */
 const SELECT = "select-field rounded-lg border border-[#d9ddd5] bg-white px-3 py-2 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128]";
 
-/** Los pedidos cancelados y los expirados (reserva de stock vencida) no son ventas, pero sí se cuentan como pedidos. */
+/** Los pedidos cancelados no son ventas, pero sí se cuentan como pedidos. */
 const CANCELLED = "Cancelado";
-const EXPIRED = "Expirado";
-const NOT_SALES = [CANCELLED, EXPIRED];
+const NOT_SALES = [CANCELLED];
 
 function startOfDay(date: Date): Date {
   const copy = new Date(date);
@@ -217,9 +216,9 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
     const categories = new Map<string, number>();
     for (const stat of ranking) categories.set(stat.category, (categories.get(stat.category) ?? 0) + stat.revenue);
 
-    // Reposición: lo que se vendió y quedó con stock bajo o agotado.
+    // Reposición: lo que se vendió y quedó con stock bajo.
     const restock = catalog
-      .filter((product) => ranked.has(product.name) && (product.inventory <= 5 || product.status === "sold_out"))
+      .filter((product) => ranked.has(product.name) && product.inventory <= 5)
       .map((product) => ({ ...product, units: ranking.find((stat) => stat.name === product.name)?.units ?? 0 }))
       .sort((a, b) => a.inventory - b.inventory);
 
@@ -232,7 +231,8 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
       salesCount: sales(currentOrders).length,
       units: units(currentOrders),
       ranking,
-      withoutSales: catalog.filter((product) => product.status !== "draft" && !ranked.has(product.name)),
+      // «Sin ventas» mira solo lo visible en la tienda: los inactivos no se espera que vendan.
+      withoutSales: catalog.filter((product) => product.status !== "inactive" && !ranked.has(product.name)),
       places: [...places.values()].sort((a, b) => b.revenue - a.revenue),
       weekdays,
       slots: [...slots.entries()].sort((a, b) => b[1] - a[1]),
@@ -373,7 +373,7 @@ export function ReportsSection({ orders, catalog }: { orders: ReportOrder[]; cat
               <Row
                 key={product.name}
                 label={product.name}
-                detail={product.inventory === 0 ? `Agotado · ${product.units} u. vendidas en el período` : `Quedan ${product.inventory} · ${product.units} u. vendidas en el período`}
+                detail={product.inventory === 0 ? `Sin stock · ${product.units} u. vendidas en el período` : `Quedan ${product.inventory} · ${product.units} u. vendidas en el período`}
                 value={product.inventory === 0 ? "Reponer" : "Stock bajo"}
               />
             ))}

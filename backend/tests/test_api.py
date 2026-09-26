@@ -1,5 +1,3 @@
-from datetime import datetime, timedelta, timezone
-
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -143,26 +141,46 @@ def test_order_can_be_edited_by_admin(client, admin_headers):
     assert client.get("/api/orders", headers=admin_headers).json()[0]["id"] == order["id"]
 
 
-def test_stock_decrements_and_auto_sold_out(client, admin_headers):
+def test_order_does_not_touch_stock(client, admin_headers):
+    """La tienda es **bajo pedido** (D35): el pedido no descuenta ni reserva inventario."""
     product = client.post("/api/products", headers=admin_headers, json={"name": "Pan", "slug": "pan", "price": 1000, "status": "active", "inventory": 2}).json()
-    first = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 1}]})
-    assert first.status_code == 201
+    order = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 5}]})
+    assert order.status_code == 201
+    assert "expires_at" not in order.json()
     updated = client.get(f"/api/products/{product['id']}").json()
-    assert updated["inventory"] == 1
-    client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 1}]})
-    updated2 = client.get(f"/api/products/{product['id']}").json()
-    assert updated2["inventory"] == 0
-    assert updated2["status"] == "sold_out"
-    third = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 1}]})
-    assert third.status_code == 409
+    assert updated["inventory"] == 2
+    assert updated["status"] == "active"
+    # Cancelar tampoco devuelve nada: nunca hubo reserva.
+    assert client.patch(f"/api/orders/{order.json()['id']}/status", headers=admin_headers, json={"status": "cancelled"}).status_code == 200
+    assert client.get(f"/api/products/{product['id']}").json()["inventory"] == 2
 
 
-def test_backorder_keeps_preorder_status(client, admin_headers):
-    product = client.post("/api/products", headers=admin_headers, json={"name": "Kuchen", "slug": "kuchen", "price": 5000, "status": "preorder", "inventory": 0, "allow_backorder": True}).json()
-    assert client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Kuchen", "unit_price": 5000, "quantity": 1}]}).status_code == 201
-    updated = client.get(f"/api/products/{product['id']}").json()
-    assert updated["inventory"] == 0
-    assert updated["status"] == "preorder"
+def test_product_stores_preparation_days(client, admin_headers):
+    """Los días de preparación (D35) se guardan por producto y por defecto son 0."""
+    created = client.post("/api/products", headers=admin_headers, json={"name": "Torta", "slug": "torta", "price": 9000, "preparation_days": 3})
+    assert created.status_code == 201
+    assert created.json()["preparation_days"] == 3
+    assert "allow_backorder" not in created.json()
+    # Un valor negativo no tiene sentido y se rechaza.
+    assert client.post("/api/products", headers=admin_headers, json={"name": "Otra", "slug": "otra", "price": 1000, "preparation_days": -1}).status_code == 422
+    plain = client.post("/api/products", headers=admin_headers, json={"name": "Pan", "slug": "pan", "price": 1000}).json()
+    assert plain["preparation_days"] == 0
+
+
+def test_product_statuses_are_active_or_inactive(client, admin_headers):
+    """Solo hay dos estados: `active` (visible en la tienda) e `inactive` (oculto, visible en el panel)."""
+    client.post("/api/products", headers=admin_headers, json={"name": "Visible", "slug": "visible", "price": 1000, "status": "active"})
+    client.post("/api/products", headers=admin_headers, json={"name": "Oculto", "slug": "oculto", "price": 1000, "status": "inactive"})
+    # El catálogo público solo muestra lo activo, y la ficha por slug tampoco expone lo inactivo.
+    assert [p["slug"] for p in client.get("/api/products").json()] == ["visible"]
+    assert client.get("/api/products/slug/oculto").status_code == 404
+    assert client.get("/api/products/slug/visible").status_code == 200
+    # El panel pide todo y ve también lo inactivo.
+    panel = client.get("/api/products?include_inactive=true", headers=admin_headers).json()
+    assert {p["slug"] for p in panel} == {"visible", "oculto"}
+    # Un producto nuevo nace activo y los estados retirados ya no son válidos.
+    assert client.post("/api/products", headers=admin_headers, json={"name": "Nuevo", "slug": "nuevo", "price": 1000}).json()["status"] == "active"
+    assert client.post("/api/products", headers=admin_headers, json={"name": "Borrador", "slug": "borrador", "price": 1000, "status": "draft"}).status_code == 422
 
 
 def test_order_confirmation_goes_to_customer_and_store(client, admin_headers, monkeypatch):
@@ -204,59 +222,6 @@ def test_order_is_registered_even_if_confirmation_email_fails(client, monkeypatc
     response = client.post("/api/orders", json={"customer_email": "luis@test.cl", "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]})
     assert response.status_code == 201
     assert client.get("/api/orders", headers={"X-Admin-Token": "test-admin-token"}).json()[0]["customer_email"] == "luis@test.cl"
-
-
-def test_pending_order_holds_stock_and_releases_it_when_expired(client, admin_headers, db_session):
-    """Reserva de stock: el pedido pendiente de pago retiene el stock y, al vencer la reserva, lo devuelve."""
-    product = client.post("/api/products", headers=admin_headers, json={"name": "Pan", "slug": "pan", "price": 1000, "status": "active", "inventory": 5}).json()
-    order = client.post("/api/orders", json={"customer_email": "luis@test.cl", "items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 2}]}).json()
-    assert client.get(f"/api/products/{product['id']}").json()["inventory"] == 3
-    assert order["expires_at"] is not None  # nace con la reserva vigente
-
-    later = datetime.now(timezone.utc) + timedelta(days=1)
-    assert main.stock.release_expired_orders(db_session, now=later) == 1
-
-    assert client.get(f"/api/products/{product['id']}").json()["inventory"] == 5
-    stored = client.get("/api/orders", headers=admin_headers).json()[0]
-    assert stored["status"] == "expired"
-    assert stored["expires_at"] is None
-
-
-def test_expired_hold_reactivates_a_sold_out_product(client, admin_headers, db_session):
-    product = client.post("/api/products", headers=admin_headers, json={"name": "Torta", "slug": "torta", "price": 9000, "status": "active", "inventory": 1}).json()
-    order = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Torta", "unit_price": 9000, "quantity": 1}]}).json()
-    assert order["status"] == "pending"
-    assert client.get(f"/api/products/{product['id']}").json()["status"] == "sold_out"
-
-    main.stock.release_expired_orders(db_session, now=datetime.now(timezone.utc) + timedelta(days=1))
-
-    saved = client.get(f"/api/products/{product['id']}").json()
-    assert saved["inventory"] == 1
-    assert saved["status"] == "active"
-    assert client.get("/api/orders", headers=admin_headers).json()[0]["status"] == "expired"
-
-
-def test_paid_order_keeps_its_stock(client, admin_headers, db_session):
-    """Un pedido pagado no devuelve stock aunque pase el tiempo: sale de la reserva al pagar."""
-    product = client.post("/api/products", headers=admin_headers, json={"name": "Pan", "slug": "pan", "price": 1000, "status": "active", "inventory": 5}).json()
-    order = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 2}]}).json()
-    paid = client.patch(f"/api/orders/{order['id']}/status", headers=admin_headers, json={"status": "paid"})
-    assert paid.status_code == 200
-    assert paid.json()["expires_at"] is None
-
-    assert main.stock.release_expired_orders(db_session, now=datetime.now(timezone.utc) + timedelta(days=1)) == 0
-    assert client.get(f"/api/products/{product['id']}").json()["inventory"] == 3
-    assert client.get("/api/orders", headers=admin_headers).json()[0]["status"] == "paid"
-
-
-def test_cancelling_a_pending_order_releases_the_stock(client, admin_headers):
-    product = client.post("/api/products", headers=admin_headers, json={"name": "Pan", "slug": "pan", "price": 1000, "status": "active", "inventory": 5}).json()
-    order = client.post("/api/orders", json={"items": [{"product_id": product["id"], "name": "Pan", "unit_price": 1000, "quantity": 2}]}).json()
-    assert client.get(f"/api/products/{product['id']}").json()["inventory"] == 3
-
-    assert client.patch(f"/api/orders/{order['id']}/status", headers=admin_headers, json={"status": "cancelled"}).status_code == 200
-
-    assert client.get(f"/api/products/{product['id']}").json()["inventory"] == 5
 
 
 def test_pickup_point_with_slot_in_order(client, admin_headers):

@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
 from authlib.integrations.httpx_client import OAuth2Client
-from . import instagram, stock
+from . import instagram
 from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_order_confirmation, send_verification_code
@@ -42,10 +42,11 @@ def google_client() -> OAuth2Client:
     )
 
 
-# Columnas retiradas (sellos artesanal/sustentable y días de anticipación).
-# `create_all` crea tablas pero no altera las existentes, así que en bases ya creadas
-# quitamos estas columnas al arrancar para que los INSERT no fallen por NOT NULL.
-LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days")
+# Columnas retiradas (sellos artesanal/sustentable, días de anticipación y el «acepta bajo pedido»,
+# que ahora es implícito de toda la tienda —D35—). `create_all` crea tablas pero no altera las
+# existentes, así que en bases ya creadas quitamos estas columnas al arrancar para que los INSERT no
+# fallen por NOT NULL.
+LEGACY_PRODUCT_COLUMNS = ("artisan_seal", "sustainable", "lead_time_days", "allow_backorder")
 
 # Puntos de retiro (D16): se retiró el despacho a domicilio (no existe el servicio) y la cobertura
 # por áreas; cada punto se define por **ubicación**. La **nota del pedido** también se retiró (D17)
@@ -118,11 +119,19 @@ RETIRED_STORE_SETTINGS_COLUMNS = (
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS bank_account_info",
 )
 
-# Reserva de stock de los pedidos pendientes de pago: `create_all` no altera tablas existentes, así que
-# `orders.expires_at` (cuándo vence la reserva) se agrega al arrancar en PostgreSQL. La liberación la
-# hace `app/stock.py`.
-ORDER_HOLD_COLUMNS = (
-    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+# Días de preparación del producto (D35). Como `create_all` no altera tablas existentes, la columna
+# se agrega al arrancar en PostgreSQL. La **reserva de stock** de pedidos pendientes se retiró: la
+# tienda es «bajo pedido», el pedido ya no descuenta stock ni vence, y `orders.expires_at` se elimina.
+ORDER_PREPARATION_COLUMNS = (
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS preparation_days INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE orders DROP COLUMN IF EXISTS expires_at",
+)
+
+# El producto tiene **dos estados**: `active` (visible en la tienda) e `inactive` (oculto en la tienda
+# pero visible en el panel de inventario). Los estados retirados (`draft`, `sold_out`, `preorder`) se
+# convierten a `active` al arrancar para que ningún producto quede oculto por sorpresa.
+PRODUCT_STATUS_STATEMENTS = (
+    "UPDATE products SET status = 'active' WHERE status NOT IN ('active', 'inactive')",
 )
 
 VERIFICATION_TTL_MINUTES = 15
@@ -148,29 +157,27 @@ async def lifespan(_: FastAPI):
                 connection.execute(text(statement))
             for statement in RETIRED_STORE_SETTINGS_COLUMNS:
                 connection.execute(text(statement))
-            for statement in ORDER_HOLD_COLUMNS:
+            for statement in ORDER_PREPARATION_COLUMNS:
+                connection.execute(text(statement))
+            for statement in PRODUCT_STATUS_STATEMENTS:
                 connection.execute(text(statement))
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
     # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.
     refresh_task = asyncio.create_task(instagram.refresh_loop(lambda: Session(engine)))
-    # Reserva de stock: la tarea libera los pedidos pendientes cuya reserva venció (ver `app/stock.py`).
-    release_task = asyncio.create_task(stock.release_loop(lambda: Session(engine)))
     try:
         yield
     finally:
         refresh_task.cancel()
-        release_task.cancel()
         with suppress(asyncio.CancelledError):
             await refresh_task
-        with suppress(asyncio.CancelledError):
-            await release_task
 
 
 app = FastAPI(title="BOSQUE API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-PUBLIC_STATUSES = ["active", "preorder", "sold_out"]
+# Solo los productos `active` son visibles en la tienda; los `inactive` quedan para el panel.
+PUBLIC_STATUSES = ["active"]
 
 
 def google_configured() -> bool:
@@ -536,16 +543,18 @@ def delete_category(category_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/products", response_model=list[ProductOut])
-def list_products(include_drafts: bool = False, db: Session = Depends(get_db)):
+def list_products(include_inactive: bool = False, db: Session = Depends(get_db)):
+    """Catálogo. Por defecto solo lo visible en la tienda (`active`); el panel pide `include_inactive=true`."""
     query = select(Product).order_by(Product.created_at.desc())
-    if not include_drafts:
+    if not include_inactive:
         query = query.where(Product.status.in_(PUBLIC_STATUSES))
     return db.scalars(query).all()
 
 
 @app.get("/api/products/slug/{slug}", response_model=ProductOut)
 def get_product_by_slug(slug: str, db: Session = Depends(get_db)):
-    item = db.scalar(select(Product).where(Product.slug == slug))
+    """Ficha pública: un producto `inactive` no se muestra en la tienda, así que por URL tampoco."""
+    item = db.scalar(select(Product).where(Product.slug == slug, Product.status.in_(PUBLIC_STATUSES)))
     if not item:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
     return item
@@ -728,17 +737,12 @@ def validate_schedule(db: Session, payload: OrderIn) -> None:
 
 @app.post("/api/orders", response_model=OrderOut, status_code=201)
 def create_order(payload: OrderIn, db: Session = Depends(get_db)):
-    # Antes de reservar se liberan las reservas vencidas: así la disponibilidad está al día sin esperar
-    # a que corra la tarea de fondo.
-    stock.release_expired_orders(db)
     validate_schedule(db, payload)
     total = sum(item.unit_price * item.quantity for item in payload.items)
     customer_profile = None
     if payload.customer_email:
         customer_profile = db.scalar(select(Profile).where(Profile.email == payload.customer_email.strip().lower()))
     order = Order(**payload.model_dump(exclude={"items", "customer_id"}), total=total)
-    # Reserva de stock: un pedido pendiente de pago vence si el pago no llega a tiempo (ver `app/stock.py`).
-    order.expires_at = stock.hold_until() if order.status == stock.PENDING_STATUS else None
     if customer_profile:
         order.customer_id = customer_profile.id
     elif payload.customer_id:
@@ -750,18 +754,11 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db)):
     db.flush()
     for item in payload.items:
         db.add(OrderItem(order_id=order.id, **item.model_dump()))
-        if item.product_id:
-            product = db.get(Product, item.product_id)
-            if product is None:
-                db.rollback()
-                raise HTTPException(status_code=409, detail=f"Producto «{item.name}» no encontrado.")
-            if not product.allow_backorder and product.inventory < item.quantity:
-                db.rollback()
-                raise HTTPException(status_code=409, detail=f"Stock insuficiente para «{item.name}».")
-            if product.inventory > 0:
-                product.inventory = max(0, product.inventory - item.quantity)
-                if product.inventory == 0 and not product.allow_backorder:
-                    product.status = "sold_out"
+        if item.product_id and db.get(Product, item.product_id) is None:
+            # La tienda es «bajo pedido»: el stock no bloquea la compra, solo se valida que el producto
+            # exista (el catálogo pudo cambiar entre que el cliente armó el carrito y confirmó).
+            db.rollback()
+            raise HTTPException(status_code=409, detail=f"Producto «{item.name}» no encontrado.")
     try:
         db.commit()
     except IntegrityError as error:
@@ -775,18 +772,9 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db)):
 
 @app.patch("/api/orders/{order_id}/status", response_model=OrderOut, dependencies=[Depends(require_admin)])
 def update_order_status(order_id: str, payload: OrderStatusPatch, db: Session = Depends(get_db)):
-    """Cambia el estado del pedido.
-
-    Si un pedido que seguía **pendiente de pago** pasa a cancelado (o expirado), se devuelve el stock
-    reservado. Un pedido ya pagado no lo devuelve: esa mercadería ya salió. Al salir de `pending` la
-    reserva deja de estar vigente.
-    """
+    """Cambia el estado del pedido. No toca el stock: la tienda trabaja **bajo pedido** (D35)."""
     order = find_or_404(db, Order, order_id)
-    if payload.status in stock.RELEASING_STATUSES and order.status == stock.PENDING_STATUS:
-        stock.release_stock(db, order.items)
     order.status = payload.status
-    if payload.status != stock.PENDING_STATUS:
-        order.expires_at = None
     return commit(db, order)
 
 

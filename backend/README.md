@@ -1,16 +1,16 @@
 # BOSQUE API (FastAPI dockerizada)
 
 La API es la **única fuente de verdad** de la tienda: catálogo (fotos, ingredientes, alérgenos,
-stock), agenda (franjas horarias, fechas cerradas, **puntos de retiro presencial con ubicación y
-horario**), reviews, órdenes (sin despacho a domicilio, ver PLAN §0.7 / D16), ajustes de la tienda y
-subida de imágenes. Se despliega dockerizada (AWS) y el frontend la consume
+stock y **días de preparación**), agenda (franjas horarias, fechas cerradas, **puntos de retiro presencial
+con ubicación y horario**), reviews, órdenes (sin despacho a domicilio, ver PLAN §0.7 / D16), ajustes de la
+tienda y subida de imágenes. Se despliega dockerizada (AWS) y el frontend la consume
 vía HTTP (`NEXT_PUBLIC_API_URL`).
 
 ## Endpoints principales
 
 | Endpoint | Métodos | Acceso |
 |---|---|---|
-| `/api/products`, `/api/products/slug/{slug}` | GET | Público |
+| `/api/products`, `/api/products/slug/{slug}` | GET | Público (el panel usa `/api/products?include_inactive=true`) |
 | `/api/products` | POST/PUT/DELETE | Admin (`X-Admin-Token`) |
 | `/api/shipping-zones`, `/api/time-slots?zone_id=&include_disabled=`, `/api/closed-days` | GET | Público |
 | Ídem | POST/PATCH/DELETE | Admin |
@@ -18,9 +18,9 @@ vía HTTP (`NEXT_PUBLIC_API_URL`).
 | `/api/reviews` | GET (aprobadas), POST | Público |
 | `/api/reviews/admin`, PATCH status, DELETE | — | Admin |
 | `/api/orders` | GET | Admin |
-| `/api/orders` | POST | Público (reserva stock —con vencimiento— y avisa por correo al cliente y a la tienda) |
+| `/api/orders` | POST | Público (no toca stock: la tienda es **bajo pedido**; avisa por correo al cliente y a la tienda) |
 | `/api/orders/{id}/status` | PATCH | Admin |
-| `/api/orders/{id}` | PUT (corrige datos del pedido; no recalcula stock) | Admin |
+| `/api/orders/{id}` | PUT (corrige datos del pedido; no toca el stock) | Admin |
 | `/api/settings` | GET / PUT | Público / Admin |
 | `/api/instagram/feed?limit=15` | GET (publicaciones ya normalizadas, **nunca el token**) | Público |
 | `/api/instagram/token` | GET (estado y próxima renovación, sin el token) | Admin |
@@ -53,10 +53,13 @@ posteriores de columnas se aplican al arrancar **solo en PostgreSQL** con `ALTER
 `orders.notes` y de `store_settings.products_per_page`, ya que la cantidad de productos por página
 quedó **fija en 8**, y de `store_settings.instagram_embed_url`, al reemplazar el widget de terceros por el
 **feed propio** con la API de Instagram (D30); más la columna de contenido `theme_colors` —la **paleta
-editable** desde el panel— y la de `orders.expires_at` (la **reserva de stock**, D35). También se eliminan
-`shipping_zones.type` y `orders.fulfillment` (retiro presencial y punto de encuentro se unificaron, D33) y
-`store_settings.bank_account_info` (la web no publica datos bancarios, D34); ver PLAN §0.7, §0.8, §0.13,
-§0.15 y §0.17).
+editable** desde el panel— y la de `products.preparation_days` (los **días de preparación**, D35). También se
+retiran `products.allow_backorder` (el «bajo pedido» ahora es **implícito** de toda la tienda) y
+`orders.expires_at` (la antigua **reserva de stock**), además de `shipping_zones.type` y
+`orders.fulfillment` (retiro presencial y punto de encuentro se unificaron, D33) y
+`store_settings.bank_account_info` (la web no publica datos bancarios, D34); y un `UPDATE` convierte a
+`active` los productos con **estados retirados** (`draft`, `sold_out`, `preorder`, D36). Ver PLAN §0.7,
+§0.8, §0.13, §0.15 y §0.17).
 
 ## Variables de entorno
 
@@ -73,8 +76,6 @@ editable** desde el panel— y la de `orders.expires_at` (la **reserva de stock*
 | `RESEND_API_KEY` / `RESEND_EMAIL_FROM` | Credenciales de [Resend](https://resend.com) para la confirmación de cuentas por correo. **Si están vacías, la verificación queda desactivada** y las cuentas nuevas entran activas |
 | `RESEND_API_URL` | Endpoint de Resend (por defecto `https://api.resend.com/emails`; útil para pruebas) |
 | `STORE_NAME` / `STORE_URL` | Nombre del negocio y enlace a la tienda que aparecen en el correo |
-| `STOCK_HOLD_MINUTES` | Minutos que se reserva el stock de un pedido pendiente de pago antes de expirar (por defecto **30**) |
-| `STOCK_HOLD_CHECK_MINUTES` | Cada cuántos minutos la tarea de fondo libera las reservas vencidas (por defecto **5**) |
 | `INSTAGRAM_USER_ID` | ID de la cuenta profesional de Instagram del feed propio (D30) |
 | `INSTAGRAM_ACCESS_TOKEN` | Token de **larga duración** de la *Instagram API with Instagram Login*. Es el valor de **arranque**: la API guarda y renueva el vigente en la tabla `instagram_token` (ver abajo) |
 | `INSTAGRAM_REFRESH_DAYS` | Días que se espera antes de renovar (por defecto **50**; el token dura 60) |
@@ -122,14 +123,25 @@ Las mismas credenciales de Resend se usan para avisar de un pedido nuevo (D8): a
 **mejor esfuerzo**: sin credenciales se omite (queda en el log) y cualquier fallo se registra, pero la
 compra nunca se cae. Si ambos correos coinciden se envía un solo mensaje.
 
-## Reserva de stock y expiración (D35)
+## Bajo pedido y días de preparación (D35)
 
-El pedido descuenta stock al crearse: es una **reserva**. Si el pago no llega dentro de
-`STOCK_HOLD_MINUTES` (**30** por defecto), `app/stock.py` la libera: devuelve el inventario —y reactiva un
-producto que había quedado `sold_out`— y deja el pedido en **`expired`**. La liberación corre en una **tarea
-de fondo** que arranca con la API y, además, antes de crear un pedido, para que la disponibilidad esté al
-día. Al marcar el pedido como **pagado** la reserva se cierra; al **cancelar** un pedido que seguía
-pendiente, el stock se devuelve. Un pedido ya pagado nunca libera stock.
+Esta plantilla es para negocios que **hacen el pedido con tiempo**, así que todo el catálogo se trabaja
+**bajo pedido**: la compra nunca se bloquea por stock y el pedido **no descuenta ni reserva inventario**
+(la antigua reserva con vencimiento se retiró). El `inventory` queda como número **informativo** que el
+admin ajusta a mano.
+
+Cada producto declara sus **días de preparación** (`preparation_days`, por defecto **0**). El checkout
+empuja el primer día agendable para que el pedido alcance a prepararse: aunque el punto de retiro atienda
+antes, esos días no se ofrecen. Los días cerrados puntuales y los días en que el punto no atiende siguen
+bloqueando su fecha como siempre.
+
+## Estados del producto (D36)
+
+El producto tiene **solo dos estados**: `active` (visible en la tienda) e `inactive` (oculto en la tienda
+pero visible en el panel de inventario). `GET /api/products` devuelve **solo los activos**; el panel pide el
+catálogo completo con `?include_inactive=true`. Un producto nuevo nace **activo**. Los estados antiguos
+(`draft`, `sold_out`, `preorder`) ya no existen: se convierten a `active` al arrancar la API y el schema los
+rechaza (`422`).
 
 ## Login con Google (clientes y administradores)
 
@@ -161,9 +173,8 @@ pytest
 ```
 
 Las pruebas usan SQLite en memoria y cubren: token administrativo (clave y JWT), catálogo,
-CRUD de categorías, reglas de entrada, cálculo de órdenes, **decremento de stock con
-auto-desactivación**, **reserva y expiración de stock** (la reserva retiene y devuelve el inventario, un
-pedido pagado no la libera y cancelar un pendiente devuelve el stock), bajo pedido, **correo de
+CRUD de categorías, reglas de entrada, cálculo de órdenes, **bajo pedido implícito** (el pedido no toca el
+stock y las **fechas de preparación** se guardan por producto), **correo de
 confirmación del pedido** (cliente y tienda, más el armado del correo y el caso de un envío caído), agenda
 por punto (**franjas con días de la semana**: la API rechaza
 franjas deshabilitadas, de otro punto o de un día que no corresponde), **puntos de retiro presencial con

@@ -1,11 +1,11 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (repostería artesanal)
-**Versión del documento:** 1.12
+**Versión del documento:** 1.13
 **Fecha:** 2026-09-25
 **Estado:** Documento vivo — estado actual del código y decisiones
 
-**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D35). El
+**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D36). El
 historial de cambios por versión y el plan de trabajo por fases ya no se mantienen: lo aprobado está
 implementado. Los **pendientes** se listan en `PLAN.md` §4.
 
@@ -17,9 +17,9 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 |---|---|
 | **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`; carrito en `localStorage` (`lib/cart.ts`); panel admin en `app/admin` → `components/admin-dashboard.tsx`; login por correo/contraseña + Google en `app/login`; cuenta `app/cuenta` dentro del layout de la tienda; `proxy.ts` protege `/admin` (rol admin). Sesión compartida (`lib/session-client.ts`), respaldo de lecturas públicas (`lib/offline-cache.ts`) y ajustes de tienda (`lib/use-store-settings.ts`). |
 | **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
-| **Datos** | `backend/app/models.py` (SQLAlchemy): `profiles`, `categories`, `products`, `orders` (con `expires_at`, la **reserva de stock**), `order_items`, `time_slots` (franjas **de cada punto**, con sus días y **sin nombre**), `closed_days` (fechas cerradas puntuales, **sin motivo**), `shipping_zones` (**solo retiro presencial, sin tipo**), `reviews`, `store_settings` e `instagram_token`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
+| **Datos** | `backend/app/models.py` (SQLAlchemy): `profiles`, `categories`, `products`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con sus días y **sin nombre**), `closed_days` (fechas cerradas puntuales, **sin motivo**), `shipping_zones` (**solo retiro presencial, sin tipo**), `reviews`, `store_settings` e `instagram_token`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
 | **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (puntos con sus franjas y fechas cerradas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
-| **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, puntos, reviews, órdenes con stock server-side (**reserva con expiración**, D35), ajustes, imágenes y feed de Instagram. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
+| **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, puntos, reviews, órdenes **bajo pedido** (el pedido no descuenta ni reserva stock, D35), ajustes, imágenes y feed de Instagram. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
 | **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**, incluida la **paleta de la tienda** (`theme_colors`: acento, tinta, bloque suave, texto secundario y detalle cálido — D29). |
 
 ---
@@ -30,8 +30,8 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 |---|---|---|---|
 | D1 | Ficha de producto | Página propia `/producto/[slug]` (mejor SEO y escalable), integrada al layout de la tienda. | Tienda, ficha |
 | D2 | Alérgenos | Por producto: array de códigos (`gluten`, `lacteos`, `frutos-secos`, `huevo`, `mani`, `soja`, `sesamo`) + íconos en la ficha y en el editor. | Schema, ficha, panel |
-| D3 | Regla de stock | Híbrido: estado manual + auto `sold_out` cuando `inventory = 0`, salvo `allow_backorder`. | API, etiquetas de la tienda |
-| D4 | "Bajo pedido" | Solo `allow_backorder`, sin días de anticipación (`lead_time_days`). | Schema, tienda |
+| D3 | Regla de stock | El stock es **informativo** y lo ajusta el admin a mano: no bloquea la compra ni se descuenta al vender. La etiqueta distingue lo listo («Disponible») de lo que se prepara al pedirlo («Bajo Pedido»), ambos comprables. Ajustada por D35. | API, tienda |
+| D4 | "Bajo pedido" | **Implícito en toda la tienda**: cualquier producto se puede pedir aunque no haya stock (se retira `allow_backorder`). La antelación vive en los **días de preparación** (D35). | Schema, tienda, checkout |
 | D7 | Fuente de verdad | **API FastAPI dockerizada (AWS)** como única fuente de verdad. | Arquitectura |
 | D8 | Orden de pagos | **Webpay Plus pendiente** de credenciales TBK: es el **único medio** del checkout y del panel (se retiró la transferencia, D34). Hasta activarlo el pedido se registra y el pago se coordina por WhatsApp. El flujo ya tiene **página visible de retorno** (`/checkout/retorno`) y, al registrar el pedido, **correo de confirmación al cliente y aviso a la tienda**. Las restricciones y los «por si acaso» de la pasarela están en **PLAN §5** (checklist de activación). | Checkout, panel, correo |
 | D9 | WhatsApp | **Botón flotante `wa.me` implementado** (redondo, solo ícono). **Notificación automática pendiente** de proveedor. | Tienda, ficha, checkout |
@@ -58,7 +58,8 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | D32 | Días libres, franja y cierre | Los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran el **cierre semanal** `closed_weekdays`, el **nombre de la franja** (`time_slots.label`) y el **motivo** de la fecha cerrada (`closed_days.reason`). Ajusta D18 y D19. | Backend, agenda, checkout |
 | D33 | Puntos de entrega | **Un solo tipo: retiro presencial.** En la práctica «retiro presencial» y «punto de encuentro» eran lo mismo (una dirección y unos horarios donde el cliente pasa a buscar), así que se retiran `shipping_zones.type` y `orders.fulfillment`: el punto se define por su nombre, su ubicación y sus franjas. Ajusta D16. | Backend, agenda, pedidos, reportes, checkout |
 | D34 | Pago sin transferencia | La web **no ofrece transferencia bancaria**: se retiran `store_settings.bank_account_info`, el bloque «Datos para transferir» del checkout y el medio de pago. Checkout y panel quedan **solo con Webpay** (D8); hasta cargar las credenciales TBK el pedido se registra y el pago se coordina por WhatsApp. | Backend, panel, checkout |
-| D35 | Reserva de stock | El stock de un pedido **pendiente de pago** es una **reserva con vencimiento** (`orders.expires_at`): se descuenta al crear el pedido y, si el pago no llega en `STOCK_HOLD_MINUTES` (**30** por defecto), `app/stock.py` la libera —devuelve el stock y deja el pedido en **`expired`**—. Corre en una **tarea de fondo** y antes de crear un pedido; al pagar se cierra y al cancelar un pendiente el stock se devuelve. | Backend, panel (estado «Expirado»), reportes |
+| D35 | Bajo pedido y días de preparación | Toda la plantilla se trabaja **bajo pedido**: la compra nunca se bloquea por stock y el pedido **no descuenta ni reserva** inventario (se retiran `app/stock.py`, `orders.expires_at`, el estado `expired` y el ajuste `allow_backorder`). Cada producto declara sus **días de preparación** (`preparation_days`, **0** por defecto); el checkout empuja el primer día agendable para que el pedido alcance a prepararse y el **calendario arranca en el primer día disponible**, sin mostrar los bloqueados previos. | Backend, panel, checkout, tienda |
+| D36 | Estados del producto | Solo **dos**: `active` (visible en la tienda) e `inactive` (oculto en la tienda, visible en el panel de inventario). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. Los productos ya guardados en estados retirados se convierten a `active` al arrancar la API. | Schema, API, panel, reportes |
 
 ---
 
@@ -67,7 +68,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | Archivo | Rol |
 |---|---|
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
-| `components/product-detail.tsx` | Ficha de producto `/producto/[slug]`: galería con flechas y miniaturas, ingredientes, alérgenos, stock y comentarios (D1, D2) |
+| `components/product-detail.tsx` | Ficha de producto `/producto/[slug]`: galería con flechas y miniaturas, ingredientes, alérgenos, stock, comentarios (D1, D2) y la cantidad —editable con los botones y escribiéndola al hacer clic— |
 | `components/instagram-grid.tsx` | **Feed de Instagram propio** (D30): 15 últimas publicaciones (3×5 en escritorio, 2 por fila en celular) con likes, comentarios y descripción al pasar el mouse; lee `GET /api/instagram/feed` |
 | `lib/instagram.ts` | Tipos y **configuración única** del feed (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`, `INSTAGRAM_COLUMNS_MOBILE = 2`) y espejo de lo que devuelve la API; se edita **solo en el código** (D30) |
 | `backend/app/instagram.py` | Feed de Instagram de la API: consulta Instagram, normaliza las publicaciones (imagen, video → miniatura, carrusel → primera hija), cachea 15 min y **renueva solo** el token con la tarea de fondo (D31). El token se carga **una sola vez en el entorno del backend** |
@@ -96,8 +97,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | `lib/offline-cache.ts` | Última versión conocida de la **vidriera** en `localStorage`, usada solo si la API falla (D20); expone `loadCached()` |
 | `lib/use-store-settings.ts` | Hook único de **ajustes de tienda** (fetch + `mergeSettings` + respaldo) |
 | `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
-| `backend/tests/*` | Pruebas de la API (57: catálogo, órdenes con **reserva y expiración de stock**, agenda, auth, correo de confirmación, correos y Instagram) |
-| `backend/app/stock.py` | **Reserva y expiración del stock** de los pedidos pendientes de pago (D35): libera el stock al vencer y deja el pedido en `expired`; tarea de fondo del arranque |
+| `backend/tests/*` | Pruebas de la API (54: catálogo, **bajo pedido implícito**, días de preparación y **estados activo/inactivo**, agenda, auth, correo de confirmación, correos y Instagram) |
 | `backend/app/emails.py` | Correo transaccional con **Resend**: plantilla del código de confirmación (D14) y **confirmación del pedido al cliente + aviso a la tienda** al registrar la orden (D8) |
 | `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (Google, admin, JWT e Instagram) |
 | `https://simplysweet.cl` | **Referencia de diseño/UX** para la ficha y el checkout (D15) |
