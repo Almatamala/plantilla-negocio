@@ -448,7 +448,6 @@ function ProductEditor({ product, categories, onCancel, onSave, setState, mode =
             <span className="mb-1.5 block text-[#647167]">Alérgenos</span>
             <div className="flex flex-wrap gap-2">{Object.entries(ALLERGENS).map(([code, info]) => <button key={code} type="button" onClick={() => toggleAllergen(code)} className={`rounded-full border px-3 py-1.5 text-xs transition ${allergens.includes(code) ? "border-[#243128] bg-[#243128] text-white" : "border-[#d9ddd5] hover:border-[#243128]"}`}>{info.icon} {info.label}</button>)}</div>
           </div>
-          <p className="rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-xs leading-5 text-[#647167]">Todos los productos se venden <strong>bajo pedido</strong>: el stock no bloquea la compra ni se descuenta. Los días de preparación empujan el primer día agendable en el checkout.</p>
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>

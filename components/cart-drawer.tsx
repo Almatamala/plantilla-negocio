@@ -64,7 +64,6 @@ export function CartDrawer({
               <div className="border-t border-[var(--brand-accent)] pt-5">
                 <div className="mb-4 flex justify-between"><span>Total</span><span className="display text-xl">{formatPrice(total)}</span></div>
                 <Link href="/checkout" className="block w-full bg-[var(--brand-accent)] py-4 text-center text-sm text-white">Continuar al checkout</Link>
-                <p className="mt-3 text-center text-xs text-[var(--brand-muted)]">Elige punto de retiro, día, horario y forma de pago.</p>
               </div>
             )}
           </motion.aside>

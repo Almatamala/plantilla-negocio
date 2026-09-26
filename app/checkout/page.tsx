@@ -265,7 +265,6 @@ export default function CheckoutPage() {
             en pantalla junto al botón de confirmar (ver nota de espacio en `summary`). */}
         <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1">
           <h1 className="display text-2xl md:text-3xl">Agenda tu pedido</h1>
-          <p className="text-sm text-[#526058]">Elige dónde retiras tu pedido y el día y horario en que lo necesitas.</p>
         </div>
 
         {/* Sin API no hay disponibilidad real ni forma de registrar el pedido: se dice de frente en
@@ -293,10 +292,10 @@ export default function CheckoutPage() {
           <div className="min-w-0 lg:pr-12">
             <section className={SECTION}>
               <h2 className="text-sm font-semibold">1 · Contacto</h2>
-              {user && <p className="mt-2 text-xs text-[#526058]">Sesión iniciada{user.email ? ` como ${user.email}` : ""}. Tus datos se completaron automáticamente.</p>}
+              {user && <p className="mt-2 text-xs text-[#526058]">Sesión iniciada, tus datos se completaron automáticamente.</p>}
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <Field label="Correo electrónico" hint="Opcional: lo usamos para avisarte del pedido.">
+                  <Field label="Correo electrónico">
                     <input type="email" value={contact.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} placeholder="tucorreo@ejemplo.cl" className={FIELD}/>
                   </Field>
                 </div>
@@ -354,7 +353,7 @@ export default function CheckoutPage() {
                 <>
                   <p className="mt-2 text-xs text-[#647167]">
                     {preparationDays > 0 ? `Tu pedido necesita ${preparationDays} ${preparationDays === 1 ? "día" : "días"} de preparación, así que el calendario empieza en el primer día disponible. ` : ""}
-                    Hasta {SCHEDULE_WINDOW_DAYS / 7} semanas de anticipación. Solo aparecen los días en que ese punto atiende, y después los horarios de ese día.
+                    Hasta {SCHEDULE_WINDOW_DAYS / 7} semanas de anticipación. 
                   </p>
                   {days.length === 0 ? (
                     <p className="mt-3 text-sm text-[#8a4a44]">No hay días disponibles en las próximas semanas para este pedido. Escríbenos por WhatsApp y lo coordinamos.</p>
