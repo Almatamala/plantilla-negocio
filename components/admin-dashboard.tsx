@@ -17,15 +17,19 @@ import { formatSlot, weekdayFromIso } from "@/lib/schedule";
 
 type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "contenido" | "reportes";
 type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
-type OrderStatus = "Pendiente" | "Pagado" | "Preparando" | "Enviado" | "Entregado" | "Cancelado";
+// Estados unificados (D37): un pedido en preparación ya está pagado, así que «Pagado» y «Preparando»
+// se unificaron en «Pendiente» y solo se ofrecen Pendiente / Enviado / Entregado / Cancelado.
+type OrderStatus = "Pendiente" | "Enviado" | "Entregado" | "Cancelado";
 type Order = { id: string; customer: string; total: number; status: OrderStatus; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; createdAt?: string | null };
 type AdminProduct = Product & { category_id: string | null };
 type CategoryRow = { id: string; name: string; slug: string };
 type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; created_at: string; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
 
 
-const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", paid: "Pagado", preparing: "Preparando", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado" };
-const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Pagado: "paid", Preparando: "preparing", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
+// `paid` y `preparing` no se listan: el fallback `statusDbToUi[o.status] ?? "Pendiente"` de `mapApiOrder`
+// ya los muestra como «Pendiente», así que agregarlos solo duplicaba esa regla.
+const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado" };
+const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
 const displayOrderId = (id: string) => (id.startsWith("#") ? id : id.slice(0, 8).toUpperCase());
 /**
  * Campos de selección del panel.
@@ -135,7 +139,7 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
 }
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
-function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className={SELECT_FIELD_SM}><option>Pendiente</option><option>Pagado</option><option>Preparando</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
+function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className={SELECT_FIELD_SM}><option>Pendiente</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
 // Todos los pedidos son **retiro presencial** (D33): la celda ya no distingue tipo, solo el punto.
 function FulfillmentCell({ order }: { order: Order }) { return <div className="flex items-center gap-2"><span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#e4e9f5] px-2 py-1 text-xs whitespace-nowrap text-[#3d5384]"><Store size={12}/>Retiro presencial</span><span className="text-xs text-[#748077]">Retira en: {order.location || order.zone || "—"}</span></div>; }
 function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
@@ -159,8 +163,6 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
           <option value="activos">Pedidos activos</option>
           <option value="all">Todos los estados</option>
           <option value="Pendiente">Pendiente</option>
-          <option value="Pagado">Pagado</option>
-          <option value="Preparando">Preparando</option>
           <option value="Enviado">Enviado</option>
           <option value="Entregado">Entregado</option>
           <option value="Cancelado">Cancelado</option>
@@ -184,6 +186,8 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
   const [editing, setEditing] = useState<AdminProduct | null>(null);
   // Producto al que se le está agregando stock desde el botón «+» de la tabla.
   const [stocking, setStocking] = useState<AdminProduct | null>(null);
+  // Producto pendiente de confirmar para eliminar (el borrado siempre pasa por el diálogo).
+  const [deleting, setDeleting] = useState<AdminProduct | null>(null);
   const [sort, setSort] = useState<{ key: "name" | "price" | "inventory"; dir: "asc" | "desc" } | null>(null);
   const blankProduct: AdminProduct = { id: "", slug: "", name: "", price: 0, category: "Sin categoría", description: "", ingredients: "", images: [], allergens: [], tone: "light", status: "active", inventory: 0, preparation_days: 0, category_id: null };
   const options = [...new Set(catalog.map((p) => p.category).filter(Boolean))].sort();
@@ -238,6 +242,15 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
       setState("Producto creado.");
       onCreatingChange(false);
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo crear."); }
+  }
+  /** Elimina el producto del catálogo, ya confirmado en el diálogo de borrado. */
+  async function removeProduct(product: AdminProduct) {
+    try {
+      await apiFetch(`/api/products/${product.id}`, { method: "DELETE", admin: true });
+      onCatalogChange((items) => items.filter((p) => p.id !== product.id));
+      setState("Producto eliminado.");
+      setDeleting(null);
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar."); }
   }
   /** Suma unidades al stock del producto desde el modal (D35). */
   async function addStock(product: AdminProduct, amount: number) {
@@ -319,7 +332,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
                   <td>{formatPrice(product.price)}</td>
                   <td>{product.inventory}</td>
                   <td><span className={`rounded-full px-2 py-1 text-xs ${meta.className}`}>{meta.label}</span></td>
-                  <td className="text-right"><div className="inline-flex items-center gap-2"><button onClick={() => setEditing(product)} aria-label={`Editar ${product.name}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button><button onClick={() => setStocking(product)} aria-label={`Agregar stock a ${product.name}`} title="Agregar stock" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Plus size={14}/></button></div></td>
+                  <td className="text-right"><div className="inline-flex items-center gap-2"><button onClick={() => setEditing(product)} aria-label={`Editar ${product.name}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button><button onClick={() => setStocking(product)} aria-label={`Agregar stock a ${product.name}`} title="Agregar stock" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Plus size={14}/></button><button onClick={() => setDeleting(product)} aria-label={`Eliminar ${product.name}`} title="Eliminar" className="rounded-md border border-[#d9ddd5] p-1.5 text-[#8a4a44] transition hover:border-[#8a4a44]"><Trash2 size={14}/></button></div></td>
                 </tr>
               ); })}
             </tbody>
@@ -327,12 +340,31 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
           {filtered.length === 0 && <p className="py-8 text-center text-sm text-[#647167]">No hay productos que coincidan con los filtros.</p>}
         </div>
       </section>
+      {deleting && <DeleteProductModal product={deleting} onCancel={() => setDeleting(null)} onConfirm={() => removeProduct(deleting)}/>}
       {stocking && <StockModal product={stocking} onCancel={() => setStocking(null)} onAdd={(amount) => addStock(stocking, amount)}/>}
       {editing && <ProductEditor product={editing} categories={categories} onCancel={() => setEditing(null)} onSave={saveProduct} setState={setState}/>}
       {creating && <ProductEditor product={blankProduct} categories={categories} mode="create" onCancel={() => onCreatingChange(false)} onSave={createProduct} setState={setState}/>}
     </div>
   );
 }
+function DeleteProductModal({ product, onCancel, onConfirm }: { product: AdminProduct; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
+      <div role="alertdialog" aria-modal="true" aria-label={`Eliminar ${product.name}`} className="w-full max-w-sm rounded-xl bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="display text-2xl">Eliminar producto</h2>
+          <button type="button" onClick={onCancel} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
+        </div>
+        <p className="text-sm text-[#647167]">¿Seguro que quieres eliminar <strong>{product.name}</strong>? Se quita del catálogo y no se puede deshacer.</p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
+          <button type="button" onClick={onConfirm} className="rounded-lg bg-[#8a4a44] px-4 py-2.5 text-sm text-white">Eliminar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StockModal({ product, onCancel, onAdd }: { product: AdminProduct; onCancel: () => void; onAdd: (amount: number) => void }) {
   const [amount, setAmount] = useState("1");
   function submit(event: React.FormEvent) { event.preventDefault(); const value = Number(amount); if (value > 0) onAdd(value); }

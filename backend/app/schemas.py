@@ -4,7 +4,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 ProductStatus = Literal["active", "inactive"]
-OrderStatus = Literal["pending", "paid", "preparing", "shipped", "delivered", "cancelled", "refunded"]
+# Estados del pedido (D37): un pedido en preparación ya está pagado (por la web o por un acuerdo
+# hablado cargado en el panel), así que `paid` y `preparing` sobraban y quedan unificados en `pending`.
+OrderStatus = Literal["pending", "shipped", "delivered", "cancelled", "refunded"]
 ReviewStatus = Literal["pending", "approved", "rejected"]
 
 

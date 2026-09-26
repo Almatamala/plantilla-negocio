@@ -26,9 +26,11 @@ type MyOrder = {
   items: { name: string; unit_price: number; quantity: number }[];
 };
 
+// Estados unificados (D37): `paid` y `preparing` se retiraron; quedan pendiente, enviado, entregado
+// y cancelado (el reembolso se muestra como cancelado).
 const STATUS_LABEL: Record<string, string> = {
-  pending: "Pendiente", paid: "Pagado", preparing: "Preparando",
-  shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado",
+  pending: "Pendiente", shipped: "Enviado", delivered: "Entregado",
+  cancelled: "Cancelado", refunded: "Cancelado",
 };
 
 export default function CuentaPage() {

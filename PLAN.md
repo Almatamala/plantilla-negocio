@@ -34,7 +34,8 @@ Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend
    `store_settings.bank_account_info` (**D34**) y la reserva de stock `orders.expires_at` junto con
    `products.allow_backorder` (el «bajo pedido» ahora es **implícito**); además se **agrega**
    `products.preparation_days` (los **días de preparación**, **D35**). Un `UPDATE` convierte a `active` los
-   productos con estados retirados (`draft`, `sold_out`, `preorder`, **D36**). El usuario de la base
+   productos con estados retirados (`draft`, `sold_out`, `preorder`, **D36**) y otro convierte a `pending`
+   los pedidos guardados en `paid`/`preparing` (estados unificados, **D37**). El usuario de la base
    debe tener permiso DDL; en RDS, verificar que no esté restringido. En una base nueva no hace nada.
 3. **Variables de entorno.** `AUTH_JWT_SECRET` debe ser **el mismo** en Next.js y en la API (si difiere, las
    sesiones dejan de validar); `CORS_ORIGINS` debe incluir el dominio de producción; `ADMIN_EMAILS` define
@@ -89,6 +90,7 @@ decisiones nuevas (**D32**, **D33**, **D34**, **D35** y **D36**):
 | **A44** | Correo de confirmación del pedido | **D8:** al registrar un pedido el backend envía con **Resend** la **confirmación al cliente** (correo del checkout) y el **aviso a la tienda** (correo de Contenido). Es de **mejor esfuerzo**: sin Resend se omite y nunca tumba la compra. WhatsApp automático queda descartado por ahora. |
 | **A45** | Días de preparación para una tienda que trabaja **bajo pedido** | **D35:** todo el catálogo se vende **bajo pedido** (se retira `allow_backorder`; el stock no bloquea la compra ni se descuenta) y cada producto declara **días de preparación**, que empujan el primer día agendable del checkout. Se elimina la **reserva de stock** con expiración. |
 | **A46** | Los estados del inventario quedan solo en **activo** e **inactivo** | **D36:** solo **activo** (visible en la tienda) e **inactivo** (oculto en la tienda, visible en el panel). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. El filtro de stock «Bajo pedido (sin stock)» pasa a **«Sin stock»**. |
+| **A47** | En el panel, unificar los estados de pedido **pendiente/pagado/preparando** en «Pendiente»; quitar el tag de stock de la vitrina y la ficha; opción para **eliminar un producto** | **D37:** `paid` y `preparing` se unifican en `pending` (un pedido en preparación ya está pagado), el panel ofrece Pendiente/Enviado/Entregado/Cancelado y la API convierte los pedidos viejos al arrancar. Se retira la etiqueta de disponibilidad («Disponible»/«Bajo Pedido») de «Productos destacados» y de la ficha —seguía apareciendo porque dependía del **stock**, no del estado del producto— y `stockLabel` sale de `lib/products.ts`. Se agrega el botón de **eliminar producto** en el panel (la API `DELETE /api/products/{id}` ya existía). |
 
 **Decisión D32 (nueva):** los días que no se atiende salen de los **días de cada franja** (por punto, D18) y
 de las **fechas cerradas puntuales** (`closed_days`). Se retira el cierre semanal `closed_weekdays` porque
@@ -112,6 +114,17 @@ ve en la tienda pero sí en el panel de inventario, así que el catálogo públi
 pide todo con `?include_inactive=true`. Se retiran `draft`, `sold_out` y `preorder` (unificados en `active`),
 los productos guardados en esos estados se convierten a `active` al arrancar la API, y un producto nuevo
 nace **activo**.
+
+**Decisión D37 (nueva):** el pedido arranca y se gestiona en **un solo estado inicial, `pending`**. Un pedido
+«en preparación» ya está pagado —se pagó en la web o se acordó al cargarlo en el panel—, así que `paid` y
+`preparing` no aportaban información y se unifican en `pending`; quedan `pending`, `shipped`, `delivered`,
+`cancelled` y `refunded` (que el panel y la cuenta muestran como **Cancelado**). El panel ofrece
+Pendiente / Enviado / Entregado / Cancelado y los pedidos guardados en `paid`/`preparing` se convierten a
+`pending` al arrancar la API. **Ajusta D8** (Webpay): al confirmar el pago el pedido **no cambia de
+estado**; el pago se registra en los datos de la transacción (§5.6/§5.7), así que el commit idempotente no
+necesita un estado «Pagado». **A47** retira además la etiqueta de disponibilidad de la vitrina y la ficha
+(seguía apareciendo porque dependía del stock, no del estado del producto) y suma el borrado de productos
+en el panel.
 
 **Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
@@ -186,17 +199,19 @@ expuesto.
 ### 5.5 Dinero, stock y estado del pedido
 - La tienda trabaja **bajo pedido** (**D35**): el pedido se crea antes de pagar y **no** toca el stock (no
   hay reserva ni expiración ni devolución: nunca se retuvo nada).
-- Estados: `pending` → `paid` (solo al confirmar) → …; el commit debe ser **idempotente** (marcar pagado
-  una sola vez aunque lleguen dos confirmaciones).
+- Estados: con **D37** el pedido no cambia de estado al pagar (sigue `pending`); el commit debe ser
+  **idempotente** (registrar el pago una sola vez aunque lleguen dos confirmaciones).
 - Comparar **monto confirmado vs. total del pedido**: si no coinciden, **no** marcar pagado y alertar.
 - Asociar `buyOrder`/`sessionId`/`token` al pedido en la base para poder consultar y auditar.
 
 ### 5.6 Confirmación segura en el backend (fuente de verdad)
-- El route handler **no** puede marcar un pedido pagado con un endpoint público: hoy
+- El route handler **no** puede confirmar un pago con un endpoint público: hoy
   `PATCH /api/orders/{id}/status` exige admin. Agregar un endpoint dedicado (p. ej.
   `POST /api/orders/{id}/payment`) con **secreto compartido** (`API_ADMIN_TOKEN` o uno propio) que reciba
   token, `buyOrder`, monto, código de autorización, tipo de pago y fecha; que **valide el monto** y sea
-  **idempotente**. La llamada es **servidor a servidor**.
+  **idempotente**. La llamada es **servidor a servidor**. Con **D37** este endpoint **no** cambia el
+  estado del pedido: registra el pago (en `payment_method` y la transacción guardada) y el pedido sigue
+  en `pending`.
 
 ### 5.7 Reconciliación (por si el cliente cierra el navegador)
 - Si el cliente paga y **cierra la pestaña** sin volver, el pago queda autorizado en Transbank y el pedido
@@ -238,7 +253,7 @@ expuesto.
 - [ ] `POST` en `/api/webpay/confirm` (hoy solo `GET`).
 - [ ] `buyOrder`/`sessionId` propios, únicos y ≤ 26/61 caracteres, guardados por pedido.
 - [ ] Monto recalculado en el servidor y validado contra la confirmación.
-- [ ] Endpoint interno **idempotente** para marcar pagado (con secreto).
+- [ ] Endpoint interno **idempotente** para registrar el pago (con secreto); no cambia el estado (D37).
 - [ ] Página de retorno sin `token_ws` en la URL y sin depender de la cookie.
 - [ ] Reintento de pago **sin duplicar el pedido**.
 - [ ] Reconciliación de pagos sin retorno (consulta de estado).

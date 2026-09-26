@@ -134,6 +134,7 @@ class Order(Base):
     customer_name: Mapped[Optional[str]] = mapped_column(String(180))
     customer_phone: Mapped[Optional[str]] = mapped_column(String(60))
     customer_email: Mapped[Optional[str]] = mapped_column(String(254))
+    # Estados unificados (D37): `paid` y `preparing` se retiraron y quedan en `pending`.
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     payment_method: Mapped[Optional[str]] = mapped_column(String(80))

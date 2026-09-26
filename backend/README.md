@@ -57,9 +57,10 @@ editable** desde el panel— y la de `products.preparation_days` (los **días de
 retiran `products.allow_backorder` (el «bajo pedido» ahora es **implícito** de toda la tienda) y
 `orders.expires_at` (la antigua **reserva de stock**), además de `shipping_zones.type` y
 `orders.fulfillment` (retiro presencial y punto de encuentro se unificaron, D33) y
-`store_settings.bank_account_info` (la web no publica datos bancarios, D34); y un `UPDATE` convierte a
-`active` los productos con **estados retirados** (`draft`, `sold_out`, `preorder`, D36). Ver PLAN §0.7,
-§0.8, §0.13, §0.15 y §0.17).
+`store_settings.bank_account_info` (la web no publica datos bancarios, D34); un `UPDATE` convierte a
+`active` los productos con **estados retirados** (`draft`, `sold_out`, `preorder`, D36); y otro
+convierte a `pending` los pedidos en los **estados retirados** `paid` y `preparing` (los estados del
+pedido quedaron unificados, D37). Ver PLAN §0.7, §0.8, §0.13, §0.15 y §0.17).
 
 ## Variables de entorno
 

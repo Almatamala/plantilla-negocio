@@ -134,6 +134,13 @@ PRODUCT_STATUS_STATEMENTS = (
     "UPDATE products SET status = 'active' WHERE status NOT IN ('active', 'inactive')",
 )
 
+# Estados del pedido (D37): `paid` y `preparing` se unifican en `pending` porque un pedido en
+# preparación ya está pagado (por la web o por un acuerdo hablado cargado en el panel). Los pedidos
+# guardados en esos estados se convierten a `pending` al arrancar, como con los estados del producto.
+ORDER_STATUS_STATEMENTS = (
+    "UPDATE orders SET status = 'pending' WHERE status IN ('paid', 'preparing')",
+)
+
 VERIFICATION_TTL_MINUTES = 15
 VERIFICATION_RESEND_SECONDS = 60
 VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
@@ -160,6 +167,8 @@ async def lifespan(_: FastAPI):
             for statement in ORDER_PREPARATION_COLUMNS:
                 connection.execute(text(statement))
             for statement in PRODUCT_STATUS_STATEMENTS:
+                connection.execute(text(statement))
+            for statement in ORDER_STATUS_STATEMENTS:
                 connection.execute(text(statement))
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
     # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.

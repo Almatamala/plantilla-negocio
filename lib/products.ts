@@ -89,15 +89,3 @@ export function mapApiProduct(row: ApiProduct, index: number, categories: Map<st
 }
 
 export const formatPrice = (price: number) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(price);
-
-/**
- * Etiqueta de disponibilidad. En esta plantilla **todo se trabaja bajo pedido** (D35): el stock no
- * bloquea la compra, solo distingue lo que hay listo («Disponible») de lo que se prepara al pedirlo
- * («Bajo Pedido»). Por eso `available` siempre es `true`.
- */
-export function stockLabel(product: Pick<Product, "inventory">): { label: string; className: string; available: boolean } {
-  if (product.inventory > 0) {
-    return { label: "Disponible", className: "bg-[#e2f0e2] text-[#3c6b3f]", available: true };
-  }
-  return { label: "Bajo Pedido", className: "bg-[#fff0d8] text-[#8a6420]", available: true };
-}

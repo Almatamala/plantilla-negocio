@@ -122,9 +122,12 @@ def test_invalid_product_is_rejected(client, admin_headers):
 def test_order_total_is_calculated_and_status_can_change(client, admin_headers):
     order = client.post("/api/orders", json={"items": [{"name": "Producto", "unit_price": 10000, "quantity": 2}, {"name": "Otro", "unit_price": 5000, "quantity": 1}]}).json()
     assert order["total"] == 25000
-    updated = client.patch(f"/api/orders/{order['id']}/status", headers=admin_headers, json={"status": "preparing"})
+    # `paid` y `preparing` se unificaron en `pending` (D37): ya no son estados válidos.
+    assert client.patch(f"/api/orders/{order['id']}/status", headers=admin_headers, json={"status": "preparing"}).status_code == 422
+    assert client.patch(f"/api/orders/{order['id']}/status", headers=admin_headers, json={"status": "paid"}).status_code == 422
+    updated = client.patch(f"/api/orders/{order['id']}/status", headers=admin_headers, json={"status": "shipped"})
     assert updated.status_code == 200
-    assert updated.json()["status"] == "preparing"
+    assert updated.json()["status"] == "shipped"
 
 
 def test_order_can_be_edited_by_admin(client, admin_headers):

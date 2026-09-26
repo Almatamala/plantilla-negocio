@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Star } from "lucid
 import { apiFetch } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { readCache, writeCache } from "@/lib/offline-cache";
-import { formatPrice, mapApiProduct, stockLabel, type ApiProduct, type Product } from "@/lib/products";
+import { formatPrice, mapApiProduct, type ApiProduct, type Product } from "@/lib/products";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { allergenInfo } from "@/lib/allergens";
@@ -144,7 +144,6 @@ export function ProductDetail({ slug }: { slug: string }) {
     );
   }
 
-  const stock = stockLabel(product);
   const gallery = [...(product.images ?? []), ...(product.image_url && !(product.images ?? []).includes(product.image_url) ? [product.image_url] : [])].filter(Boolean) as string[];
   const hasReviews = reviews.length > 0;
   // Índice de la foto visible: permite avanzar/retroceder con las flechas y da la vuelta al llegar al final.
@@ -176,14 +175,10 @@ export function ProductDetail({ slug }: { slug: string }) {
         <div className="md:py-4">
           <p className="text-xs tracking-[.18em] text-[var(--brand-accent)] uppercase">{product.category}</p>
           <h1 className="display mt-2 text-4xl leading-tight md:text-5xl">{product.name}</h1>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${stock.className}`}>{stock.label}</span>
-          </div>
           <p className="display mt-5 text-3xl">{formatPrice(product.price)}</p>
           <p className="mt-5 max-w-prose leading-7 text-[var(--brand-muted)]">{product.description}</p>
           {product.ingredients && <div className="mt-6"><h2 className="text-xs tracking-[.16em] text-[var(--brand-muted)] uppercase">Ingredientes principales</h2><p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">{product.ingredients}</p></div>}
           {product.allergens && product.allergens.length > 0 && <div className="mt-6"><h2 className="text-xs tracking-[.16em] text-[var(--brand-muted)] uppercase">Información de alérgenos</h2><div className="mt-3 flex flex-wrap gap-2">{product.allergens.map((code) => { const info = allergenInfo(code); return info ? <span key={code} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-surface)] bg-white px-3 py-1.5 text-xs" title={`Contiene: ${info.label}`}>{info.icon}{info.label}</span> : null; })}</div></div>}
-          {!stock.available && <p className="mt-6 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">Este producto está agotado. Vuelve pronto o consulta por WhatsApp.</p>}
           <div className="mt-7 flex items-center gap-4">
             <div className="flex items-center gap-3 rounded-full border border-[var(--brand-surface)] px-4 py-2.5">
               <button onClick={() => setQuantity(qty - 1)} aria-label="Disminuir cantidad"><Minus size={16}/></button>
@@ -203,7 +198,7 @@ export function ProductDetail({ slug }: { slug: string }) {
               />
               <button onClick={() => setQuantity(qty + 1)} aria-label="Aumentar cantidad"><Plus size={16}/></button>
             </div>
-            <button onClick={addToCart} disabled={!stock.available} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--brand-accent)] px-6 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"><ShoppingBag size={16}/>Agregar al carrito</button>
+            <button onClick={addToCart} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--brand-accent)] px-6 py-3 text-sm text-white"><ShoppingBag size={16}/>Agregar al carrito</button>
           </div>
           {added && <div className="mt-4 rounded-lg bg-[#e7eae0] p-3 text-sm text-[#4d573e]">Producto agregado a tu carrito. <Link href="/checkout" className="underline underline-offset-2">Ir al checkout</Link> o <Link href="/#coleccion" className="underline underline-offset-2">seguir comprando</Link>.</div>}
           <div className="mt-8 border-t border-[var(--brand-surface)] pt-6">

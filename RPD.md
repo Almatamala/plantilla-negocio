@@ -1,8 +1,8 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (repostería artesanal)
-**Versión del documento:** 1.13
-**Fecha:** 2026-09-25
+**Versión del documento:** 1.14
+**Fecha:** 2026-09-26
 **Estado:** Documento vivo — estado actual del código y decisiones
 
 **Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D36). El
@@ -30,7 +30,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 |---|---|---|---|
 | D1 | Ficha de producto | Página propia `/producto/[slug]` (mejor SEO y escalable), integrada al layout de la tienda. | Tienda, ficha |
 | D2 | Alérgenos | Por producto: array de códigos (`gluten`, `lacteos`, `frutos-secos`, `huevo`, `mani`, `soja`, `sesamo`) + íconos en la ficha y en el editor. | Schema, ficha, panel |
-| D3 | Regla de stock | El stock es **informativo** y lo ajusta el admin a mano: no bloquea la compra ni se descuenta al vender. La etiqueta distingue lo listo («Disponible») de lo que se prepara al pedirlo («Bajo Pedido»), ambos comprables. Ajustada por D35. | API, tienda |
+| D3 | Regla de stock | El stock es **informativo** y lo ajusta el admin a mano: no bloquea la compra ni se descuenta al vender. La etiqueta de disponibilidad («Disponible»/«Bajo Pedido») se retiró de la vitrina y de la ficha (**A47**, D35): todo se trabaja bajo pedido y los dos tags decían lo mismo sin aportar. | API, tienda |
 | D4 | "Bajo pedido" | **Implícito en toda la tienda**: cualquier producto se puede pedir aunque no haya stock (se retira `allow_backorder`). La antelación vive en los **días de preparación** (D35). | Schema, tienda, checkout |
 | D7 | Fuente de verdad | **API FastAPI dockerizada (AWS)** como única fuente de verdad. | Arquitectura |
 | D8 | Orden de pagos | **Webpay Plus pendiente** de credenciales TBK: es el **único medio** del checkout y del panel (se retiró la transferencia, D34). Hasta activarlo el pedido se registra y el pago se coordina por WhatsApp. El flujo ya tiene **página visible de retorno** (`/checkout/retorno`) y, al registrar el pedido, **correo de confirmación al cliente y aviso a la tienda**. Las restricciones y los «por si acaso» de la pasarela están en **PLAN §5** (checklist de activación). | Checkout, panel, correo |
@@ -60,6 +60,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | D34 | Pago sin transferencia | La web **no ofrece transferencia bancaria**: se retiran `store_settings.bank_account_info`, el bloque «Datos para transferir» del checkout y el medio de pago. Checkout y panel quedan **solo con Webpay** (D8); hasta cargar las credenciales TBK el pedido se registra y el pago se coordina por WhatsApp. | Backend, panel, checkout |
 | D35 | Bajo pedido y días de preparación | Toda la plantilla se trabaja **bajo pedido**: la compra nunca se bloquea por stock y el pedido **no descuenta ni reserva** inventario (se retiran `app/stock.py`, `orders.expires_at`, el estado `expired` y el ajuste `allow_backorder`). Cada producto declara sus **días de preparación** (`preparation_days`, **0** por defecto); el checkout empuja el primer día agendable para que el pedido alcance a prepararse y el **calendario arranca en el primer día disponible**, sin mostrar los bloqueados previos. | Backend, panel, checkout, tienda |
 | D36 | Estados del producto | Solo **dos**: `active` (visible en la tienda) e `inactive` (oculto en la tienda, visible en el panel de inventario). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. Los productos ya guardados en estados retirados se convierten a `active` al arrancar la API. | Schema, API, panel, reportes |
+| D37 | Estados del pedido | **Un solo estado inicial: `pending`.** Un pedido «en preparación» ya está pagado (se pagó en la web o se acordó al cargarlo en el panel), así que `paid` y `preparing` no aportaban nada y se unifican en `pending`. Quedan `pending`, `shipped`, `delivered`, `cancelled` y `refunded` (el panel muestra este último como Cancelado) y los pedidos guardados en `paid`/`preparing` se convierten a `pending` al arrancar la API. Ajusta D8: al confirmar Webpay el pedido **no cambia de estado**; el pago se registra en los datos de la transacción (§5.6/§5.7 de `PLAN.md`). | Schema, API, panel, cuenta, checkout |
 
 ---
 
@@ -86,7 +87,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | `lib/theme.ts` | Paleta de marca editable: los cinco tonos, su normalización y las variables CSS que aplican las vistas cálidas (D29) |
 | `store_settings.theme_colors` | Paleta guardada como JSON (`accent`, `ink`, `surface`, `muted`, `detail`); sin valores guardados manda la del código (D29) |
 | `app/admin/page.tsx`, `app/login/page.tsx` | Rutas del panel y del login (correo/contraseña + Google) |
-| `lib/products.ts` | Productos demo (fallback) + `formatPrice` y etiquetas de stock |
+| `lib/products.ts` | Productos demo (fallback) + `formatPrice` y el tipo `Product` (sin etiquetas de stock, retiradas en A47) |
 | `lib/store-config.ts` | Fallback de la identidad (nombre, hero, historia) |
 | `lib/api.ts` | Cliente HTTP de la API (JWT de sesión `Bearer`; respaldo `X-Admin-Token`) |
 | `lib/session.ts` / `lib/session-client.ts` | Verificación del JWT en el servidor (jose) y sesión compartida del navegador (una sola lectura de `/api/auth/me`) |
