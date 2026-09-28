@@ -3,41 +3,86 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Menu, Minus, Package, Plus, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Package, Plus, Search } from "lucide-react";
+import { useCart } from "@/lib/cart";
+import { fetchCatalog } from "@/lib/catalog";
+import { loadCached } from "@/lib/offline-cache";
 import { formatPrice, type Product } from "@/lib/products";
-import { createClient } from "@/lib/supabase/browser";
-import { storeConfig } from "@/lib/store-config";
+import { useStoreSettings } from "@/lib/use-store-settings";
+import { themeVars } from "@/lib/theme";
+import { CartDrawer } from "@/components/cart-drawer";
+import { EditableText } from "@/components/editable-content";
+import { FloatingCart } from "@/components/floating-cart";
+import { InstagramGrid } from "@/components/instagram-grid";
+import { StoreFooter, StoreHeader } from "@/components/store-shell";
+import { WhatsAppButton } from "@/components/whatsapp-button";
 
-type Cart = Record<string, number>;
+/**
+ * Productos por página en «Productos destacados»: 8, o sea 4 columnas × 2 filas. Es un valor **fijo**
+ * de la vitrina (no se edita desde el panel), así que la carta siempre pagina igual.
+ */
+const PRODUCTS_PER_PAGE = 8;
 
 export function Storefront({ products }: { products: Product[] }) {
   const [catalog, setCatalog] = useState(products);
-  const [cart, setCart] = useState<Cart>({});
+  const config = useStoreSettings();
   const [drawer, setDrawer] = useState(false);
   const [search, setSearch] = useState("");
-  const [menu, setMenu] = useState(false);
-  useEffect(() => { const saved = localStorage.getItem("store-cart"); const timer = window.setTimeout(() => { if (saved) setCart(JSON.parse(saved)); }, 0); return () => window.clearTimeout(timer); }, []);
-  useEffect(() => localStorage.setItem("store-cart", JSON.stringify(cart)), [cart]);
-  const count = Object.values(cart).reduce((a, b) => a + b, 0);
-  useEffect(() => { const client = createClient(); if (!client) return; client.from("products").select("id, slug, name, price, description, categories(name)").eq("status", "active").then(({ data }) => { if (data?.length) setCatalog(data.map((p, index) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: (p.categories as unknown as { name: string } | null)?.name ?? "Productos", tone: (["warm", "light", "deep", "classic"] as const)[index % 4] }))); }); }, []);
-  const total = catalog.reduce((sum, product) => sum + product.price * (cart[product.id] ?? 0), 0);
-  const visible = catalog.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.category.toLowerCase().includes(search.toLowerCase()));
-  const add = (id: string) => { setCart((c) => ({ ...c, [id]: (c[id] ?? 0) + 1 })); setDrawer(true); };
-  const change = (id: string, delta: number) => setCart((c) => { const next = Math.max(0, (c[id] ?? 0) + delta); const copy = { ...c }; if (!next) delete copy[id]; else copy[id] = next; return copy; });
+  const [category, setCategory] = useState("");
+  const [page, setPage] = useState(0);
+  const { cart, add, change, count } = useCart();
 
-  return <main className="min-h-screen overflow-hidden">
-    <div className="bg-[#243128] px-4 py-2 text-center text-[11px] tracking-[.16em] text-[#f7f4ec] uppercase">{storeConfig.announcement} · Plantilla demo</div>
-    <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6 md:px-10">
-      <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="Abrir menú"><Menu size={22}/></button>
-      <nav className={`${menu ? "flex" : "hidden"} absolute top-28 left-5 right-5 z-20 flex-col gap-4 rounded-2xl bg-white p-6 shadow-lg md:static md:flex md:flex-row md:bg-transparent md:p-0 md:shadow-none`}><a href="#coleccion">Productos</a><a href="#beneficios">Beneficios</a><a href="#historia">Nosotros</a></nav>
-      <a href="#inicio" className="display text-3xl tracking-tight md:absolute md:left-1/2 md:-translate-x-1/2">{storeConfig.name}</a>
-      <div className="flex items-center gap-4"><button onClick={() => document.getElementById("buscador")?.focus()} aria-label="Buscar"><Search size={20}/></button><Link href="/login" aria-label="Mi cuenta" title="Mi cuenta"><UserRound size={20}/></Link><button className="relative" onClick={() => setDrawer(true)} aria-label="Carrito"><ShoppingBag size={21}/>{count > 0 && <span className="absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full bg-[#d88480] text-[10px] text-white">{count}</span>}</button></div>
-    </header>
-    <section id="inicio" className="mx-auto grid max-w-7xl grid-cols-1 px-5 pb-16 md:grid-cols-[1.05fr_.95fr] md:px-10"><div className="flex min-h-[430px] flex-col justify-center py-14 md:py-20"><p className="mb-5 text-xs tracking-[.2em] text-[#56745c] uppercase">{storeConfig.eyebrow}</p><h1 className="display max-w-xl text-5xl leading-[.96] md:text-7xl">{storeConfig.headline}</h1><p className="mt-7 max-w-md leading-7 text-[#526058]">{storeConfig.description}</p><a href="#coleccion" className="mt-9 inline-flex w-fit items-center gap-3 border-b border-[#243128] pb-2 text-sm font-medium">Ver productos <ArrowRight size={16}/></a></div><div className="hero-visual relative min-h-[410px] overflow-hidden rounded-t-full md:rounded-none"><div className="absolute bottom-7 left-7 bg-white/90 px-5 py-4 text-sm backdrop-blur"><span className="block text-xs tracking-wider text-[#56745c] uppercase">Destacado</span><span className="display text-xl">{storeConfig.featuredCollection}</span></div></div></section>
-    <section id="coleccion" className="bg-[#edf0e8] px-5 py-20 md:px-10"><div className="mx-auto max-w-7xl"><div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs tracking-[.18em] text-[#56745c] uppercase">Catálogo</p><h2 className="display mt-2 text-4xl md:text-5xl">Explora lo que tenemos para ti</h2></div><label className="flex items-center gap-2 border-b border-[#a7b2a3] pb-2 text-sm"><Search size={16}/><input id="buscador" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar productos" className="w-44 bg-transparent outline-none placeholder:text-[#748077]"/></label></div><div className="mb-8 flex flex-wrap gap-2">{["Todos", ...Array.from(new Set(catalog.map((product) => product.category)))].map((category) => <button key={category} onClick={() => setSearch(category === "Todos" ? "" : category)} className="rounded-full border border-[#a7b2a3] px-4 py-2 text-sm transition hover:border-[#243128] hover:bg-[#243128] hover:text-white">{category}</button>)}</div><div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">{visible.map((product) => <article key={product.id} className="group"><div data-tone={product.tone} className="product-visual relative aspect-[.83] overflow-hidden"><span className="absolute left-3 top-3 bg-[#faf7f0] px-2 py-1 text-[10px] tracking-wider uppercase">{product.badge ?? product.category}</span><button onClick={() => add(product.id)} className="absolute bottom-3 right-3 grid h-10 w-10 place-items-center rounded-full bg-white opacity-100 transition md:translate-y-2 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100" aria-label={`Agregar ${product.name}`}><Plus size={18}/></button></div><div className="flex justify-between gap-3 pt-4"><div><h3 className="display text-xl">{product.name}</h3><p className="mt-1 text-sm text-[#647167]">{product.description}</p></div><span className="whitespace-nowrap text-sm">{formatPrice(product.price)}</span></div></article>)}</div>{visible.length === 0 && <p className="py-12 text-center text-[#647167]">No encontramos productos con esa búsqueda.</p>}</div></section>
-    <section id="beneficios" className="mx-auto grid max-w-7xl gap-8 px-5 py-20 md:grid-cols-3 md:px-10">{[["Compra con confianza", "Destaca tus garantías, materiales, soporte o cualquier beneficio importante."], ["Una experiencia simple", "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra."], ["Tu negocio, tu estilo", "Cambia textos, precios, fotos y colecciones desde el CMS incluido."]].map(([title, text]) => <div key={title}><Package className="mb-5 text-[#56745c]"/><h3 className="display text-2xl">{title}</h3><p className="mt-3 leading-7 text-[#647167]">{text}</p></div>)}</section>
-    <section id="historia" className="bg-[#d9cbb7] px-5 py-20 md:px-10"><div className="mx-auto max-w-3xl text-center"><p className="text-xs tracking-[.18em] uppercase">{storeConfig.storyEyebrow}</p><h2 className="display mt-4 text-4xl md:text-5xl">{storeConfig.storyHeadline}</h2><p className="mx-auto mt-6 max-w-xl leading-7">{storeConfig.storyDescription}</p><Link href="/admin" className="mt-8 inline-flex items-center gap-2 border-b border-[#243128] pb-2 text-sm">Ir al panel de administración <ArrowRight size={16}/></Link></div></section>
-    <footer className="bg-[#243128] px-5 py-12 text-[#f8f5ee] md:px-10"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row"><div><p className="display text-3xl">{storeConfig.name}</p><p className="mt-3 text-sm text-[#c8d1c4]">Una base para crear marcas con vida.</p></div><div className="flex gap-6 text-sm"><Link href="/login">Cuenta</Link><Link href="/admin">Administración</Link></div></div></footer>
-    <AnimatePresence>{drawer && <><motion.button aria-label="Cerrar carrito" onClick={() => setDrawer(false)} className="fixed inset-0 z-30 bg-[#243128]/25" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} /><motion.aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-[#faf7f0] p-6 shadow-2xl" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", stiffness: 330, damping: 32 }}><div className="flex items-center justify-between"><h2 className="display text-3xl">Tu carrito</h2><button onClick={() => setDrawer(false)} aria-label="Cerrar"><X/></button></div><div className="mt-8 flex-1 space-y-5 overflow-auto">{Object.entries(cart).length === 0 ? <p className="text-[#647167]">Aún no agregas productos a tu carrito.</p> : catalog.filter(p => cart[p.id]).map(p => <div key={p.id} className="flex gap-4 border-b border-[#d9d6cd] pb-5"><div data-tone={p.tone} className="product-visual h-20 w-16 shrink-0"/><div className="flex-1"><div className="flex justify-between"><p className="display text-lg">{p.name}</p><span>{formatPrice(p.price * cart[p.id])}</span></div><div className="mt-3 flex items-center gap-3"><button onClick={() => change(p.id, -1)}><Minus size={15}/></button><span className="text-sm">{cart[p.id]}</span><button onClick={() => change(p.id, 1)}><Plus size={15}/></button></div></div></div>)}</div>{count > 0 && <div className="border-t border-[#243128] pt-5"><div className="mb-4 flex justify-between"><span>Total</span><span className="display text-xl">{formatPrice(total)}</span></div><button className="w-full bg-[#243128] py-4 text-sm text-white">Continuar (próximamente)</button><p className="mt-3 text-center text-xs text-[#647167]">Pago, despacho y otras integraciones se agregan en una siguiente etapa.</p></div>}</motion.aside></>}</AnimatePresence>
+  // Los productos demo solo son el punto de partida: manda la API y, si no responde, lo último
+  // guardado en este navegador (ver `lib/offline-cache.ts`).
+  useEffect(() => {
+    let active = true;
+    void loadCached("catalog", fetchCatalog).then(({ value }) => {
+      if (active && value?.length) setCatalog(value);
+    });
+    return () => { active = false; };
+  }, []);
+
+  // Búsqueda y categoría son filtros independientes y combinables: el texto busca dentro de la
+  // categoría activa (AND), y «Todos» (categoría vacía) no restringe.
+  const visible = catalog.filter((p) =>
+    (category === "" || p.category === category) && p.name.toLowerCase().includes(search.toLowerCase()),
+  );
+  const addToCart = (id: string) => { add(id); setDrawer(true); };
+
+  // Catálogo paginado: la vitrina muestra 8 productos por página (4 columnas × 2 filas) y la página se
+  // recorta al total para que un filtro más chico no deje la vitrina vacía.
+  const pageCount = Math.max(1, Math.ceil(visible.length / PRODUCTS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageProducts = visible.slice(currentPage * PRODUCTS_PER_PAGE, currentPage * PRODUCTS_PER_PAGE + PRODUCTS_PER_PAGE);
+  const goToPage = (delta: number) => setPage(Math.min(Math.max(currentPage + delta, 0), pageCount - 1));
+  // Al filtrar o buscar se vuelve a la primera página, y los productos que quedan se acomodan solos.
+  const onSearch = (value: string) => { setSearch(value); setPage(0); };
+  const onCategory = (value: string) => { setCategory(value); setPage(0); };
+
+  // La paleta editable (D29) entra como variables CSS en el `<main>`, así que la heredan la carta, el
+  // header, el carrito lateral y el footer sin pasar ninguna prop.
+  return <main className="theme-bosque min-h-screen overflow-hidden" style={themeVars(config.theme_colors)}>
+    <StoreHeader warm config={config} cartCount={count} onSearch={() => document.getElementById("buscador")?.focus()} onCartOpen={() => setDrawer(true)}/>
+    <section id="inicio" className="mx-auto grid max-w-7xl grid-cols-1 px-5 pb-16 md:grid-cols-[1.05fr_.95fr] md:px-10"><div className="flex min-h-[430px] flex-col justify-center py-14 md:py-20"><p className="mb-5 text-xs tracking-[.2em] text-[var(--brand-accent)] uppercase">{config.eyebrow}</p><EditableText as="h1" field="hero_title" value={config.headline} className="display max-w-xl text-5xl leading-[.96] md:text-7xl"/><EditableText as="p" field="hero_description" value={config.description} className="mt-7 max-w-md leading-7 text-[var(--brand-muted)]"/><Link href="/#coleccion" className="mt-9 inline-flex w-fit items-center gap-3 border-b border-[var(--brand-accent)] pb-2 text-sm font-medium">Ver productos <ArrowRight size={16}/></Link></div><div className="hero-visual relative min-h-[410px] overflow-hidden rounded-t-full md:rounded-none"><div className="absolute bottom-7 left-7 bg-white/90 px-5 py-4 text-sm backdrop-blur"><span className="block text-xs tracking-wider text-[var(--brand-accent)] uppercase">Destacado</span><span className="display text-xl">{config.featuredCollection}</span></div></div></section>
+    <section id="coleccion" className="bg-[var(--brand-surface)] px-5 py-20 md:px-10"><div className="mx-auto max-w-7xl">
+      <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs tracking-[.18em] text-[var(--brand-accent)] uppercase">Catálogo</p><h2 className="display mt-2 text-4xl md:text-5xl">Productos destacados</h2></div><label className="flex items-center gap-2 border-b border-[var(--brand-accent)] pb-2 text-sm"><Search size={16}/><input id="buscador" value={search} onChange={(e) => onSearch(e.target.value)} placeholder="Buscar productos" className="w-44 bg-transparent outline-none placeholder:text-[var(--brand-muted)]"/></label></div>
+      {/* Los filtros van arriba del catálogo, como en la referencia. */}
+      <div className="mb-8 flex flex-wrap items-center gap-2">{["Todos", ...Array.from(new Set(catalog.map((product) => product.category)))].map((option) => <button key={option} onClick={() => onCategory(option === "Todos" ? "" : option)} className="rounded-full border border-[var(--brand-accent)] px-4 py-2 text-sm transition hover:border-[var(--brand-accent)] hover:bg-[var(--brand-accent)] hover:text-white">{option}</button>)}
+        {/* Flechas de página del catálogo, a la derecha de los filtros. */}
+        {pageCount > 1 && <div className="ml-auto flex items-center gap-2"><span className="text-sm text-[var(--brand-muted)]">{currentPage + 1} / {pageCount}</span><button onClick={() => goToPage(-1)} disabled={currentPage === 0} aria-label="Productos anteriores" className="grid h-10 w-10 place-items-center rounded-full border border-[var(--brand-accent)] text-[var(--brand-accent)] transition hover:bg-[var(--brand-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--brand-accent)]"><ChevronLeft size={18}/></button><button onClick={() => goToPage(1)} disabled={currentPage >= pageCount - 1} aria-label="Productos siguientes" className="grid h-10 w-10 place-items-center rounded-full border border-[var(--brand-accent)] text-[var(--brand-accent)] transition hover:bg-[var(--brand-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--brand-accent)]"><ChevronRight size={18}/></button></div>}
+      </div>
+      {/* Carta limpia: solo foto, nombre y precio — sin categoría ni descripción debajo (referencia simplysweet.cl). */}
+      {/* Al cambiar el filtro los productos que no coinciden se desvanecen y los que quedan se juntan: el
+          layout de framer-motion anima la grilla, no solo desaparece. */}
+      <motion.div layout className="grid grid-cols-2 gap-x-1 gap-y-6 lg:grid-cols-4"><AnimatePresence mode="popLayout">{pageProducts.map((product) => { const photo = product.images?.[0] ?? product.image_url; return <motion.article key={product.id} layout initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.28, ease: "easeOut" }} className="group"><Link href={`/producto/${product.slug}`} className="relative block"><div data-tone={product.tone} className="product-visual relative aspect-[.83] overflow-hidden ">{photo ? <img src={photo} alt={product.name} className="absolute inset-0 h-full w-full object-cover"/> : null}{product.badge && <span className="absolute left-3 bottom-3 bg-white px-2 py-1 text-[10px] tracking-wider uppercase">{product.badge}</span>}<button onClick={(e) => { e.preventDefault(); addToCart(product.id); }} className="absolute right-3 bottom-3 grid h-10 w-10 place-items-center rounded-full bg-white opacity-100 transition disabled:cursor-not-allowed disabled:opacity-40 md:translate-y-2 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100" aria-label={`Agregar ${product.name}`}><Plus size={18}/></button></div></Link><div className="pt-4"><h3 className="display  flex justify-between items-baseline px-5"> <span>{product.name}</span> <span>{formatPrice(product.price)}</span> </h3></div></motion.article>; })}</AnimatePresence></motion.div>
+      {visible.length === 0 && <p className="py-12 text-center text-[var(--brand-muted)]">No encontramos productos con esos filtros.</p>}
+    </div></section>
+    <section id="beneficios" className="mx-auto grid max-w-7xl gap-8 px-5 py-20 md:grid-cols-3 md:px-10">{[[ "Compra con confianza", "Destaca tus garantías, materiales, soporte o cualquier beneficio importante."], ["Una experiencia simple", "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra."], ["Tu negocio, tu estilo", "Cambia textos, precios, fotos y colecciones desde el CMS incluido."]].map(([title, text]) => <div key={title}><Package className="mb-5 text-[var(--brand-accent)]"/><h3 className="display text-2xl">{title}</h3><p className="mt-3 leading-7 text-[var(--brand-muted)]">{text}</p></div>)}</section>
+    <section id="historia" className="bg-[var(--brand-accent)] px-5 py-20 text-white md:px-10"><div className="mx-auto max-w-3xl text-center"><p className="text-xs tracking-[.18em] text-white/80 uppercase">{config.storyEyebrow}</p><EditableText as="h2" field="story_headline" value={config.storyHeadline} className="display mt-4 text-4xl md:text-5xl"/><EditableText as="p" field="story_description" value={config.storyDescription} className="mx-auto mt-6 max-w-xl leading-7 text-white/90"/></div></section>
+    <InstagramGrid/>
+    <StoreFooter config={config}/>
+    <WhatsAppButton phone={config.whatsapp_phone}/>
+    <FloatingCart count={count} onOpen={() => setDrawer(true)}/>
+    <CartDrawer open={drawer} onClose={() => setDrawer(false)} cart={cart} products={catalog} onChange={change}/>
   </main>;
 }

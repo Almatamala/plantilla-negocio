@@ -1,0 +1,48 @@
+import "server-only";
+import { NextResponse } from "next/server";
+import { jwtVerify } from "jose";
+
+/** Nombre de la cookie httpOnly donde vive la sesión (JWT emitido por la API). */
+export const SESSION_COOKIE = "bosque_session";
+
+/** 30 días, igual que la expiración del JWT en la API. */
+export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+/** Adjunta la sesión a la respuesta como cookie httpOnly, Secure y SameSite=Strict. */
+export function withSessionCookie(response: NextResponse, token: string): NextResponse {
+  response.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: SESSION_MAX_AGE,
+    path: "/",
+  });
+  return response;
+}
+
+export function withoutSessionCookie(response: NextResponse): NextResponse {
+  response.cookies.delete(SESSION_COOKIE);
+  return response;
+}
+
+export type SessionUser = { id: string; role: string };
+
+function secretKey(): Uint8Array {
+  const secret = process.env.AUTH_JWT_SECRET;
+  if (!secret) {
+    throw new Error("AUTH_JWT_SECRET no está definido. Debe coincidir con el del backend.");
+  }
+  return new TextEncoder().encode(secret);
+}
+
+/** Verifica la firma y expiración del JWT de sesión (optimista, sin tocar la BD). */
+export async function verifySessionToken(token: string | undefined): Promise<SessionUser | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secretKey());
+    if (typeof payload.sub !== "string" || typeof payload.role !== "string") return null;
+    return { id: payload.sub, role: payload.role };
+  } catch {
+    return null;
+  }
+}

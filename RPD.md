@@ -1,240 +1,109 @@
 # RPD — Registro de Producto y Decisiones
 
-**Proyecto:** Tienda BOSQUE (panadería/pastelería artesanal)
-**Versión del documento:** 1.0
-**Fecha:** 2026-09-08
-**Estado:** Borrador para revisión del dueño del producto
+**Proyecto:** Tienda BOSQUE (repostería artesanal)
+**Versión del documento:** 1.18
+**Fecha:** 2026-09-26
+**Estado:** Documento vivo — estado actual del código y decisiones
+
+**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D39, con D5, D6, D11 y D23 retiradas). El
+historial de cambios por versión y el plan de trabajo por fases ya no se mantienen: lo aprobado está
+implementado. Los **pendientes** se listan en `PLAN.md` §4.
 
 ---
 
-## 1. Contexto y objetivo
-
-Este documento cruza los requerimientos funcionales de BOSQUE contra el código actual de la plantilla
-(`plantilla-negocio`), identifica qué existe hoy, qué falta, dónde hay conflictos técnicos y propone un
-orden de prioridad para decidir el plan de implementación. **Ningún punto de este documento implica
-cambios de código por sí solo**: su propósito es que el dueño del producto lea, ajuste y decida.
-
----
-
-## 2. Estado actual del código (resumen)
+## 1. Estado actual del código (resumen)
 
 | Capa | Qué existe hoy |
 |---|---|
-| **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Una sola página tienda (`app/page.tsx` → `components/storefront.tsx`), carrito en `localStorage`, panel admin en `app/admin` → `components/admin-dashboard.tsx`, login por magic-link en `app/login`. |
-| **Catálogo** | `lib/products.ts` con 4 productos demo. Si hay Supabase configurado, el storefront lee `products` activos y los reemplaza. Fotos **no existen**: se usan gradientes CSS (`product-visual`) como placeholder. |
-| **Datos** | `supabase/schema.sql`: tablas `profiles`, `categories`, `products`, `product_variants`, `orders`, `order_items`, `pages`, `store_settings`, con RLS y función `is_admin()`. |
-| **Admin** | Panel con secciones Inicio / Productos / Pedidos / Clientes / Contenido / Reportes / Configuración. CRUD de productos (con Supabase si está conectado), filtros, edición de stock, gestión de pedidos con modal de ítems y filtros. |
-| **Backend alternativo** | `backend/` FastAPI + SQLAlchemy que replica el schema (catálogo, variantes, órdenes, páginas, settings) con token `X-Admin-Token`. Corre solo local/Docker; **el frontend no lo usa**. |
-| **Identidad** | Textos de la tienda hardcodeados en `lib/store-config.ts` (nombre, hero, historia). Existe tabla `store_settings` pero **no se usa**. |
-
-> ⚠️ Nota: hay cambios **sin commitear** en `components/admin-dashboard.tsx` (modal de ítems de pedido,
-> filtros de pedidos, creación de producto y modal de stock). Al momento de leer este documento,
-> ese trabajo está a medio camino y conviene commitearlo antes de empezar cualquier otra cosa.
+| **Frontend** | Next.js 16 (App Router, React 19, Tailwind v4). Tienda en `app/page.tsx` → `components/storefront.tsx`; carrito en `localStorage` (`lib/cart.ts`); panel admin en `app/admin` → `components/admin-dashboard.tsx`; login por correo/contraseña + Google en `app/login`; cuenta `app/cuenta` dentro del layout de la tienda; `proxy.ts` protege `/admin` (rol admin). Sesión compartida (`lib/session-client.ts`), respaldo de lecturas públicas (`lib/offline-cache.ts`) y ajustes de tienda (`lib/use-store-settings.ts`). |
+| **Catálogo** | `lib/products.ts` con 4 productos demo como fallback; si la API responde, el storefront lee `products` activos reales. Fotos: subida desde el admin (`POST /api/upload`), galería en ficha y storefront, con gradiente CSS como fallback. |
+| **Datos** | `backend/app/models.py` (SQLAlchemy): `profiles`, `categories`, `products`, `orders`, `order_items`, `time_slots` (franjas **de cada punto**, con sus días y **sin nombre**), `closed_days` (fechas cerradas puntuales, **sin motivo**), `shipping_zones` (**solo retiro presencial, sin tipo**), `reviews`, `store_settings` e `instagram_token`. Las tablas se crean al arrancar la API; una lista idempotente de `ALTER TABLE`/`DROP` mantiene al día las bases ya creadas (**D22**). |
+| **Admin** | Panel con secciones Inicio / Productos / Pedidos / Agenda / Comentarios / Contenido / Reportes. CRUD de productos contra la API, filtros, edición de stock, pedidos reales con creación y edición manual (sin borrado), agenda (puntos con sus franjas y fechas cerradas) y contenido editable. Acceso controlado por `proxy.ts` (rol admin). |
+| **Backend (fuente de verdad)** | `backend/` FastAPI + SQLAlchemy dockerizado (AWS). Catálogo, agenda, puntos, reviews, órdenes **bajo pedido** (el pedido no descuenta ni reserva stock, D35), ajustes, imágenes y feed de Instagram. Auth por correo/contraseña (bcrypt) + Google OAuth (authlib). Mutaciones admin con JWT `role=admin` o `X-Admin-Token`. |
+| **Identidad** | `lib/store-config.ts` es el fallback (nombre, hero, historia); la tabla `store_settings` **sí se usa**: el storefront la lee con `GET /api/settings` y el panel la edita en **Contenido**, incluida la **paleta de la tienda** (`theme_colors`: acento, tinta, bloque suave, texto secundario y detalle cálido — D29). |
 
 ---
 
-## 3. Análisis por requerimiento
+## 2. Decisiones
 
-### 3.1 Catálogo de Productos y Galería
-
-**Estado actual: parcial (sin fotos ni ficha)**
-
-- ✅ Carta digital: grid de productos con búsqueda y filtro por categoría.
-- ❌ **Ficha de producto**: no existe detalle (ni página `/producto/[slug]` ni modal). No hay ingredientes,
-  ni sello artesanal/sustentable.
-- ❌ **Fotos**: `image_url` existe en schema y en el backend, pero el admin **no la lee ni la edita** y el
-  storefront no la muestra (gradientes CSS en su lugar).
-- ❌ **Alérgenos**: no hay columna en la BD, ni íconos en la UI.
-
-**Conflictos y decisiones:**
-
-1. **Ficha como página propia vs. modal.** Una página `/producto/[slug]` es lo correcto para SEO y para
-   "fotos bonitas + descripción + ingredientes", pero agrega rutas dinámicas y generación de rutas en el
-   storefront. Un modal es más barato de construir. → **Decidir formato.**
-2. **Alérgenos por producto o por familia.** Si la receta base (masa madre, etc.) comparte alérgenos,
-   conviene un catálogo de alérgenos (tabla o constante) y una relación producto↔alérgeno; si cada
-   producto es único, basta un array por producto. Afecta el schema.
-3. **Subida de fotos.** El panel debe poder subir imágenes → requiere bucket público en Supabase Storage +
-   política RLS + editor de foto en el admin. Es trabajo transversal (admin + storefront + schema).
-
----
-
-### 3.2 Gestión de Stock Simple
-
-**Estado actual: parcial (stock en BD, pero sin etiquetas visibles ni auto-desactivación)**
-
-- ✅ `products.inventory` (número) + `status` (`draft` / `active` / `sold_out`).
-- ✅ Admin: editar stock, modal "agregar stock", filtros Disponible / Stock bajo (≤5) / Agotado.
-- ❌ Etiquetas para el cliente: el storefront no muestra **Disponible / Agotado / Bajo Pedido**.
-- ❌ **"Bajo Pedido" no existe** como estado, y **"días de anticipación"** no existe como dato.
-- ❌ **Desactivación automática**: nada cambia el estado del producto cuando el stock llega a 0 (y nadie
-  decrementa el stock hoy, porque no hay checkout real).
-
-**Conflictos y decisiones:**
-
-1. **Estado derivado vs. manual.** ¿El estado visible se calcula del inventario (`inventory > 0` →
-   Disponible; `= 0` → Agotado) o lo controla el dueño? Para un negocio artesanal es probable que el
-   dueño quiera dejar un producto en "Bajo Pedido" aunque tenga stock 0 hoy (producción futura con
-   anticipación). → **Regla a definir**: umbral de "stock bajo", y si "Agotado" es automático o manual.
-2. **Schema a migrar.** El `CHECK` de `products.status` solo permite `draft/active/sold_out`; agregar
-   "bajo pedido" + `lead_time_days` (días de anticipación) implica migración en Supabase **y** en el
-   modelo FastAPI (hay dos fuentes de verdad que mantener sincronizadas).
-3. **Auto-desactivación = decremento de stock al pedir.** Hoy no hay flujo de compra que reste stock;
-   esto queda atado al checkout (punto 3.4). Debe ser un decremento atómico (p. ej. `rpc` de Supabase)
-   para no vender de más con dos clientes simultáneos.
-
----
-
-### 3.3 Agenda de Pedidos — *el requerimiento clave*
-
-**Estado actual: casi inexistente**
-
-- ❌ Checkout real: el botón del carrito dice "Continuar (próximamente)".
-- ❌ Selección de **día + rango horario** por el cliente: no existe ningún flujo.
-- ❌ **Bloqueo de días** (cierre de días) y configuración de horarios: no hay tabla de agenda ni de días
-  cerrados.
-- ⚠️ Despacho: el admin ya distingue `retiro` / `domicilio` con una dirección de texto libre, pero **no
-  hay zonas de entrega** (San Javier domicilio; San Javier y Talca presencial) ni validación.
-
-**Conflictos y decisiones:**
-
-1. **Es el módulo más transversal.** La agenda depende del checkout (3.4), del stock (3.2) y de la ficha
-   de producto (3.1). Por eso es "clave": conviene **modelar los datos temprano** (tabla de slots/días
-   cerrados) aunque la UI de compra se construya en una fase posterior.
-2. **Slots fijos vs. libres.** ¿Franjas predefinidas configurables (ej. 09:00–12:00, 12:00–15:00) o el
-   cliente escribe su horario? Para control de producción, lo razonable son slots configurables por el
-   admin. → **Decidir** (afecta schema: `order_slots` + `closed_days`).
-3. **Zonas de entrega.** Domicilio solo en San Javier (¿radio/barrios?), retiro/entrega presencial en San
-   Javier **y** Talca. Hoy `location` es texto libre. Se necesita una tabla o constante de zonas con su
-   alcance y (si aplica) tarifa. → **Decidir alcance exacto**.
-4. **Desincronización de idiomas.** El admin usa estados en español ("Preparando") y `fulfillment`
-   hardcodeado; el schema/backend usan inglés (`preparing`, `pending`). Al persistir pedidos hay que
-   unificar los valores.
-5. La fecha/franja del pedido **no existe** en `orders`; hay que agregar `scheduled_date`,
-   `time_slot_id` y `fulfillment`/`zone` al schema.
-
----
-
-### 3.4 Pagos y WhatsApp
-
-**Estado actual: inexistente (solo campos preparados)**
-
-- ❌ **Webpay Plus**: no hay integración ni credenciales. Requiere backend (crear transacción, retorno y
-  confirmación/webhook) y la transacción se marca "pagado".
-- ❌ **Transferencia bancaria**: no hay datos de cuenta del negocio ni flujo de "adjuntar comprobante".
-- ❌ **WhatsApp**: no hay botón flotante, ni notificación automática al chat cuando entra un pedido.
-- ⚠️ **Pedidos desde admin**: el botón "Nueva orden" solo agrega una fila **en memoria local**; no
-  persiste en Supabase `orders` ni en el backend FastAPI, aunque ambas estructuras existen.
-
-**Conflictos y decisiones:**
-
-1. **¿Dónde vive la integración de pagos?** Webpay necesita un servidor: las API Routes de Next.js o el
-   backend FastAPI existente. El backend FastAPI **no está desplegado** y hoy el frontend no lo usa →
-   hay que decidir si se despliega, se migra a API Routes, o se elimina para tener una sola fuente de
-   verdad (recomendado: **una sola**, idealmente Supabase + API Routes, para no mantener dos backends).
-2. **Webpay es el bloque de mayor esfuerzo y dependencia externa** (cuenta Transbank, certificados TBK).
-   Es buen candidato a **dejarse para el final** o fase 2, partiendo con transferencia + confirmación
-   manual.
-3. **Notificación WhatsApp**: opciones — API oficial de Meta (WhatsApp Cloud, requiere cuenta Business,
-   es la única vía "automática" robusta), o enlace `wa.me` con mensaje prefabricado (cero backend, pero
-   el cliente debe apretar "enviar"). El botón flotante de dudas es trivial; la **notificación
-   automática** es la parte costosa. → **Decidir proveedor/vía.**
-4. Transferencia = flujo manual: el admin marca "Pagado" cuando ve el comprobante. Esto ya es posible
-   con los estados existentes, pero falta la UI en el cliente.
-
----
-
-### 3.5 Identidad y Panel de Control
-
-**Estado actual: parcial**
-
-- ✅ Sección "Nuestra Historia": existe, pero con textos hardcodeados en `lib/store-config.ts`; la
-  sección **Contenido** del admin es una tarjeta placeholder (no edita nada).
-- ❌ **Feed de Instagram**: no existe.
-- ⚠️ **Panel auto-gestionable**: el admin funciona en desktop, pero **en celular el menú lateral está
-  oculto** (`hidden md:block`) sin alternativa → contradice directamente el requisito "gestionar desde el
-  celular, ipad, computador".
-- ❌ **Comentarios de clientes**: no existe ni tabla ni UI.
-- ⚠️ El admin **no valida el rol**: cualquier usuario logueado entra al panel (la RLS de Supabase
-  protege la escritura, pero la UI no se adapta y muestra errores al no-admin).
-
-**Conflictos y decisiones:**
-
-1. **Feed de Instagram**: un embed real requiere cuenta comercial + token de Meta (caduca, frágil). La
-   alternativa barata es una grilla estática o enlace directo. → **Decidir** si vale el embed real.
-2. **Comentarios**: ¿anónimos o con cuenta? ¿Moderados por el admin o publicados al instante? Requiere
-   tabla `reviews` + RLS. Bajo costo, pero es "nice-to-have" → candidato a última fase.
-3. **Panel móvil**: rediseñar la navegación del admin (drawer o bottom nav) es trabajo transversal y
-   **necesario** si la premisa es administrar desde el celular → sube de prioridad.
-4. **Contenido editable**: para cumplir "cambiar precios, subir fotos, actualizar stock desde cualquier
-   dispositivo" el panel ya cubre productos/stock; falta conectar `store_settings` (nombre, hero,
-   historia, WhatsApp, datos de transferencia) al panel y al storefront.
-
----
-
-## 4. Priorización propuesta
-
-> Clasificación sugerida. El dueño puede reasignar; está hecha para separar "lo que habilita vender"
-> de "lo que embellece/retiene".
-
-| Prioridad | Bloque | Justificación |
-|---|---|---|
-| **P0 — Fundación (antes de abrir a clientes)** | **3.1 Catálogo + fotos + ficha + alérgenos** | Sin ficha con fotos e ingredientes no hay venta; es la carta del negocio. |
-| **P0** | **3.2 Stock (etiquetas + bajo pedido + auto-desactivación)** | Evita vender lo que no hay; bajo pedido es el modelo de producción artesanal. |
-| **P0** | **3.3 Agenda (día + franja, bloqueo de días, zonas San Javier/Talca)** | Es el diferenciador clave del negocio y el módulo que condiciona al resto (checkout, stock, pagos). |
-| **P1 — Operación** | **3.4 Pagos (transferencia primero, Webpay después) + persistencia real de pedidos** | Sin cobro no hay negocio; pero Webpay (dependencia externa) puede ir en fase 2. |
-| **P1** | **3.5 Panel móvil + contenido editable (conectar `store_settings`)** | Habilita el "panel auto-gestionable" prometido. |
-| **P2 — Al final** | **WhatsApp: botón flotante** (rápido) y **notificación automática** (depende de proveedor externo) | El botón es barato y de alto valor; la notificación automática depende de decisión de proveedor. |
-| **P2** | **Feed de Instagram, sección de comentarios, reportes/analítica avanzada** | Nice-to-have de marca y retención; no bloquean la venta. |
-
-**Resumen para el dueño:** *primero* catálogo con fotos/ficha/alérgenos + stock + agenda;
-*al final* Instagram, comentarios y la notificación automática de WhatsApp (y posiblemente Webpay si se
-quiere partir con transferencia).
-
----
-
-## 5. Decisiones abiertas (para resolver por el dueño)
-
-| # | Decisión | Opciones | Impacto |
+| # | Decisión | Resolución | Impacto |
 |---|---|---|---|
-| D1 | Ficha de producto | Página `/producto/[slug]` vs. modal | SEO, esfuerzo frontend |
-| D2 | Alérgenos | Por producto vs. por familia/receta | Schema |
-| D3 | Regla de stock | Estado automático derivado de inventario vs. manual con umbrales | Lógica + schema |
-| D4 | "Bajo pedido" | ¿Qué significa? (producción futura, días de anticipación `lead_time_days`, cupos diarios) | Schema + agenda |
-| D5 | Slots horarios | Franjas fijas configurables vs. horario libre del cliente | Schema agenda |
-| D6 | Zonas de entrega | Radio San Javier, Talca solo presencial, tarifas | Schema + checkout |
-| D7 | Fuente de verdad única | Supabase + API Routes de Next **vs.** FastAPI desplegado | Arquitectura; hoy hay 2 backends y ninguno persiste pedidos desde la UI |
-| D8 | Orden de pagos | Transferencia primero (manual) + Webpay en fase 2 | Esfuerzo, credenciales |
-| D9 | WhatsApp automático | API Meta Cloud vs. enlace `wa.me` manual | Costo, cuenta Business |
-| D10 | Comentarios | Anónimos vs. con cuenta; moderados vs. directos | Schema, RLS |
-| D11 | Instagram | Embed real (token) vs. enlace/gráfica estática | Mantención |
-| D12 | Alcance del panel móvil | Drawer/bottom-nav en admin | Trabajo transversal |
+| D1 | Ficha de producto | Página propia `/producto/[slug]` (mejor SEO y escalable), integrada al layout de la tienda. | Tienda, ficha |
+| D2 | Alérgenos | Por producto: array de códigos (`gluten`, `lacteos`, `frutos-secos`, `huevo`, `mani`, `soja`, `sesamo`) + íconos en la ficha y en el editor. | Schema, ficha, panel |
+| D3 | Regla de stock | El stock es **informativo** y lo ajusta el admin a mano: no bloquea la compra ni se descuenta al vender. La etiqueta de disponibilidad («Disponible»/«Bajo Pedido») se retiró de la vitrina y de la ficha (**A47**, D35): todo se trabaja bajo pedido y los dos tags decían lo mismo sin aportar. | API, tienda |
+| D4 | "Bajo pedido" | **Implícito en toda la tienda**: cualquier producto se puede pedir aunque no haya stock (se retira `allow_backorder`). La antelación vive en los **días de preparación** (D35). | Schema, tienda, checkout |
+| D7 | Fuente de verdad | **API FastAPI dockerizada (AWS)** como única fuente de verdad. | Arquitectura |
+| D8 | Orden de pagos | **Webpay Plus pendiente** de credenciales TBK: es el **único medio** del checkout y del panel (se retiró la transferencia, D34). Hasta activarlo el pedido se registra y el pago se coordina por WhatsApp. El flujo ya tiene **página visible de retorno** (`/checkout/retorno`) y, al registrar el pedido, **correo de confirmación al cliente y aviso a la tienda**. Las restricciones y los «por si acaso» de la pasarela están en **PLAN §5** (checklist de activación). | Checkout, panel, correo |
+| D9 | WhatsApp | **Botón flotante `wa.me` implementado** (redondo, solo ícono). **Notificación automática pendiente** de proveedor. | Tienda, ficha, checkout |
+| D10 | Comentarios | Anónimos por producto y **moderados** por el admin antes de publicarse (tabla `reviews`). | Ficha, panel › Comentarios |
+| D12 | Panel móvil | El panel tiene menú desplegable en pantallas pequeñas (hamburguesa). | Panel |
+| D13 | Protección del panel | Sesión server-side en cookie httpOnly + `proxy.ts` por rol admin; login por correo/contraseña + Google. | Seguridad |
+| D14 | Confirmación de cuenta | Código temporal de 6 dígitos por correo (Resend). **Pendiente externo:** cuenta y dominio verificado en Resend. | `profiles`, auth, `/login` |
+| D15 | Referencia de diseño | https://simplysweet.cl para la ficha y el checkout; https://www.studiopasacademy.com como referencia de la sección de Instagram. | Ficha, checkout, carta |
+| D16 | Entrega | Sin despacho a domicilio: solo **retiro presencial** (en San Javier / Talca) con ubicación y horarios; ventana de 2 semanas. **Ajustada por D33:** dejó de distinguirse «punto de encuentro». | `shipping_zones`, checkout, admin |
+| D17 | Nota del pedido | Eliminada del checkout, del admin y del schema (`orders.notes`). | Checkout, admin |
+| D18 | Franjas horarias | Cada franja **cuelga de un punto** y declara los **días** en que atiende; el punto no tiene un horario en texto libre. El cliente elige punto → día → franja. | `time_slots`, checkout, agenda |
+| D19 | Días cerrados | **Ajustada por D32:** quedan los **días de cada franja** y las **fechas cerradas puntuales**; el cierre semanal se retiró. | Checkout, agenda |
+| D20 | Modo sin conexión | **Última versión conocida** en `localStorage` (clave versionada, 7 días) como respaldo de la **vidriera**; no cubre el panel ni la agenda del checkout (ahí se avisa y se bloquea la confirmación). | Tienda, ficha |
+| D21 | Reportes del negocio | Ventas + ticket promedio, más/menos vendidos y los sin ventas, ventas por punto, pedidos por día y franja, e ingresos por categoría con reposición; incluye rango personalizado por meses enteros (hasta un año). | Panel › Reportes |
+| D22 | Alcance del modelo | Producto **uno por publicación** (sin variantes, SKU ni campos SEO propios) y **sin páginas editables**; el contenido editable es `store_settings`. | Backend, panel |
+| D24 | Identidad visual | Paleta cálida (**#D7CDC1**, **#D9B391**, **#846851**, **#401A04**, **#808C6D**) en carta y ficha; el footer es cálido en todo el sitio (D28) y los cinco tonos se editan en Contenido (D29). | `globals.css`, tienda, ficha |
+| D25 | Paginado del catálogo | **8 productos por página** con flechas y transición animada al filtrar. Ajustada por D26 (cantidad fija). | Carta |
+| D26 | Productos por página | **8 por página, fijos** (4 columnas × 2 filas); dejó de ser configurable y se retiró `store_settings.products_per_page`. | Carta, API |
+| D27 | Footer de la tienda | Footer **profesional** compartido por carta, ficha y cuenta —marca, contacto (correo, teléfono, WhatsApp e Instagram), navegación y copyright—; el checkout mantiene su footer mínimo (D15). | `store-shell.tsx` |
+| D28 | Footer cálido único | **Un solo footer, siempre en la paleta cálida**, en todo el sitio (pierde la prop `warm`); el header conserva `warm`. | `store-shell.tsx` |
+| D29 | Paleta de marca editable | Los **cinco tonos** se editan en **Contenido › Colores** y se guardan en `store_settings.theme_colors`; la tienda los aplica con variables CSS `--brand-*` y deriva el resto con `color-mix`. | Panel, tienda |
+| D30 | Feed de Instagram | **Feed propio** con la **API de Instagram** (15 últimas en 3 filas de 5 columnas, con likes, comentarios y descripción al pasar el mouse); el token vive **solo en la API**. Retira el widget de terceros (esa decisión quedó retirada: su número no se reutiliza). | Instagram |
+| D31 | Renovación del token de Instagram | **Automática y dentro de la API**: el token de larga duración vive en `instagram_token` y una **tarea de fondo** lo renueva (revisa cada 12 h, renueva a los 50 días); la API sirve el feed y expone estado y renovación manual a los admins. | Backend Instagram |
+| D32 | Días libres, franja y cierre | Los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran el **cierre semanal** `closed_weekdays`, el **nombre de la franja** (`time_slots.label`) y el **motivo** de la fecha cerrada (`closed_days.reason`). Ajusta D18 y D19. | Backend, agenda, checkout |
+| D33 | Puntos de entrega | **Un solo tipo: retiro presencial.** En la práctica «retiro presencial» y «punto de encuentro» eran lo mismo (una dirección y unos horarios donde el cliente pasa a buscar), así que se retiran `shipping_zones.type` y `orders.fulfillment`: el punto se define por su nombre, su ubicación y sus franjas. Ajusta D16. | Backend, agenda, pedidos, reportes, checkout |
+| D34 | Pago sin transferencia | La web **no ofrece transferencia bancaria**: se retiran `store_settings.bank_account_info`, el bloque «Datos para transferir» del checkout y el medio de pago. Checkout y panel quedan **solo con Webpay** (D8); hasta cargar las credenciales TBK el pedido se registra y el pago se coordina por WhatsApp. | Backend, panel, checkout |
+| D35 | Bajo pedido y días de preparación | Toda la plantilla se trabaja **bajo pedido**: la compra nunca se bloquea por stock y el pedido **no descuenta ni reserva** inventario (se retiran `app/stock.py`, `orders.expires_at`, el estado `expired` y el ajuste `allow_backorder`). Cada producto declara sus **días de preparación** (`preparation_days`, **0** por defecto); el checkout empuja el primer día agendable para que el pedido alcance a prepararse y el **calendario arranca en el primer día disponible**, sin mostrar los bloqueados previos. | Backend, panel, checkout, tienda |
+| D36 | Estados del producto | Solo **dos**: `active` (visible en la tienda) e `inactive` (oculto en la tienda, visible en el panel de inventario). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. Los productos ya guardados en estados retirados se convierten a `active` al arrancar la API. | Schema, API, panel, reportes |
+| D37 | Estados del pedido | **Un solo estado inicial: `pending`.** Un pedido «en preparación» ya está pagado (se pagó en la web o se acordó al cargarlo en el panel), así que `paid` y `preparing` no aportaban nada y se unifican en `pending`. Quedan `pending`, `shipped`, `delivered`, `cancelled` y `refunded` (el panel muestra este último como Cancelado) y los pedidos guardados en `paid`/`preparing` se convierten a `pending` al arrancar la API. Ajusta D8: al confirmar Webpay el pedido **no cambia de estado**; el pago se registra en los datos de la transacción (§5.6/§5.7 de `PLAN.md`). | Schema, API, panel, cuenta, checkout |
+| D38 | Edición visual de la página | El admin entra a **`/admin/editor`** (bajo `/admin`, protegido por `proxy.ts`) y ve el **storefront real**: cada texto editable se resalta y, al hacer clic, **el mismo elemento** se vuelve editable (`contentEditable`), así conserva fuente, tamaño y posición. Solo entran los textos que **ya viven en `store_settings`** (nombre, anuncio, hero y historia); el resto de la copy sigue fija en el código. Los cambios se confirman con **«Guardar cambios»** (un solo `PUT /api/settings`). En el editor la tienda se ve **oscurecida** por un velo y los textos editables quedan por encima con los textos **en blanco** y un **borde inferior** que aparece **solo al pasar el mouse** (un `box-shadow` interno, que **no altera el layout**: la posición sigue siendo la de la página; A49). Ningún texto es la excepción, **incluido el nombre del header**: se centra sin `translate`, así no crea un contexto de apilado que lo deje debajo del velo (A49). La sección **Contenido** deja solo el contacto, los colores y el botón **«Editar en la página»**: esos textos ya no se editan en formularios. Fuera del editor no cambia nada: `EditableText` se comporta como texto normal. | Frontend, panel, settings |
+| D39 | Transición de la galería de la ficha | La **galería de la ficha** (`components/product-detail.tsx`) cambia de foto con un **slide direccional** (framer-motion): al avanzar la foto nueva entra desde un costado y la que sale se va hacia el otro, y al retroceder el movimiento se invierte (flechas y miniaturas). Las fotos se apilan en absoluto dentro del mismo marco (`aspect-[.95]`), así que el alto no salta mientras se desliza. Al pasar el mouse por la **orilla** de la foto aparece la flecha con un degradado que indica la dirección (en táctil la flecha queda siempre visible). | Ficha |
 
 ---
 
-## 6. Plan sugerido (una vez decidido)
-
-1. **Commit del trabajo actual** en `admin-dashboard.tsx` (ya hay código sin commitear).
-2. **Fase 0 — Modelo de datos:** migración Supabase (alérgenos, fotos, stock/bajo pedido, agenda/días
-   cerrados, zonas, campos de pedido) y sincronización/eliminación del backend FastAPI según D7.
-3. **Fase 1 (P0):** fotos + ficha + alérgenos en storefront y admin; etiquetas de stock y auto-desactivación;
-   modelo y UI mínima de agenda en el checkout (día + franja + bloqueo + zona).
-4. **Fase 2 (P1):** checkout real (persistir órdenes), transferencia con confirmación manual, panel móvil,
-   contenido editable desde `store_settings`.
-5. **Fase 3 (P2):** Webpay, WhatsApp (botón + notificación), Instagram, comentarios, reportes.
-
----
-
-## 7. Anexo — Mapa de archivos relevantes
+## 3. Anexo — Mapa de archivos relevantes
 
 | Archivo | Rol |
 |---|---|
-| `app/page.tsx` / `components/storefront.tsx` | Tienda pública (catálogo, carrito, historia, footer) |
-| `components/admin-dashboard.tsx` | Panel admin completo (productos, stock, pedidos, secciones placeholder) |
-| `app/admin/page.tsx`, `app/login/page.tsx` | Rutas admin y login magic-link |
-| `lib/products.ts` | Productos demo + `formatPrice` |
-| `lib/store-config.ts` | Textos de identidad hardcodeados |
-| `lib/supabase/browser.ts` | Cliente Supabase (solo browser; no hay cliente server) |
-| `supabase/schema.sql` | Esquema + RLS + `is_admin()` |
-| `backend/app/*` | API FastAPI local (catálogo, órdenes, settings) — hoy sin uso por el frontend |
-| `backend/tests/*` | Tests de la API local |
+| `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
+| `components/product-detail.tsx` | Ficha de producto `/producto/[slug]`: galería con flechas y miniaturas y **slide direccional** al cambiar de foto (D39), ingredientes, alérgenos, stock, comentarios (D1, D2) y la cantidad —editable con los botones y escribiéndola al hacer clic— |
+| `components/instagram-grid.tsx` | **Feed de Instagram propio** (D30): 15 últimas publicaciones (3×5 en escritorio, 2 por fila en celular) con likes, comentarios y descripción al pasar el mouse; lee `GET /api/instagram/feed` |
+| `lib/instagram.ts` | Tipos y **configuración única** del feed (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`, `INSTAGRAM_COLUMNS_MOBILE = 2`) y espejo de lo que devuelve la API; se edita **solo en el código** (D30) |
+| `backend/app/instagram.py` | Feed de Instagram de la API: consulta Instagram, normaliza las publicaciones (imagen, video → miniatura, carrusel → primera hija), cachea 15 min y **renueva solo** el token con la tarea de fondo (D31). El token se carga **una sola vez en el entorno del backend** |
+| `instagram_token` | Fila única con el token vigente (`access_token`, `refreshed_at`, `last_error`); la crea `create_all` y la actualiza la tarea de fondo. Vive aparte de `store_settings` por ser una credencial (D31) |
+| `components/editable-content.tsx` | Contexto y `EditableText`: vuelven editable un texto **solo** cuando el editor del admin lo envuelve, y lo hacen **en el mismo elemento** (`contentEditable`, conservando fuente, tamaño y posición; A50) con el **cursor en el punto del clic** (A51); fuera de ahí son texto normal (D38) |
+| `components/storefront-editor.tsx` | Editor visual (`/admin/editor`): carga los ajustes, junta el borrador y lo persiste con **«Guardar cambios»** (D38) |
+| `app/admin/editor/page.tsx` | Ruta del editor visual, bajo `/admin` (la sesión admin la exige `proxy.ts`) (D38) |
+| `components/store-shell.tsx` | Header/footer compartidos. El footer trae marca, contacto, navegación y copyright (D27) y usa siempre la paleta cálida (D28); la prop `warm` del **header** aplica esa paleta en la carta y la ficha (D24) |
+| `components/floating-cart.tsx` | Acceso flotante al carrito: aparece **cuando el header sale de pantalla**, encima del botón de WhatsApp; abre el carrito lateral o enlaza al checkout. El header se observa por su `id` (`store-header`) |
+| `app/checkout/retorno/page.tsx` | **Página visible de retorno de Webpay** (D8): muestra el estado del pago (ok / rechazado / anulado / error), la referencia del pedido y qué sigue. Es donde redirige `/api/webpay/confirm` |
+| `components/checkout-shell.tsx` | Header/footer mínimos del checkout según simplysweet.cl (D15) |
+| `components/admin-dashboard.tsx` | Panel admin completo (Inicio, Productos, Pedidos, Agenda, Comentarios, Contenido, Reportes) |
+| `components/admin-agenda.tsx` | Agenda del panel: una tarjeta por punto con sus franjas, más las **fechas cerradas** puntuales (D18, D19, D32) |
+| `components/admin-reports.tsx` | Sección **Reportes** con las métricas de negocio y el selector de período (D21) |
+| `lib/schedule.ts` | Días de la semana compartidos y formato compacto de franjas (D18) |
+| `lib/agenda.ts` | Tipos compartidos de **punto de retiro presencial y franja** (`Zone`, `Slot`); el punto no tiene tipo (D33) |
+| `lib/months.ts` | Claves de mes `YYYY-MM`, etiquetas y rango por meses enteros con tope de un año (`moveRange`) |
+| `lib/theme.ts` | Paleta de marca editable: los cinco tonos, su normalización y las variables CSS que aplican las vistas cálidas (D29) |
+| `store_settings.theme_colors` | Paleta guardada como JSON (`accent`, `ink`, `surface`, `muted`, `detail`); sin valores guardados manda la del código (D29) |
+| `app/admin/page.tsx`, `app/login/page.tsx` | Rutas del panel y del login (correo/contraseña + Google) |
+| `lib/products.ts` | Productos demo (fallback) + `formatPrice` y el tipo `Product` (sin etiquetas de stock, retiradas en A47) |
+| `lib/store-config.ts` | Fallback de la identidad (nombre, hero, historia) |
+| `lib/api.ts` | Cliente HTTP de la API (JWT de sesión `Bearer`; respaldo `X-Admin-Token`) |
+| `lib/session.ts` / `lib/session-client.ts` | Verificación del JWT en el servidor (jose) y sesión compartida del navegador (una sola lectura de `/api/auth/me`) |
+| `proxy.ts` | Protege `/admin` (rol admin) y redirige a los logueados fuera de `/login` |
+| `app/api/auth/*` | Route handlers: login/registro, callback de Google, verificación, `/me` y logout (cookie httpOnly) |
+| `app/cuenta` | Cuenta dentro del layout de la tienda: datos, teléfono por defecto, historial de pedidos y cerrar sesión |
+| `lib/cart.ts`, `lib/account.ts` | Carrito único compartido y hooks de sesión/enlace de cuenta del header |
+| `lib/offline-cache.ts` | Última versión conocida de la **vidriera** en `localStorage`, usada solo si la API falla (D20); expone `loadCached()` |
+| `lib/use-store-settings.ts` | Hook único de **ajustes de tienda** (fetch + `mergeSettings` + respaldo) |
+| `backend/app/*` | **Única fuente de verdad**: modelos, schemas y endpoints (crea las tablas al arrancar); auth por correo/contraseña + Google |
+| `backend/tests/*` | Pruebas de la API (54: catálogo, **bajo pedido implícito**, días de preparación y **estados activo/inactivo**, agenda, auth, correo de confirmación, correos y Instagram) |
+| `backend/app/emails.py` | Correo transaccional con **Resend**: plantilla del código de confirmación (D14) y **confirmación del pedido al cliente + aviso a la tienda** al registrar la orden (D8) |
+| `docker-compose.backend.yml` | Stack local de prueba: PostgreSQL 16 + API (Google, admin, JWT e Instagram) |
+| `https://simplysweet.cl` | **Referencia de diseño/UX** para la ficha y el checkout (D15) |

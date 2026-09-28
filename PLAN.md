@@ -1,343 +1,290 @@
 # Plan de Implementación — BOSQUE
 
-**Basado en:** RPD.md v1.0
-**Fecha:** 2026-09-08
-**Estado:** Propuesta para aprobación del dueño
+**Proyecto:** Tienda BOSQUE (repostería)
+**Basado en:** `RPD.md` (decisiones D1–D39; D5, D6, D11 y D23 quedaron retiradas)
+**Fecha:** 2026-09-25 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
 
-## 0. Cómo usar este plan
+## 0. Cómo usar este documento
 
-- El plan está ordenado en **fases y tareas con ID** (`F0.1`, `F1.1`, …). Cada tarea indica: objetivo,
-  archivos principales, pasos, dependencias, decisiones bloqueantes (referidas a las D1–D12 del RPD),
-  criterio de aceptación y estimación.
-- **Defaults recomendados** para las decisiones abiertas del RPD (aprobables por el dueño, ajustables):
-
-| Decisión | Default recomendado |
-|---|---|
-| D1 Ficha de producto | Página propia `/producto/[slug]` (mejor SEO y escalable) |
-| D2 Alérgenos | Por producto: array de códigos (`gluten`, `lacteos`, `frutos-secos`, `huevo`, …) + íconos |
-| D3 Regla de stock | Híbrido: estado manual + auto `sold_out` cuando `inventory = 0` (salvo `allow_backorder`) |
-| D4 "Bajo pedido" | `allow_backorder` + `lead_time_days` (días de anticipación mostrados al cliente) |
-| D5 Slots horarios | Franjas fijas configurables en admin (tabla `time_slots`) |
-| D6 Zonas de entrega | Domicilio solo San Javier; retiro presencial San Javier + Talca; sin tarifa por ahora |
-| D7 Fuente de verdad | **Supabase como única fuente de verdad**; congelar/eliminar FastAPI local |
-| D8 Orden de pagos | Transferencia primero (confirmación manual); Webpay en fase posterior |
-| D9 WhatsApp | v1: enlace `wa.me` (botón flotante); notificación automática se evalúa aparte |
-| D10 Comentarios | Anónimos, con moderación del admin antes de publicar |
-| D11 Instagram | v1: sección con enlace oficial; embed real queda como mejora |
-| D12 Panel móvil | Drawer de navegación en el admin para pantallas pequeñas |
-
-- ⚠️ **Regla del proyecto (AGENTS.md):** antes de escribir cualquier código, el implementador debe leer
-  la guía correspondiente en `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking
-  changes respecto a lo conocido).
-- Cada fase termina con un **gate**: verificación (typecheck, lint, build) + revisión del dueño antes de
-  seguir.
+- **Qué queda acá:** lo que **falta hacer** y cómo **desplegar**. El **estado actual del código** y las
+  **decisiones** (D1–D39, con D5, D6, D11 y D23 retiradas) viven en `RPD.md`.
+- **Regla del proyecto (AGENTS.md):** antes de escribir código, leer la guía correspondiente en
+  `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking changes respecto de lo conocido).
+- **Verificación de cada cambio:** `npx tsc --noEmit`, `npm run lint` y `npm run build`; en `backend/`,
+  `pytest`.
 
 ---
 
-## 1. Resumen de fases
+## 1. Transición a AWS — qué considerar al desplegar
 
-| Fase | Nombre | Entregable | Estimación | Decisiones requeridas |
-|---|---|---|---|---|
-| **F0** | Preparación y modelo de datos | Schema migrado, storage de fotos, trabajo previo commiteado, fuente de verdad definida | 2–3 días | D7 (crítica), D2, D4, D5, D6 |
-| **F1** | P0 — Catálogo, stock y agenda | Ficha con fotos + alérgenos, etiquetas de stock, checkout con día/franja/zonas | 2–3 semanas | D1, D3 |
-| **F2** | P1 — Checkout real, pagos y panel | Órdenes persistidas, transferencia, Webpay, panel móvil, contenido editable, botón WhatsApp | 2–3 semanas | D8, D9 (parcial), D12 |
-| **F3** | P2 — Extras | Notificación WhatsApp, Instagram, comentarios, reportes | 1–2 semanas | D9, D10, D11 |
+Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend.yml`). Al pasar a AWS:
 
-**Total estimado: 6–9 semanas** trabajando de forma continua; más si se intercalan revisiones del dueño.
+1. **Reconstruir y redesplegar la imagen de la API (obligatorio).** El `Dockerfile` copia el código
+   (`COPY . .`) y arranca `uvicorn` **sin `--reload`**, así que un contenedor viejo sirve código viejo.
+   En local basta `docker compose -f docker-compose.backend.yml up --build -d`; en AWS, subir la imagen a
+   ECR y redesplegar (ECS/EC2).
+2. **Schema sin Alembic.** Las tablas se crean al arrancar con `Base.metadata.create_all`, que **no** altera
+   tablas existentes. Para mantener al día una base ya creada, la API ejecuta al arrancar listas
+   idempotentes de `ALTER TABLE …`/`DROP … IF EXISTS` **solo en PostgreSQL** (catálogo retirado, columnas de
+   verificación y de contenido, agenda y ajustes retirados). Entre los últimos retiros están
+   `time_slots.label`, `closed_days.reason` y la tabla `closed_weekdays` (**D32**), el tipo del punto y el de
+   la entrega   `shipping_zones.type` / `orders.fulfillment` (**D33**), los datos bancarios
+   `store_settings.bank_account_info` (**D34**) y la reserva de stock `orders.expires_at` junto con
+   `products.allow_backorder` (el «bajo pedido» ahora es **implícito**); además se **agrega**
+   `products.preparation_days` (los **días de preparación**, **D35**). Un `UPDATE` convierte a `active` los
+   productos con estados retirados (`draft`, `sold_out`, `preorder`, **D36**) y otro convierte a `pending`
+   los pedidos guardados en `paid`/`preparing` (estados unificados, **D37**). El usuario de la base
+   debe tener permiso DDL; en RDS, verificar que no esté restringido. En una base nueva no hace nada.
+3. **Variables de entorno.** `AUTH_JWT_SECRET` debe ser **el mismo** en Next.js y en la API (si difiere, las
+   sesiones dejan de validar); `CORS_ORIGINS` debe incluir el dominio de producción; `ADMIN_EMAILS` define
+   quién obtiene rol `admin`; `NEXT_PUBLIC_API_URL` apunta al dominio/balanceador de la API.
+4. **Instagram.** `INSTAGRAM_USER_ID` e `INSTAGRAM_ACCESS_TOKEN` van en el entorno de la **API** (ver §2).
+5. **Imágenes (`/api/upload`).** Montar un volumen persistente (EFS/EBS) en `UPLOAD_DIR` o migrar a S3 para
+   no perder fotos al reiniciar contenedores.
+6. **Health check** del target group: `/health`.
 
-### Dependencias entre fases (esquema)
-
-```
-F0 (datos) ──► F1 (P0: catálogo + stock + agenda) ──► F2 (P1: checkout + pagos + panel) ──► F3 (P2: extras)
-```
-
-- La **agenda (F1.6–F1.8)** es el módulo más transversal: depende de F0 (tablas nuevas) y condiciona
-  F2 (checkout persistente) — por eso va temprano, aunque la UI completa de compra llegue en F2.
-- **F3 es intercambiable internamente** (se puede hacer Instagram antes que comentarios, etc.).
-
----
-
-## 2. Fase 0 — Preparación y modelo de datos
-
-> Objetivo: dejar la base de datos, el storage y el repo listos para construir sin deudas técnicas.
-
-### F0.1 — Commitear el trabajo pendiente
-- **Qué:** `components/admin-dashboard.tsx` tiene cambios sin commitear (modal de ítems, filtros,
-  creación de producto, modal de stock).
-- **Criterio de aceptación:** `git status` limpio; `npm run lint` y `npx tsc --noEmit` sin errores.
-- **Estimación:** 0.5 día.
-
-### F0.2 — Definir la fuente de verdad (D7)
-- **Qué:** decidir si se sigue con Supabase + Route Handlers de Next.js (recomendado) o se despliega
-  FastAPI.
-- **Acción:** congelar `backend/` (no tocar, no desplegar) hasta que se decida; si se elige Supabase,
-  el backend pasa a ser referencia histórica y se elimina de la documentación activa.
-- **Criterio de aceptación:** decisión registrada en RPD (D7 respondida).
-- **Estimación:** 0.5 día (conversación con dueño).
-
-### F0.3 — Migración del schema Supabase
-Archivo: `supabase/schema.sql` (nueva migración, no editar el original a ciegas).
-
-**Nuevas columnas en `products`:**
-- `images text[]` (galería; `image_url` queda para compatibilidad o se depreca).
-- `ingredients text` (descripción de ingredientes principales).
-- `artisan_seal boolean` / `sustainable boolean` (sello artesanal/sustentable).
-- `allergens text[]` (códigos: `gluten`, `lacteos`, `frutos-secos`, `huevo`, `mani`, `soja`, `sesamo`, …).
-- `allow_backorder boolean default false` + `lead_time_days integer default 0` (bajo pedido con
-  anticipación).
-- Ampliar el `CHECK` de `status`: `('draft','active','sold_out','preorder')` (o manejar "bajo pedido"
-  vía `allow_backorder` + etiqueta derivada, según D3/D4).
-
-**Nuevas tablas:**
-- `time_slots` (id, label, start_time, end_time, enabled) — franjas configurables.
-- `closed_days` (id, date, reason) — bloqueo de días.
-- `shipping_zones` (id, name, type: `domicilio` | `retiro`, areas text[], active) — San Javier
-  domicilio; San Javier + Talca retiro.
-- `product_images` *(opcional; si se prefiere tabla sobre array)*.
-
-**Cambios en `orders`:**
-- `scheduled_date date`, `time_slot_id uuid references time_slots`, `shipping_zone_id uuid references
-  shipping_zones`, `fulfillment text` (`retiro` | `domicilio`).
-- `customer_name`, `customer_phone`, `customer_email`, `notes text` (datos que hoy no existen).
-- `payment_status` derivado del `status` existente; mantener `payment_method`.
-
-**Cambios en `store_settings`:**
-- `whatsapp_phone`, `instagram_url`, `bank_account_info` (para transferencia), `story_*` (textos de
-  historia) — para conectar panel ↔ storefront en F2.5.
-
-**Storage:**
-- Crear bucket público `product-images` + política RLS (lectura pública, escritura solo admin).
-
-**Criterio de aceptación:** migración aplicada en Supabase; consultas públicas no rompen; RLS sigue
-protegiendo escrituras. `npx tsc --noEmit` OK.
-**Dependencias:** F0.2 (fuente de verdad afecta dónde vive la migración).
-**Estimación:** 1–1.5 días.
-
-### F0.4 — Sincronizar (o congelar) el backend local
-- Si se mantiene FastAPI (D7 contraria): replicar las nuevas columnas/tablas en `backend/app/models.py`,
-  `schemas.py` y pasar `pytest` en `backend/tests/`.
-- Si se descarta: marcar `backend/README.md` como "legacy, no usar".
-- **Estimación:** 0.5 día.
+> Regla práctica: **cada cambio en `backend/` exige reconstruir la imagen** antes de probar en el frontend;
+> si no, aparecerán `404`/`405` por rutas que en el código ya existen.
 
 ---
 
-## 3. Fase 1 — P0: Catálogo con fotos y ficha, stock, agenda
+## 2. Instagram — renovación automática del token (D31)
 
-> Objetivo: que un cliente pueda ver el catálogo real con fotos, alérgenos y estados de stock, y
-> reservar un pedido con día, franja y zona.
+El token **no se le pasa a la página**: se carga **una sola vez en el entorno de la API** y la API se
+encarga del resto (consulta, caché y renovación).
 
-### F1.1 — Ficha de producto (`/producto/[slug]`)
-- **Archivos:** `app/producto/[slug]/page.tsx` (nuevo), `components/product-detail.tsx` (nuevo),
-  `components/storefront.tsx` (enlaces desde la carta).
-- **Pasos:** ruta dinámica que lee el producto por slug (Supabase); galería de imágenes; descripción,
-  ingredientes, sello artesanal/sustentable; selector de cantidad + "agregar al carrito"; productos
-  relacionados opcional.
-- **Decisión:** D1 (default: página propia).
-- **Criterio:** la carta enlaza a la ficha; la ficha muestra fotos, ingredientes, sello y alérgenos;
-  funciona con el carrito existente.
-- **Dependencias:** F0.3 (images, ingredients, allergens).
-- **Estimación:** 2–3 días.
+1. **En la API, no en Next.** Definir `INSTAGRAM_USER_ID` e `INSTAGRAM_ACCESS_TOKEN` en `backend/.env` (o el
+   `.env` de la raíz que usa `docker compose`) en local, y en las variables del servicio en AWS
+   (`backend/.env.example` las documenta; `docker-compose.backend.yml` ya las pasa).
+2. **Una sola vez.** Al arrancar, `backend/app/instagram.py` guarda el token en la tabla `instagram_token` y
+   una **tarea de fondo** lo renueva sola (revisa cada 12 h y renueva pasados 50 de los 60 días). Desde ahí
+   el valor del entorno deja de usarse: no hay que recalcularlo ni volver a cargarlo.
+3. **El navegador nunca ve el token.** El widget (`components/instagram-grid.tsx`) solo lee
+   `GET /api/instagram/feed`, que devuelve las publicaciones normalizadas; no hay `NEXT_PUBLIC_*` ni route
+   handler de Next para Instagram.
+4. **Diagnóstico y renovación manual (admins):** `GET /api/instagram/token` (estado, origen y última falla) y
+   `POST /api/instagram/refresh` para adelantar la renovación.
 
-### F1.2 — Fotos reales (subida y visualización)
-- **Archivos:** `components/admin-dashboard.tsx` (editor de producto: campo de fotos),
-  `lib/supabase/browser.ts` (o nuevo helper de storage).
-- **Pasos:** en el admin, subir imágenes al bucket y guardar URLs en `products.images`; en el storefront
-  y la ficha, reemplazar los gradientes CSS por `<img>` (mantener gradiente como fallback).
-- **Criterio:** el admin puede subir/eliminar fotos desde celular, tablet y desktop; el storefront las
-  muestra.
-- **Dependencias:** F0.3 (bucket + columnas), F1.1.
-- **Estimación:** 2–3 días.
-
-### F1.3 — Alérgenos
-- **Archivos:** `components/product-detail.tsx`, `components/storefront.tsx` (ícono en la carta opcional),
-  constante de códigos + íconos (p. ej. en `lib/allergens.ts`).
-- **Pasos:** mapear códigos → íconos/etiquetas (`Frutos secos`, `Lácteos`, `Gluten`, `Huevo`, …);
-  mostrarlos en la ficha; incluirlos en el editor del admin.
-- **Criterio:** cada producto puede declarar alérgenos y el cliente los ve con íconos claros.
-- **Dependencias:** F0.3, F1.1, F1.2 (mismo editor).
-- **Estimación:** 1 día.
-
-### F1.4 — Etiquetas de stock en la carta
-- **Archivos:** `components/storefront.tsx`, `components/product-detail.tsx`.
-- **Pasos:** etiqueta visible por producto: **Disponible** (inventory > 0), **Agotado** (inventory = 0
-  sin backorder) o **Bajo Pedido** (allow_backorder, con "X días de anticipación"); deshabilitar el
-  botón "+" en agotados.
-- **Decisión:** D3, D4.
-- **Criterio:** las tres etiquetas se ven correctamente según stock/backorder; un producto agotado no se
-  puede agregar al carrito.
-- **Dependencias:** F0.3.
-- **Estimación:** 1–1.5 días.
-
-### F1.5 — Auto-desactivación y decremento de stock
-- **Archivos:** `lib/supabase/` (o nueva `app/api/` con función RPC), `supabase/schema.sql` (función
-  `decrement_stock` o update con guard).
-- **Pasos:** al confirmar un pedido, decrementar `inventory` de forma atómica con validación
-  (`inventory >= quantity`); si llega a 0 y no tiene `allow_backorder`, pasar a `sold_out`; opcional:
-  notificar al admin de stock bajo.
-- **Criterio:** dos pedidos simultáneos no pueden agotar más stock del existente; el producto cambia a
-  agotado solo.
-- **Dependencias:** F1.4 (estados), F2.1 (persistencia de órdenes) — se diseña aquí, se activa en F2.
-- **Estimación:** 1.5 días.
-
-### F1.6 — Agenda: selección de día y franja horaria
-- **Archivos:** nuevo paso en el carrito/checkout (`components/checkout.tsx` o `app/checkout/page.tsx`),
-  consultas a `time_slots` y `closed_days`.
-- **Pasos:** el cliente elige fecha (calendario que **deshabilita días cerrados** y días sin producción)
-  y luego la franja; validar que la franja quede disponible.
-- **Decisión:** D5.
-- **Criterio:** no se puede elegir un día cerrado ni una franja no configurada; la selección llega al
-  resumen del pedido.
-- **Dependencias:** F0.3.
-- **Estimación:** 2–3 días.
-
-### F1.7 — Bloqueo de días (admin)
-- **Archivos:** `components/admin-dashboard.tsx` (nueva sección "Agenda" dentro de Configuración o
-  Pedidos), gestión de `closed_days` y de `time_slots`.
-- **Pasos:** CRUD de franjas (habilitar/deshabilitar) y de días cerrados (fecha + motivo).
-- **Criterio:** desde el panel se cierra un día o se ajusta una franja y el checkout lo refleja al
-  instante.
-- **Dependencias:** F1.6.
-- **Estimación:** 1.5 días.
-
-### F1.8 — Zonas de entrega (San Javier / Talca)
-- **Archivos:** `components/checkout.tsx`, admin (`shipping_zones` CRUD), `lib/store-config.ts` o
-  `store_settings`.
-- **Pasos:** opciones de despacho: **Retiro presencial** (San Javier o Talca) y **A domicilio** (solo
-  San Javier); el cliente elige zona al reservar; guardar `shipping_zone_id` + `fulfillment` en la
-  orden.
-- **Decisión:** D6.
-- **Criterio:** no se puede pedir domicilio fuera de San Javier; el admin puede activar/desactivar zonas.
-- **Dependencias:** F0.3, F1.6.
-- **Estimación:** 1.5–2 días.
-
-> **Gate F1:** `npx tsc --noEmit`, `npm run lint`, `npm run build` OK + revisión del dueño (flujo
-> cliente completo en móvil y desktop).
+> **Seguridad:** el token se compartió por chat, así que conviene **rotarlo** desde la cuenta de Instagram
+> antes de dejarlo en producción; al renovarse, la API guarda el nuevo en la base y el del entorno deja de
+> usarse.
 
 ---
 
-## 4. Fase 2 — P1: Checkout real, pagos y panel
+## 3. Últimos ajustes del dueño (2026-09-25)
 
-> Objetivo: cobrar (transferencia y luego Webpay), persistir pedidos de verdad, y administrar todo
-> desde cualquier dispositivo.
+**Implementado y verificado** (`pytest` 54/54; `tsc`, `lint` y `build` sin errores). Trece puntos, con ocho
+decisiones nuevas (**D32** a **D39**):
 
-### F2.1 — Checkout completo que persiste la orden
-- **Archivos:** `app/checkout/page.tsx` (o flujo en el drawer), `lib/supabase/`, admin (leer órdenes
-  reales desde `orders`/`order_items`).
-- **Pasos:** formulario con datos de contacto (nombre, teléfono, email, dirección si es domicilio),
-  resumen de carrito, día/franja/zona (de F1.6–F1.8), método de pago, y **persistir** en Supabase
-  `orders` + `order_items`; el admin pasa a leer órdenes reales (hoy son datos demo en memoria).
-- **Criterio:** al confirmar, la orden aparece en el admin con sus ítems, fecha, franja, zona y estado
-  "Pendiente"; el stock decrementa (F1.5) y el carrito se limpia.
-- **Dependencias:** F1.6, F1.7, F1.8, F1.5.
-- **Estimación:** 3–4 días (incluye reemplazar los datos demo del admin).
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A37** | Cómo pasar el token de Instagram (solo necesario una vez) | Ver **§2**: el token vive en la API y se renueva solo; la página nunca lo recibe. |
+| **A38** | Los enlaces Productos / Beneficios / Nosotros con la misma tipografía que el nombre | Se probó con la clase `display` y se **revirtió** el mismo día a pedido del dueño: queda como estaba. |
+| **A39** | En **Inicio** del panel, «Ventas del período» no decía de qué período y sobraba el botón «Actualizar primero» | La métrica pasa a **«Ventas del último mes»** (los **últimos 30 días móviles**) y se **elimina el botón** «Actualizar primero». |
+| **A40** | En **Agenda**: quitar el cierre «todas las semanas», mantener solo las fechas puntuales (sin motivo) y quitar el nombre de la franja | **D32:** los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran `closed_weekdays`, `time_slots.label` y `closed_days.reason`. La sección de cierres queda como **«Fechas cerradas»**. |
+| **A41** | Quitar todo lo relacionado con la cuenta bancaria y el pago por transferencia | **D34:** se retiran el ajuste **«Datos de transferencia bancaria»** de Contenido, el bloque **«Datos para transferir»** del checkout y el medio de pago **Transferencia** (más **Efectivo** en el panel). Checkout y panel quedan **solo con Webpay** (D8); hasta activarlo, el pago se coordina por WhatsApp. |
+| **A42** | Retiro presencial y punto de encuentro son lo mismo: unificarlos en solo retiro presencial | **D33:** se retira el tipo del punto (`shipping_zones.type`) y el de la entrega (`orders.fulfillment`). Agenda, Pedidos, Reportes, Checkout y Cuenta muestran siempre **Retiro presencial** (el punto se identifica por su nombre). |
+| **A43** | Página visible al volver de Webpay | **D8:** nueva **`/checkout/retorno`** con el estado del pago (**ok / rechazado / anulado / error**), la referencia del pedido y qué sigue; `/api/webpay/confirm` redirige ahí. El `commit` con el SDK queda pendiente de las credenciales TBK. |
+| **A44** | Correo de confirmación del pedido | **D8:** al registrar un pedido el backend envía con **Resend** la **confirmación al cliente** (correo del checkout) y el **aviso a la tienda** (correo de Contenido). Es de **mejor esfuerzo**: sin Resend se omite y nunca tumba la compra. WhatsApp automático queda descartado por ahora. |
+| **A45** | Días de preparación para una tienda que trabaja **bajo pedido** | **D35:** todo el catálogo se vende **bajo pedido** (se retira `allow_backorder`; el stock no bloquea la compra ni se descuenta) y cada producto declara **días de preparación**, que empujan el primer día agendable del checkout. Se elimina la **reserva de stock** con expiración. |
+| **A46** | Los estados del inventario quedan solo en **activo** e **inactivo** | **D36:** solo **activo** (visible en la tienda) e **inactivo** (oculto en la tienda, visible en el panel). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. El filtro de stock «Bajo pedido (sin stock)» pasa a **«Sin stock»**. |
+| **A47** | En el panel, unificar los estados de pedido **pendiente/pagado/preparando** en «Pendiente»; quitar el tag de stock de la vitrina y la ficha; opción para **eliminar un producto** | **D37:** `paid` y `preparing` se unifican en `pending` (un pedido en preparación ya está pagado), el panel ofrece Pendiente/Enviado/Entregado/Cancelado y la API convierte los pedidos viejos al arrancar. Se retira la etiqueta de disponibilidad («Disponible»/«Bajo Pedido») de «Productos destacados» y de la ficha —seguía apareciendo porque dependía del **stock**, no del estado del producto— y `stockLabel` sale de `lib/products.ts`. Se agrega el botón de **eliminar producto** en el panel (la API `DELETE /api/products/{id}` ya existía). |
+| **A48** | Poder editar los textos de la tienda **haciendo clic sobre ellos** | **D38:** nueva ruta **`/admin/editor`** que reutiliza el storefront real; `components/editable-content.tsx` (`EditableText`) vuelve editable un texto —nombre, anuncio, hero e historia— **solo** cuando el editor lo envuelve, y `components/storefront-editor.tsx` junta los cambios y los guarda con el botón **«Guardar cambios»** (`PUT /api/settings`). En el editor la página se ve **oscurecida** (un velo) y los textos editables quedan por encima **en blanco**, con un **borde inferior** que aparece **solo al pasar el mouse** y que no altera el layout (los detalles del marcador se ajustaron después: ver **A49**, **A50** y **A51**); **Contenido** deja solo el contacto, los colores y el botón «Editar en la página». Extiende el pedido del primer mensaje sobre los campos de contenido. |
+| **A49** | En el editor, el título y la descripción del hero deben verse como en la página; en la ficha, las fotos cambian sin transición | **D38/D39:** el marcador de los textos editables deja de alterar el layout —se retiran `display`, `max-width` y `padding`—, así que el **título y la descripción del hero conservan su posición exacta** (antes el `padding` de `.15em` los corría, más en el título de 7xl). En la vista de edición **todos los textos editables se ven blancos** y el **borde inferior** blanco aparece **solo al pasar el mouse** (un `box-shadow` interno: ni recuadro completo, ni parpadeo, ni cambio de alto). El **nombre del header** deja de ser la excepción: su centrado pasa de `-translate-x-1/2` a `inset-x-0 + mx-auto + w-fit`, así ya no crea un contexto de apilado que lo dejara debajo del velo (por eso antes no se veía ni el texto ni el borde) y se ve igual que el resto. En la ficha (**D39**) la galería cambia de foto con un **slide** direccional y la flecha de cada costado aparece al pasar el mouse por la **orilla** de la foto (en táctil queda visible). |
+| **A50** | Quitar «Plantilla demo» del anuncio y que el texto en edición conserve fuente, tamaño y posición | **D38:** se retira el sufijo fijo **«· Plantilla demo»** que se agregaba al anuncio. En el editor, al hacer clic el texto **ya no se cambia por un `<input>`/`<textarea>`**: el **mismo elemento** pasa a `contentEditable`, con su misma clase, así que conserva **fuente, tamaño y posición** y nada de lo que lo rodea se mueve (antes el campo traía ancho, padding y borde propios y saltaba el layout, sobre todo en el título del hero, que ocupa varias líneas). Se retira la clase `.editable-field`; el fondo blanco con texto oscuro queda como la única señal de que se está editando. |
+| **A51** | Al editar, que el cursor quede en el punto donde se hizo clic (sin seleccionar todo) y que se vea la línea del cursor | **D38/A50:** al hacer clic se guarda el **punto** y, al entrar en edición, se traduce a la posición del texto con `caretRangeFromPoint` (respaldo `caretPositionFromPoint` en Firefox); antes se seleccionaba todo, así que la **selección tapaba la línea del cursor**. Además el cursor se pinta oscuro (`caret-color`) sobre el fondo blanco y la colocación se **repite en el próximo cuadro** (`requestAnimationFrame`), porque al terminar el clic el navegador reacomoda la selección. Los dos textos que van **en una línea** en el header —el **nombre** y el **anuncio**— reciben una **caja propia** mientras se editan (`span… { display: inline-block; min-width: 1ch }`): sin eso el navegador no dibujaba la línea del cursor ahí, y un texto vacío tampoco se veía. |
 
-### F2.2 — Transferencia bancaria
-- **Archivos:** `store_settings` (datos de la cuenta), `components/checkout.tsx` (mostrar datos +
-  opción "adjuntar comprobante"), admin (botón "Marcar pagado" al ver el comprobante).
-- **Pasos:** el cliente elige "Transferencia", ve los datos de la cuenta, sube comprobante (opcional en
-  v1) y queda en "Pendiente"; el admin confirma manualmente → "Pagado".
-- **Criterio:** flujo completo transferencia → confirmación manual en admin.
-- **Dependencias:** F2.1, F0.3 (campo de cuenta en store_settings).
-- **Estimación:** 2 días.
+**Decisión D32 (nueva):** los días que no se atiende salen de los **días de cada franja** (por punto, D18) y
+de las **fechas cerradas puntuales** (`closed_days`). Se retira el cierre semanal `closed_weekdays` porque
+duplicaba los días de la franja y, al ser global, cerraba el día para todos los puntos. La franja **no tiene
+nombre** (se identifica por su horario) y la fecha cerrada **no pide motivo**.
 
-### F2.3 — Webpay Plus (débito/crédito)
-- **Archivos:** Route Handlers `app/api/webpay/*` (crear transacción, retorno, confirmación), SDK de
-  Transbank a validar (`transbank-sdk` u oficial) — *verificar librería y docs antes de integrar*.
-- **Pasos:** crear transacción con el monto, redirigir a Webpay, recibir retorno, confirmar, marcar la
-  orden "Pagado"; manejar fallos/cancelación.
-- **Decisión:** D8 (puede moverse a F3 si se prioriza transferencia).
-- **Criterio:** pago real con tarjeta en ambiente de prueba (TBK) y luego producción; orden pasa a
-  "Pagado" solo tras confirmación.
-- **Dependencias:** F2.1; credenciales Transbank del dueño.
-- **Estimación:** 3–5 días (incluye trámites de credenciales).
+**Decisiones D33 y D34 (nuevas):** **D33** unifica **retiro presencial** y **punto de encuentro** en un
+solo tipo (se retiran `shipping_zones.type` y `orders.fulfillment`), y **D34** saca la **transferencia** de
+la web (se retiran `store_settings.bank_account_info` y el medio de pago; checkout y panel quedan **solo con
+Webpay**, D8, y hasta activarlo el pago se coordina por WhatsApp).
 
-### F2.4 — Panel administrable desde el celular (D12)
-- **Archivos:** `components/admin-dashboard.tsx` (navegación responsive).
-- **Pasos:** en pantallas pequeñas, reemplazar la sidebar oculta por un drawer (botón hamburguesa) o
-  bottom-nav; revisar tablas (scroll horizontal) y modales en pantallas táctiles.
-- **Criterio:** todas las secciones del panel operativas en celular, tablet y desktop.
-- **Estimación:** 1.5–2 días.
+**Decisión D35 (nueva):** toda la tienda trabaja **bajo pedido**: la compra nunca se bloquea por stock y el
+pedido **no descuenta ni reserva** inventario (se retiran `app/stock.py`, `orders.expires_at`, el estado
+`expired` y el ajuste `allow_backorder`). Cada producto declara sus **días de preparación**
+(`preparation_days`, **0** por defecto); el checkout empuja el primer día agendable para que el pedido
+alcance a prepararse y el **calendario arranca en el primer día disponible**, sin mostrar los días
+bloqueados previos.
 
-### F2.5 — Contenido editable (conectar `store_settings`)
-- **Archivos:** `lib/store-config.ts` (leer desde Supabase con fallback a constantes), admin sección
-  "Contenido" (editar nombre, hero, historia, WhatsApp, Instagram, datos de transferencia), storefront.
-- **Criterio:** el dueño edita textos/fotos de la home desde el panel y el cambio se ve en la tienda.
-- **Dependencias:** F0.3.
-- **Estimación:** 2 días.
+**Decisión D36 (nueva):** el producto tiene **solo dos estados**, `active` e `inactive`. El **inactivo** no se
+ve en la tienda pero sí en el panel de inventario, así que el catálogo público filtra por `active` y el panel
+pide todo con `?include_inactive=true`. Se retiran `draft`, `sold_out` y `preorder` (unificados en `active`),
+los productos guardados en esos estados se convierten a `active` al arrancar la API, y un producto nuevo
+nace **activo**.
 
-### F2.6 — Botón flotante de WhatsApp
-- **Archivos:** `components/storefront.tsx` (o componente `whatsapp-button.tsx` nuevo), `store_settings`.
-- **Pasos:** botón flotante con enlace `wa.me/<teléfono>` + mensaje prefabricado; teléfono
-  configurable.
-- **Criterio:** el botón abre WhatsApp con el número del negocio desde cualquier página.
-- **Dependencias:** F0.3 (campo teléfono), F2.5 (config).
-- **Estimación:** 0.5–1 día.
+**Decisión D37 (nueva):** el pedido arranca y se gestiona en **un solo estado inicial, `pending`**. Un pedido
+«en preparación» ya está pagado —se pagó en la web o se acordó al cargarlo en el panel—, así que `paid` y
+`preparing` no aportaban información y se unifican en `pending`; quedan `pending`, `shipped`, `delivered`,
+`cancelled` y `refunded` (que el panel y la cuenta muestran como **Cancelado**). El panel ofrece
+Pendiente / Enviado / Entregado / Cancelado y los pedidos guardados en `paid`/`preparing` se convierten a
+`pending` al arrancar la API. **Ajusta D8** (Webpay): al confirmar el pago el pedido **no cambia de
+estado**; el pago se registra en los datos de la transacción (§5.6/§5.7), así que el commit idempotente no
+necesita un estado «Pagado». **A47** retira además la etiqueta de disponibilidad de la vitrina y la ficha
+(seguía apareciendo porque dependía del stock, no del estado del producto) y suma el borrado de productos
+en el panel.
 
-> **Gate F2:** flujo completo de compra probado (transferencia y, si aplica, Webpay en TBK) + panel en
-> celular + `npm run build` OK.
+**Decisión D38 (nueva):** la edición **visual** de la página vive en la ruta **`/admin/editor`** (bajo
+`/admin`, así que `proxy.ts` ya exige sesión de rol admin). Ahí se muestra el **storefront real** y cada
+texto que vive en `store_settings` —**nombre, anuncio, hero y historia**— se resalta y, al hacer clic, se
+vuelve editable **en el mismo lugar** (el elemento pasa a `contentEditable`, sin cambiar de etiqueta, así
+conserva fuente, tamaño y posición). El resto de la copy («Catálogo», «Productos destacados», beneficios) **no** es editable:
+sigue fija en el código. Los cambios se juntan en un borrador y se confirman con **«Guardar cambios»**, que
+hace un solo `PUT /api/settings` con el objeto completo; el contacto y la paleta siguen editándose en
+**Contenido**, que además deja de mostrar esos textos en formularios y se queda solo con el contacto, los
+colores y el botón **«Editar en la página»**. Durante la edición la tienda se ve **oscurecida** por un
+velo y los textos editables quedan por encima **en blanco**, con un **borde inferior** que aparece **solo
+al pasar el mouse**. Todos se comportan igual, **incluido el nombre del header**: su centrado no usa
+`translate` (que creaba un contexto de apilado y lo dejaba debajo del velo). El marcador **no toca el layout** (el borde es un `box-shadow` interno, no un
+`border`): los textos conservan la posición exacta de la página. El componente `EditableText` no cambia la
+tienda pública: sin el provider del editor se comporta como texto normal.
 
----
+**Decisión D39 (nueva):** la **galería de la ficha** (`components/product-detail.tsx`) cambia de foto con
+un **slide direccional** (framer-motion): al avanzar, la foto nueva entra desde un costado y la que sale se
+va hacia el otro, y al retroceder —con las flechas o eligiendo una miniatura a la izquierda— el movimiento
+se invierte. Las fotos se apilan en absoluto dentro del mismo marco (`aspect-[.95]`), así que la animación
+no salta de alto y el marco mantiene su tamaño mientras se desliza. Al pasar el mouse por la **orilla** de
+la foto aparece la flecha con un degradado suave que indica hacia dónde se mueve (en táctil la flecha queda
+siempre visible, porque ahí no hay hover).
 
-## 5. Fase 3 — P2: Extras (dejar para el final)
-
-> Objetivo: mejorar marca y retención. Orden interno intercambiable según prioridad del dueño.
-
-### F3.1 — Notificación automática de WhatsApp al recibir pedido
-- **Pasos:** decidir vía (D9): API de Meta (WhatsApp Cloud, requiere cuenta Business y token) vs.
-  alternativa. Integración con el evento de nueva orden (F2.1) vía Route Handler o webhook.
-- **Criterio:** al crearse una orden, llega notificación al chat del negocio.
-- **Dependencias:** F2.1; decisión de proveedor.
-- **Estimación:** 2–4 días (depende del proveedor).
-
-### F3.2 — Feed de Instagram
-- **Pasos:** según D11: v1 sección estática/enlace en el footer; mejora: embed con token de Meta
-  (considerar caducidad del token).
-- **Criterio:** el footer muestra el enlace oficial (y el embed si se aprueba).
-- **Estimación:** 0.5–2 días.
-
-### F3.3 — Comentarios de clientes por producto
-- **Pasos:** tabla `reviews` (product_id, autor, rating, comentario, status `pending`/`approved`) + RLS;
-  UI en la ficha; moderación en el admin.
-- **Decisión:** D10.
-- **Criterio:** el cliente comenta; el comentario aparece tras aprobación del admin.
-- **Dependencias:** F0.3 (tabla nueva — puede crearse aquí mismo), F1.1.
-- **Estimación:** 2–3 días.
-
-### F3.4 — Reportes y analítica
-- **Pasos:** conectar la sección "Reportes" del admin a datos reales (ventas, ticket promedio, más
-  vendidos desde `orders`/`order_items`), reemplazando los placeholders actuales.
-- **Criterio:** el admin muestra métricas reales del período.
-- **Dependencias:** F2.1.
-- **Estimación:** 2 días.
+**Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
+`DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
+deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
 
 ---
 
-## 6. Verificación y QA transversal
+## 4. Pendientes
 
-- **Automático (cada tarea):** `npx tsc --noEmit` · `npm run lint` · `npm run build`.
-- **Backend (solo si se mantiene FastAPI):** `pytest` en `backend/`.
-- **QA manual por fase:**
-  - Cliente: carta → ficha → carrito → día/franja/zona → pago → confirmación.
-  - Admin: productos (fotos, alérgenos, stock), agenda (bloqueo), pedidos (persistidos), contenido.
-  - **Dispositivos:** celular, tablet y desktop (requisito explícito del panel auto-gestionable).
-  - Concurrencia: dos clientes comprando el último producto (no debe sobrevenderse).
+1. **Webpay Plus (D8):** solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*` (el `create`
+   que arma la transacción y su `returnUrl`, y el `commit` del retorno). Ya están hechas la **página de
+   retorno** (`/checkout/retorno`) y la **confirmación por correo** al cliente y a la tienda. Antes de
+   activarlo hay que cumplir la **checklist de §5**. Es el **único medio de pago** del checkout y del
+   panel; hasta activarlo, el pedido se registra y el pago se coordina por WhatsApp.
+2. **Notificación automática de WhatsApp (D9):** elegir proveedor (API de Meta Cloud vs. enlace `wa.me`). El
+   botón flotante `wa.me` ya funciona.
+3. **Credenciales externas:** OAuth Client de Google (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), cuenta y
+   dominio **verificados** en **Resend** (`RESEND_API_KEY`/`RESEND_EMAIL_FROM`) y **rotar** el token de Instagram.
+4. **Seed de agenda e inventario:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
+   su ubicación y sus **franjas** (días + horario), y todos los productos reales del inventario.
+5. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
 
-## 7. Riesgos y mitigaciones
+---
 
-| Riesgo | Mitigación |
-|---|---|
-| Decisiones D1–D12 sin resolver bloquean fases | Aprobar los defaults de la sección 0; reabrir por tarea |
-| Webpay depende de credenciales/trámites externos | Partir con transferencia (F2.2); Webpay en paralelo |
-| Notificación WhatsApp depende de cuenta Business de Meta | Botón `wa.me` cubre el 80% del valor; automatización queda en F3 |
-| Token de Instagram caduca | v1 con enlace estático; embed real opcional |
-| Migración de schema rompe RLS existente | Probar políticas nuevas en staging antes de producción |
-| Backend FastAPI duplica lógica si se mantiene | D7: una sola fuente de verdad (recomendado Supabase) |
+## 5. Webpay Plus — restricciones y «por si acaso» (checklist de activación)
 
-## 8. Próximos pasos inmediatos
+Referencias: `https://www.transbankdevelopers.cl/documentacion/webpay-plus` y
+`https://ayuda.transbank.cl/errores-webpay-plus`. El objetivo es que **ninguna** transacción deje la tienda
+en un estado raro: ni un pedido **pagado sin marcar**, ni un pedido marcado **dos veces**, ni un token
+expuesto.
 
-1. Aprobar los defaults de decisiones (sección 0) o marcarlos en el RPD.
-2. Ejecutar **F0.1** (commit del trabajo pendiente) y **F0.2** (decisión D7).
-3. Programar la migración **F0.3** del schema.
-4. Iniciar **F1.1 + F1.2** (ficha con fotos) — el bloque que desbloquea la percepción del producto.
+### 5.1 Credenciales y entornos
+- Dos juegos de credenciales: **integración** (`webpay3gint.transbank.cl`) y **producción**
+  (`webpay3g.transbank.cl`). No se mezclan: un `TBK_COMMERCE_CODE`/llaves apunta a **un** entorno.
+- Variables: `TBK_COMMERCE_CODE`, `TBK_API_KEY_ID`, `TBK_API_KEY_SECRET`, `TBK_ENVIRONMENT`
+  (`integration`|`production`) en el **servidor**, y `NEXT_PUBLIC_WEBPAY_ENABLED` (solo UI) en el frontend.
+- En **integración** el código de comercio es **compartido** entre integradores: un `buyOrder` repetido
+  puede chocar con otra integración (falla al anular). El `buyOrder` debe ser único de verdad.
+- Las llaves **nunca** van en `NEXT_PUBLIC_*` ni al navegador: solo en los route handlers y en el backend.
+  Si se filtraron, se regeneran en el portal de Transbank (igual que el token de Instagram).
+
+### 5.2 Datos de la transacción (límites duros)
+| Campo | Restricción | En nuestro caso |
+|---|---|---|
+| `buyOrder` | obligatorio, **único**, ≤ **26** caracteres | El id del pedido es un UUID de 36 → **no sirve directo**. Guardar un `buy_order` propio por intento (`BO-` + 20 chars). |
+| `sessionId` | obligatorio, no vacío, ≤ **61** caracteres | Usar el id del pedido acotado. |
+| `amount` | entero en **pesos**, sin decimales, > 0 | Recalcular en el servidor desde los ítems; **nunca** confiar en el monto que manda el cliente. |
+| `returnUrl` | absoluta, http/https, **estable** | `NEXT_PUBLIC_SITE_URL` + `/api/webpay/confirm`; jamás armarla desde un parámetro del cliente. |
+
+### 5.3 Flujo y métodos HTTP
+- `POST /transactions` crea (devuelve `token` + `url`), `PUT /transactions/{token}` **confirma** (commit),
+  `GET /transactions/{token}` consulta estado y `POST /transactions/{token}/refund` reversa.
+- El **retorno del navegador llega por POST** con `token_ws` en el cuerpo (form): el route handler debe
+  exportar **`POST`** además de `GET`. Hoy `app/api/webpay/confirm/route.ts` solo tiene `GET` → **corregir
+  antes de activar** (si no, el commit falla con 405).
+- **Compra anulada:** llega por **GET** con `TBK_TOKEN`, `TBK_ORDEN_COMPRA` y `TBK_ID_SESION` (sin
+  `token_ws`). Se muestra `anulado` (ya implementado).
+- El commit se hace **solo** en el retorno: Webpay no tiene webhook, no hay que confirmar dos veces.
+
+### 5.4 Idempotencia y «por si acaso» del retorno
+- **Refrescar la página de retorno** (F5) o volver atrás repite el POST: guardar el resultado por `token` y
+  **cortocircuitar** (si ya se confirmó, no volver a llamar a Transbank).
+- El `token_ws` es **de un solo uso y de vida corta**: si expiró o ya se usó, mostrar `error`/`rechazado`
+  con salida por WhatsApp, sin reintentar el commit.
+- El redirect final **no debe llevar `token_ws`** en la URL (evita reprocesos y filtración en el historial):
+  usar `estado` + `pedido` (ya implementado).
+- **No depender de la cookie de sesión** en el POST de retorno: es navegación *cross-site* y `SameSite=Lax`
+  no la envía en POST. El **invitado** debe poder confirmar igual (la cookie sí sirve en el GET posterior).
+- Deshabilitar el botón de pago mientras se crea la transacción: dos clics no pueden crear dos transacciones.
+- `proxy.ts` no debe interceptar `/api/webpay/*` ni `/checkout/retorno`.
+
+### 5.5 Dinero, stock y estado del pedido
+- La tienda trabaja **bajo pedido** (**D35**): el pedido se crea antes de pagar y **no** toca el stock (no
+  hay reserva ni expiración ni devolución: nunca se retuvo nada).
+- Estados: con **D37** el pedido no cambia de estado al pagar (sigue `pending`); el commit debe ser
+  **idempotente** (registrar el pago una sola vez aunque lleguen dos confirmaciones).
+- Comparar **monto confirmado vs. total del pedido**: si no coinciden, **no** marcar pagado y alertar.
+- Asociar `buyOrder`/`sessionId`/`token` al pedido en la base para poder consultar y auditar.
+
+### 5.6 Confirmación segura en el backend (fuente de verdad)
+- El route handler **no** puede confirmar un pago con un endpoint público: hoy
+  `PATCH /api/orders/{id}/status` exige admin. Agregar un endpoint dedicado (p. ej.
+  `POST /api/orders/{id}/payment`) con **secreto compartido** (`API_ADMIN_TOKEN` o uno propio) que reciba
+  token, `buyOrder`, monto, código de autorización, tipo de pago y fecha; que **valide el monto** y sea
+  **idempotente**. La llamada es **servidor a servidor**. Con **D37** este endpoint **no** cambia el
+  estado del pedido: registra el pago (en `payment_method` y la transacción guardada) y el pedido sigue
+  en `pending`.
+
+### 5.7 Reconciliación (por si el cliente cierra el navegador)
+- Si el cliente paga y **cierra la pestaña** sin volver, el pago queda autorizado en Transbank y el pedido
+  sin marcar. Guardar el `token` y ofrecer al admin **consultar el estado** (`GET /transactions/{token}`)
+  desde el panel, más un trabajo periódico que revise los pendientes con token. El retorno **no** siempre
+  ocurre: la reconciliación es la red de seguridad.
+
+### 5.8 Reembolsos y anulaciones
+- La reversa (`refund`) es solo para admin, con confirmación y monto ≤ pagado; dejar el pedido en
+  `refunded` y guardar el resultado. Definir explícitamente si la reversa **devuelve stock** (no es
+  automático).
+
+### 5.9 Despliegue (AWS)
+- El `returnUrl` debe ser **público y con HTTPS** (el dominio real, no el interno) e **idéntico** al
+  registrado. Detrás de un ALB, `request.nextUrl.origin` puede dar `http://localhost` o el host interno:
+  armar el `returnUrl` con `NEXT_PUBLIC_SITE_URL` (o `x-forwarded-host`/`x-forwarded-proto`).
+- Frontend y route handlers deben usar el **mismo** juego de credenciales; al pasar a producción se
+  cambian llaves y `TBK_ENVIRONMENT` juntos. El gate real es tener credenciales: `NEXT_PUBLIC_WEBPAY_ENABLED`
+  solo esconde la UI.
+
+### 5.10 Pruebas antes de activar
+- **Nunca** llamar a Transbank en la suite: reemplazar el SDK (`create`/`commit`/`status`/`refund`) con
+  mocks, como se hace con Instagram.
+- Casos: create OK · commit `AUTHORIZED` · commit rechazado · commit `null`/anulado · token expirado o ya
+  usado · retorno duplicado (**idempotencia**) · monto distinto · pedido inexistente · red/5xx de Transbank.
+- Probar en **integración** con las tarjetas de prueba (aprobada/rechazada) de Transbank Developers antes
+  de producción.
+
+### 5.11 Errores de la API (para el manejo de errores)
+- `400` JSON inválido · `401` llaves malas · `404` transacción no encontrada · `405` método incorrecto
+  (POST para crear, PUT para confirmar) · `415` `Content-Type` incorrecto · `422` validación/lógica ·
+  `500` error inesperado.
+- Límites por comercio: `-97` monto acumulado del día · `-98` monto máximo por transacción · `-99`
+  cantidad de transacciones del día.
+- Si hay fallas generales, revisar `https://status.transbankdevelopers.cl/`. **Nunca** marcar un pedido
+  como pagado sin una respuesta `AUTHORIZED`.
+
+### 5.12 Checklist de activación
+- [ ] `POST` en `/api/webpay/confirm` (hoy solo `GET`).
+- [ ] `buyOrder`/`sessionId` propios, únicos y ≤ 26/61 caracteres, guardados por pedido.
+- [ ] Monto recalculado en el servidor y validado contra la confirmación.
+- [ ] Endpoint interno **idempotente** para registrar el pago (con secreto); no cambia el estado (D37).
+- [ ] Página de retorno sin `token_ws` en la URL y sin depender de la cookie.
+- [ ] Reintento de pago **sin duplicar el pedido**.
+- [ ] Reconciliación de pagos sin retorno (consulta de estado).
+- [ ] Reembolso admin (con política de stock).
+- [ ] `returnUrl` absoluto con HTTPS vía `NEXT_PUBLIC_SITE_URL`.
+- [ ] Pruebas con mocks + integración con tarjetas de prueba.
+
