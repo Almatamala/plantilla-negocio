@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MapPin, Pencil, Plus, Store, Trash2 } from "lucide-react";
+import { MapPin, Pencil, Plus, Store, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import type { Slot, Zone } from "@/lib/agenda";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, formatSlot, weekdayFromIso } from "@/lib/schedule";
@@ -53,6 +53,104 @@ function SlotFields({ draft, setDraft }: { draft: SlotDraft; setDraft: (value: S
   );
 }
 
+/** Hoy en `YYYY-MM-DD` (hora local), para bloquear al cerrar un día que ya pasó. */
+function todayIso(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** Contenedor común de los modales de la agenda (agregar punto y cerrar día). */
+function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
+      <div role="dialog" aria-modal="true" aria-label={title} className={`max-h-[90vh] w-full overflow-auto rounded-xl bg-white p-6 ${wide ? "max-w-lg" : "max-w-sm"}`}>
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="display text-2xl">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Buscador de ubicación con el mapa de Google incrustado.
+ *
+ * La plantilla no tiene credenciales de Google Maps, así que se usa el embed público
+ * (`output=embed`): se escribe la dirección —o un lugar, o «lat, lng»—, el mapa la muestra y se
+ * confirma. Al aceptar, esa dirección queda en el campo del punto (y ahí siempre se puede corregir
+ * a mano); «Abrir en Google Maps» sirve para afinar la búsqueda en una pestaña nueva.
+ */
+function LocationPicker({ initial, onClose, onSelect }: { initial: string; onClose: () => void; onSelect: (location: string) => void }) {
+  const [query, setQuery] = useState(initial);
+  // Lo que se ve en el mapa: solo cambia al buscar, no en cada tecla (el iframe se recargaría solo).
+  const [searched, setSearched] = useState(initial.trim());
+  const term = query.trim();
+  function search() { if (term) setSearched(term); }
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
+      <div role="dialog" aria-modal="true" aria-label="Buscar ubicación" className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="display text-2xl">Buscar ubicación</h2>
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); search(); } }}
+            placeholder="Dirección, lugar o «lat, lng»"
+            aria-label="Ubicación a buscar"
+            className={`${FIELD} min-w-0 flex-1`}
+          />
+          <button type="button" onClick={search} disabled={!term} className={`${BUTTON} shrink-0 disabled:opacity-40`}>Buscar</button>
+        </div>
+        <div className="mt-3 overflow-hidden rounded-lg border border-[#e2e5df] bg-[#f6f7f4]">
+          {searched ? (
+            <iframe title={`Mapa de ${searched}`} src={`https://www.google.com/maps?q=${encodeURIComponent(searched)}&z=16&output=embed`} loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="h-64 w-full"/>
+          ) : (
+            <p className="grid h-64 place-items-center px-6 text-center text-sm text-[#647167]">Escribe una dirección o un lugar y presiona «Buscar» para verlo en el mapa.</p>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-[#748077]">El mapa es una ayuda para confirmar la dirección: revisa que el punto marcado sea el correcto antes de guardarlo.</p>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(term || initial.trim())}`} target="_blank" rel="noreferrer" className="text-xs text-[#56745c] underline underline-offset-4">Abrir en Google Maps</a>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className={LINK_BUTTON}>Cancelar</button>
+            <button type="button" onClick={() => onSelect(term)} disabled={!term} className={`${BUTTON} disabled:opacity-40`}>Usar esta ubicación</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Campo de ubicación de un punto: se escribe a mano o se busca con el mapa.
+ *
+ * El texto sigue siendo libre (una referencia como «frente a la plaza» es válida); el botón solo
+ * abre el buscador de Google Maps para confirmar una dirección real.
+ */
+function LocationField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [picking, setPicking] = useState(false);
+  return (
+    <div className="block text-sm">
+      <span className="mb-1.5 block text-[#647167]">Ubicación</span>
+      <div className="flex gap-2">
+        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Dirección o referencia" className={`${FIELD} min-w-0 flex-1`}/>
+        <button type="button" onClick={() => setPicking(true)} aria-label="Buscar la ubicación en Google Maps" title="Buscar en Google Maps" className={`${LINK_BUTTON} inline-flex shrink-0 items-center gap-1.5`}>
+          <MapPin size={14}/>Buscar
+        </button>
+      </div>
+      {picking && <LocationPicker initial={value} onClose={() => setPicking(false)} onSelect={(location) => { onChange(location); setPicking(false); }}/>}
+    </div>
+  );
+}
+
 /**
  * Agenda del panel (D18): cada **punto de retiro presencial** vive con su **ubicación** y
  * sus **franjas horarias**, y cada franja declara los **días de la semana** en que se atiende.
@@ -71,6 +169,9 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   const [editSlot, setEditSlot] = useState<string | null>(null);
   const [slotEditDraft, setSlotEditDraft] = useState<SlotDraft>(EMPTY_SLOT);
   const [closedForm, setClosedForm] = useState({ date: "" });
+  // Los formularios de alta viven en un modal que abre el botón de la derecha del encabezado.
+  const [creatingZone, setCreatingZone] = useState(false);
+  const [creatingClosed, setCreatingClosed] = useState(false);
 
   const reload = useCallback(async () => {
     const [zoneRows, slotRows, closedRows] = await Promise.all([
@@ -119,6 +220,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
         setSlotDraft(EMPTY_SLOT);
       },
       "Punto agregado. Carga su primera franja horaria para que se pueda agendar.",
+      () => setCreatingZone(false),
     );
   }
 
@@ -174,10 +276,12 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   function addClosed(event: React.FormEvent) {
     event.preventDefault();
     if (!closedForm.date) return;
+    // El `min` del campo ya bloquea casi todo, pero una fecha escrita a mano no debe cerrar el pasado.
+    if (closedForm.date < todayIso()) { setState("No se puede cerrar un día que ya pasó."); return; }
     void send(
       () => apiFetch("/api/closed-days", { method: "POST", admin: true, body: { date: closedForm.date } }),
       "Fecha cerrada guardada.",
-      () => setClosedForm({ date: "" }),
+      () => { setClosedForm({ date: "" }); setCreatingClosed(false); },
     );
   }
 
@@ -188,13 +292,15 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   return (
     <div className="space-y-6">
       <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Puntos de retiro presencial</h2>
-        <p className="mt-2 text-sm text-[#647167]">No hay despacho a domicilio: el cliente elige un punto y ahí se agenda. Cada punto tiene su <strong>ubicación</strong> y sus <strong>franjas horarias</strong>, y cada franja indica los <strong>días de la semana</strong> en que se atiende (una franja que solo corre los sábados no se puede agendar un miércoles).</p>
-        <form onSubmit={addZone} className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-          <input required value={zoneForm.name} onChange={(event) => setZoneForm({ ...zoneForm, name: event.target.value })} placeholder="Nombre (ej. Retiro San Javier)" className={FIELD}/>
-          <input value={zoneForm.location} onChange={(event) => setZoneForm({ ...zoneForm, location: event.target.value })} placeholder="Ubicación (dirección o referencia)" className={FIELD}/>
-          <button className={BUTTON}>Agregar punto</button>
-        </form>
+        {/* El botón va centrado respecto del título y su descripción (como el de Productos): así queda
+            entre el h2 y el p en vez de pegado a la esquina de arriba. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="display text-2xl">Puntos de retiro presencial</h2>
+            <p className="mt-2 text-sm text-[#647167]">Cada punto tiene su <strong>ubicación</strong> y sus <strong>franjas horarias</strong>, y cada franja indica los <strong>días de la semana</strong> en que se atiende.</p>
+          </div>
+          <button type="button" onClick={() => { setZoneForm(EMPTY_ZONE); setCreatingZone(true); }} className={`${BUTTON} inline-flex shrink-0 items-center gap-2`}><Plus size={16}/>Agregar punto</button>
+        </div>
 
         <div className="mt-5 space-y-4">
           {zones.map((zone) => {
@@ -202,9 +308,12 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
             return (
               <article key={zone.id} className="rounded-xl border border-[#e2e5df] p-4">
                 {editZone === zone.id ? (
-                  <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-                    <input required value={zoneDraft.name} onChange={(event) => setZoneDraft({ ...zoneDraft, name: event.target.value })} className={FIELD}/>
-                    <input value={zoneDraft.location} onChange={(event) => setZoneDraft({ ...zoneDraft, location: event.target.value })} placeholder="Ubicación" className={FIELD}/>
+                  <div className="grid items-end gap-3 md:grid-cols-[1fr_1fr_auto]">
+                    <label className="block text-sm">
+                      <span className="mb-1.5 block text-[#647167]">Nombre</span>
+                      <input required value={zoneDraft.name} onChange={(event) => setZoneDraft({ ...zoneDraft, name: event.target.value })} className={`${FIELD} w-full`}/>
+                    </label>
+                    <LocationField value={zoneDraft.location} onChange={(location) => setZoneDraft({ ...zoneDraft, location })}/>
                     <div className="flex gap-2">
                       <button onClick={() => saveZone(zone.id)} className={BUTTON}>Guardar</button>
                       <button onClick={() => setEditZone(null)} className={LINK_BUTTON}>Cancelar</button>
@@ -268,30 +377,58 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
       </section>
 
       <section className="rounded-xl bg-white p-5">
-        <h2 className="display text-2xl">Fechas cerradas</h2>
-        <p className="mt-2 text-sm text-[#647167]">Los cierres se aplican al agendar: esas fechas no aparecen disponibles en el checkout. Los días que no se atiende todas las semanas se dejan fuera en los <strong>días de cada franja</strong>; acá van las excepciones puntuales.</p>
-
-        <div className="mt-4">
-          <p className="text-sm font-medium">Fechas puntuales</p>
-          <p className="mt-1 text-xs text-[#647167]">Feriados, vacaciones o días con producción especial.</p>
-          <form onSubmit={addClosed} className="mt-2 grid gap-2 md:grid-cols-[auto_auto]">
-            <input required type="date" value={closedForm.date} onChange={(event) => setClosedForm({ ...closedForm, date: event.target.value })} className={FIELD}/>
-            <button className={BUTTON}>Cerrar día</button>
-          </form>
-          <div className="mt-3 divide-y divide-[#edf0e8]">
-            {closed.map((day) => (
-              <div key={day.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                <span className="min-w-0 font-medium">{day.date}</span>
-                <span className="flex items-center gap-3">
-                  <span className="text-xs text-[#748077]">{WEEKDAY_LONG[weekdayFromIso(day.date)]}</span>
-                  <button onClick={() => deleteClosed(day.id)} aria-label={`Quitar ${day.date}`} title="Quitar cierre" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>
-                </span>
-              </div>
-            ))}
-            {closed.length === 0 && <p className="py-2 text-xs text-[#748077]">Sin fechas cerradas.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="display text-2xl">Fechas cerradas</h2>
+            <p className="mt-2 text-sm text-[#647167]">Dias excepcionales los cuales el retiro presencial esta desabilitado para la vista del cliente.</p>
           </div>
+          <button type="button" onClick={() => { setClosedForm({ date: "" }); setCreatingClosed(true); }} className={`${BUTTON} inline-flex shrink-0 items-center gap-2`}><Plus size={16}/>Cerrar día</button>
+        </div>
+        <div className="mt-5 divide-y divide-[#edf0e8]">
+          {closed.map((day) => (
+            <div key={day.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <span className="min-w-0 font-medium">{day.date}</span>
+              <span className="flex items-center gap-3">
+                <span className="text-xs text-[#748077]">{WEEKDAY_LONG[weekdayFromIso(day.date)]}</span>
+                <button onClick={() => deleteClosed(day.id)} aria-label={`Quitar ${day.date}`} title="Quitar cierre" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>
+              </span>
+            </div>
+          ))}
+          {closed.length === 0 && <p className="py-2 text-xs text-[#748077]">Sin fechas cerradas.</p>}
         </div>
       </section>
+
+      {creatingZone && (
+        <Modal title="Agregar punto" wide onClose={() => setCreatingZone(false)}>
+          <form onSubmit={addZone} className="space-y-4">
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Nombre</span>
+              <input required autoFocus value={zoneForm.name} onChange={(event) => setZoneForm({ ...zoneForm, name: event.target.value })} placeholder="Retiro San Javier" className={`${FIELD} w-full`}/>
+            </label>
+            <LocationField value={zoneForm.location} onChange={(location) => setZoneForm({ ...zoneForm, location })}/>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setCreatingZone(false)} className={LINK_BUTTON}>Cancelar</button>
+              <button className={BUTTON}>Agregar punto</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {creatingClosed && (
+        <Modal title="Cerrar día" onClose={() => setCreatingClosed(false)}>
+          <form onSubmit={addClosed} className="space-y-4">
+            <label className="block text-sm">
+              <span className="mb-1.5 block text-[#647167]">Fecha a cerrar</span>
+              <input required autoFocus type="date" min={todayIso()} value={closedForm.date} onChange={(event) => setClosedForm({ ...closedForm, date: event.target.value })} className={`${FIELD} w-full`}/>
+            </label>
+            <p className="text-xs text-[#748077]">Ese día no aparecerá disponible para agendar en el checkout. Las fechas anteriores a hoy quedan bloqueadas.</p>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setCreatingClosed(false)} className={LINK_BUTTON}>Cancelar</button>
+              <button className={BUTTON}>Cerrar día</button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

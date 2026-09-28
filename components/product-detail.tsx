@@ -178,7 +178,7 @@ export function ProductDetail({ slug }: { slug: string }) {
 
   return shell(
     <div className="mx-auto max-w-7xl px-5 pb-20 md:px-10">
-      <div className="grid gap-10 md:grid-cols-2">
+      <div className="mt-4 grid gap-10 md:grid-cols-2">
         <div>
           {gallery.length > 0 ? (
             <>

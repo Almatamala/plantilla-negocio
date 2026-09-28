@@ -1,8 +1,8 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D39; D5, D6, D11 y D23 quedaron retiradas)
-**Fecha:** 2026-09-25 · **Estado:** documento vivo — despliegue y pendientes
+**Basado en:** `RPD.md` (decisiones D1–D40; D5, D6, D11 y D23 quedaron retiradas)
+**Fecha:** 2026-09-28 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
 
@@ -73,7 +73,9 @@ encarga del resto (consulta, caché y renovación).
 
 ---
 
-## 3. Últimos ajustes del dueño (2026-09-25)
+## 3. Ajustes del dueño
+
+### 3.1 Primera tanda (2026-09-25)
 
 **Implementado y verificado** (`pytest` 54/54; `tsc`, `lint` y `build` sin errores). Trece puntos, con ocho
 decisiones nuevas (**D32** a **D39**):
@@ -152,6 +154,30 @@ se invierte. Las fotos se apilan en absoluto dentro del mismo marco (`aspect-[.9
 no salta de alto y el marco mantiene su tamaño mientras se desliza. Al pasar el mouse por la **orilla** de
 la foto aparece la flecha con un degradado suave que indica hacia dónde se mueve (en táctil la flecha queda
 siempre visible, porque ahí no hay hover).
+
+### 3.2 Panel: filtros y agenda (2026-09-28)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores). Cuatro puntos que refinan el panel de
+**Productos** y **Pedidos** (A47) y la **Agenda** (D18/D32), con una decisión nueva (**D40**):
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A52** | En Productos, poder filtrar entre productos **activos e inactivos** | **D40:** el **estado** se suma a la barra de filtros que ya traía categoría, precio y stock, con las mismas opciones que la columna «Estado» (Todos / Activos / Inactivos). El panel sigue pidiendo `?include_inactive=true`, así que «Todos los estados» muestra ambos. |
+| **A53** | En Pedidos, filtros de **fecha** y **precio total** como los de Productos, y proponer algún filtro útil | **D40:** la barra de Pedidos suma filtros; el dueño los redefinió el mismo día (**A55**), así que **hoy** son **búsqueda**, **estado** y **punto de retiro**, y las fechas se ordenan desde la propia tabla. De los filtros que se propusieron —punto de retiro, franja agendada, pago registrado, producto o categoría vendida y antigüedad sin gestionar— el que quedó fue el **punto de retiro**. |
+| **A55** | En Pedidos, que las fechas sean filtros **ascendente/descendente** dentro de la tabla —agregando la fecha que faltaba— y cambiar el filtro de **total** por uno de **puntos de retiro** | **D40:** se retiran los campos «desde/hasta» y el selector de fecha de la barra. La **fecha del pedido** (`created_at`) se agrega como **columna** —la tabla solo mostraba la agendada— y las **dos** fechas se ordenan haciendo clic en su encabezado: de la **más antigua a la más nueva** y al revés, con el mismo control que las columnas de Productos (abre con lo más reciente primero y los pedidos sin esa fecha quedan al final). El rango de **total** desaparece y en su lugar queda el filtro de **punto de retiro**, con las opciones tomadas de los propios pedidos listados. |
+| **A54** | En Agenda, «Agregar punto» y «Cerrar día» a la derecha del encabezado abriendo un **modal**; en ubicación, un icono para buscar la dirección en **Google Maps** conservando la escritura directa; y bloquear las fechas cerradas anteriores a hoy | **D40:** los dos botones pasan al **extremo derecho del encabezado** de su sección y cada uno abre un **modal** (antes el formulario estaba desplegado en la página). El campo de **ubicación** —compartido por el alta y la edición del punto— conserva el texto libre y suma un botón que abre un buscador con el **mapa de Google incrustado**; al confirmar, la dirección buscada queda en el campo. Como la plantilla no tiene credenciales de Maps, el embed es el **público** (`output=embed`): sirve para confirmar la dirección, y un enlace a Google Maps permite afinarla. La fecha por cerrar **no acepta días anteriores a hoy** (el campo los bloquea y el formulario los rechaza). |
+
+**Decisión D40 (nueva):** los **filtros del panel** quedan en una sola barra por tabla y con los mismos
+controles: **Productos** suma el **estado** (activos / inactivos / todos) junto a categoría, precio y stock, y
+**Pedidos** filtra por **estado** y **punto de retiro** (las opciones salen de los pedidos listados, sin pedir
+la agenda a la API, e incluyen «Sin punto definido» si hay pedidos sin punto). Las **dos fechas de un pedido**
+—la de creación (`created_at`) y la agendada (`scheduled_date`)— son **columnas de la tabla** y se ordenan
+haciendo clic en su encabezado: de la **más antigua a la más nueva** y al revés, con el mismo control que las
+columnas de Productos (antes había un rango «desde/hasta», que se retiró). En **Agenda** las altas
+(«Agregar punto», «Cerrar día») viven en el **encabezado** de su sección y se hacen en un **modal**, la
+**ubicación** del punto se escribe a mano o se busca en **Google Maps** (embed público, sin credenciales: el
+buscador solo confirma la dirección y el texto sigue siendo libre) y las **fechas cerradas** no aceptan días
+anteriores a hoy.
 
 **Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
