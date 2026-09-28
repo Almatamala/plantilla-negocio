@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-:root { --ink: #243128; --moss: #56745c; --cream: #faf7f0; }
+:root { --ink: #243128; --cream: #faf7f0; }
 
 /*
  * Paleta de marca **editable** (panel › Contenido › Colores).
@@ -49,7 +49,6 @@ select.select-field {
   padding-right: 2rem;
   cursor: pointer;
 }
-.hero-visual { background: radial-gradient(circle at 78% 26%, #f4d8c4 0 7%, transparent 7.5%), radial-gradient(circle at 65% 60%, #86a091 0 17%, transparent 17.5%), radial-gradient(circle at 87% 67%, #d49a8d 0 13%, transparent 13.5%), linear-gradient(130deg, #e9ddc9 0%, #bbcabb 100%); }
 .product-visual { background: linear-gradient(145deg, #eee6d7, #c8d6c5); }
 .product-visual[data-tone="warm"] { background: linear-gradient(145deg, #f2d9c8, #d59486); }
 .product-visual[data-tone="deep"] { background: linear-gradient(145deg, #486454, #263c34); }
@@ -67,10 +66,10 @@ select.select-field {
  * Desde **D29** los tonos ya no están fijos acá: salen de las variables `--brand-*` de arriba, que el
  * panel guarda en `store_settings.theme_colors`. Lo único que esta clase fija es el reparto (qué tono
  * usa cada sección y cada relleno).
- * Los visuales de relleno (hero y product-visual) se redefinen solo dentro del tema para que el panel
- * y el checkout conserven los suyos.
+ * El visual del hero vive **solo** dentro del tema (la tienda siempre lo lleva). El del producto
+ * (`product-visual`) se redefine acá para que el panel y el checkout conserven el suyo.
  */
-.theme-bosque { --ink: var(--brand-ink); --moss: var(--brand-muted); --cream: #ffffff; background: var(--cream); color: var(--ink); }
+.theme-bosque { --ink: var(--brand-ink); --cream: #ffffff; background: var(--cream); color: var(--ink); }
 .theme-bosque .hero-visual { background: radial-gradient(circle at 78% 26%, var(--brand-detail) 0 7%, transparent 7.5%), radial-gradient(circle at 65% 60%, var(--brand-accent) 0 17%, transparent 17.5%), radial-gradient(circle at 87% 67%, var(--brand-muted) 0 13%, transparent 13.5%), linear-gradient(130deg, var(--brand-surface) 0%, var(--brand-detail) 100%); }
 .theme-bosque .product-visual { background: linear-gradient(145deg, var(--brand-surface-soft), var(--brand-surface)); }
 .theme-bosque .product-visual[data-tone="warm"] { background: linear-gradient(145deg, var(--brand-detail-soft), var(--brand-detail)); }

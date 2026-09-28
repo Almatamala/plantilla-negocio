@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 /**
- * Creación de transacción Webpay Plus (F2.3).
+ * Creación de transacción Webpay Plus (D8).
  * Activo solo cuando existen credenciales TBK. Mientras no haya credenciales
  * devuelve 501 para que el checkout muestre "Webpay próximamente".
  *
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!orderId || typeof total !== "number" || total <= 0) {
     return Response.json({ error: "Parámetros inválidos." }, { status: 400 });
   }
-  // TODO(F2.3): crear la transacción con el SDK de Transbank:
+  // Pendiente (D8): crear la transacción con el SDK de Transbank (ver `PLAN.md` §5):
   //   const tx = new WebpayPlus.Transaction();
   //   const { url, token } = await tx.create(buyOrder, sessionId, total, returnUrl);
   return Response.json({ url: "", token: "" }, { status: 501 });

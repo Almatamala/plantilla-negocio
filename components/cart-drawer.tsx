@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { Minus, Plus, X } from "lucide-react";
+import { cartCount } from "@/lib/cart";
 import { formatPrice, type Product } from "@/lib/products";
 
 /**
@@ -27,7 +28,7 @@ export function CartDrawer({
   onChange: (id: string, delta: number) => void;
 }) {
   const lines = products.filter((product) => cart[product.id]);
-  const count = Object.values(cart).reduce((total, quantity) => total + quantity, 0);
+  const count = cartCount(cart);
   const total = lines.reduce((sum, product) => sum + product.price * cart[product.id], 0);
   const missing = Object.keys(cart).filter((id) => !products.some((product) => product.id === id)).length;
 

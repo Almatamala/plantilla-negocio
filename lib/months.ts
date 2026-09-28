@@ -1,5 +1,5 @@
 /**
- * Meses del año para los reportes del panel (PLAN §0.9, D21).
+ * Meses del año para los reportes del panel (D21).
  *
  * Las claves son `YYYY-MM`: se ordenan y se comparan como texto y no arrastran problemas de zona
  * horaria (a diferencia de un `Date` serializado). Los rangos se manejan con **meses enteros**, que es
@@ -25,14 +25,14 @@ export function monthFromKey(key: MonthKey): Date {
 }
 
 /** Meses de distancia entre dos claves (positivo si `to` es posterior a `from`). */
-export function monthDistance(from: MonthKey, to: MonthKey): number {
+function monthDistance(from: MonthKey, to: MonthKey): number {
   const a = monthFromKey(from);
   const b = monthFromKey(to);
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 }
 
 /** Desplaza una clave de mes la cantidad de meses indicada (acepta negativos). */
-export function addMonthsKey(key: MonthKey, amount: number): MonthKey {
+function addMonthsKey(key: MonthKey, amount: number): MonthKey {
   const date = monthFromKey(key);
   return monthKey(new Date(date.getFullYear(), date.getMonth() + amount, 1));
 }

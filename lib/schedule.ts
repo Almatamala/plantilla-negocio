@@ -1,5 +1,5 @@
 /**
- * Días de la semana y franjas horarias de los puntos de retiro (PLAN §0.8, D18).
+ * Días de la semana y franjas horarias de los puntos de retiro (D18).
  *
  * La API guarda los días con la convención de JavaScript (`Date.getDay()`): `0` domingo … `6` sábado.
  * Se comparte entre el checkout, la ficha de agenda del admin y el formulario de pedidos.

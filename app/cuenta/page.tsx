@@ -9,6 +9,7 @@ import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/products";
 import { refreshSession } from "@/lib/session-client";
+import { displayOrderId, orderStatusLabel } from "@/lib/orders";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { FloatingCart } from "@/components/floating-cart";
@@ -24,13 +25,6 @@ type MyOrder = {
   time_slot_label: string | null;
   shipping_zone_name: string | null;
   items: { name: string; unit_price: number; quantity: number }[];
-};
-
-// Estados unificados (D37): `paid` y `preparing` se retiraron; quedan pendiente, enviado, entregado
-// y cancelado (el reembolso se muestra como cancelado).
-const STATUS_LABEL: Record<string, string> = {
-  pending: "Pendiente", shipped: "Enviado", delivered: "Entregado",
-  cancelled: "Cancelado", refunded: "Cancelado",
 };
 
 export default function CuentaPage() {
@@ -127,7 +121,7 @@ export default function CuentaPage() {
                   {orders.map((order) => (
                     <div key={order.id} className="flex items-start justify-between gap-3 py-3 text-sm">
                       <div>
-                        <p className="flex items-center gap-2 font-medium"><Package size={14} className="text-[#56745c]"/>{order.id.slice(0, 8).toUpperCase()}</p>
+                        <p className="flex items-center gap-2 font-medium"><Package size={14} className="text-[#56745c]"/>{displayOrderId(order.id)}</p>
                         <p className="mt-0.5 text-xs text-[#748077]">
                           {order.scheduled_date ? `${order.scheduled_date}${order.time_slot_label ? ` · ${order.time_slot_label}` : ""}` : "Sin fecha agendada"}
                           {" · Retiro presencial"}
@@ -137,7 +131,7 @@ export default function CuentaPage() {
                       </div>
                       <div className="text-right whitespace-nowrap">
                         <p className="font-medium">{formatPrice(order.total)}</p>
-                        <span className="mt-1 inline-block rounded-full bg-[#edf0e8] px-2 py-0.5 text-xs text-[#647167]">{STATUS_LABEL[order.status] ?? order.status}</span>
+                        <span className="mt-1 inline-block rounded-full bg-[#edf0e8] px-2 py-0.5 text-xs text-[#647167]">{orderStatusLabel(order.status)}</span>
                       </div>
                     </div>
                   ))}

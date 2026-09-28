@@ -12,9 +12,9 @@ import { useCallback, useSyncExternalStore } from "react";
  * restaurarlo, por lo que los ítems desaparecían al volver a la tienda desde la
  * ficha de producto (bug «seguir comprando»).
  */
-export const CART_KEY = "store-cart";
+const CART_KEY = "store-cart";
 
-export type Cart = Record<string, number>;
+type Cart = Record<string, number>;
 
 const EMPTY_CART: Cart = {};
 
@@ -47,7 +47,7 @@ function readStorage(): string | null {
 }
 
 /** Carrito actual (referencia estable mientras no cambie). */
-export function getCart(): Cart {
+function getCart(): Cart {
   if (!loaded) {
     snapshot = parse(readStorage());
     loaded = true;
@@ -60,7 +60,7 @@ function emit() {
 }
 
 /** Reemplaza el carrito y lo persiste. */
-export function setCart(next: Cart) {
+function setCart(next: Cart) {
   snapshot = next;
   loaded = true;
   if (typeof window !== "undefined") {
@@ -74,7 +74,7 @@ export function setCart(next: Cart) {
 }
 
 /** Vuelve a leer lo guardado (por ejemplo tras un cambio en otra pestaña). */
-export function reloadCart() {
+function reloadCart() {
   snapshot = parse(readStorage());
   loaded = true;
   emit();
@@ -116,5 +116,5 @@ export function useCart() {
 
   const clear = useCallback(() => setCart({}), []);
 
-  return { cart, setCart, add, change, clear, count: cartCount(cart) };
+  return { cart, add, change, clear, count: cartCount(cart) };
 }

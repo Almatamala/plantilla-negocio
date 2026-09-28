@@ -6,6 +6,7 @@ import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Star } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useCart } from "@/lib/cart";
+import { categoryNames } from "@/lib/catalog";
 import { readCache, writeCache } from "@/lib/offline-cache";
 import { formatPrice, mapApiProduct, type ApiProduct, type Product } from "@/lib/products";
 import { useStoreSettings } from "@/lib/use-store-settings";
@@ -43,9 +44,9 @@ async function fetchDetail(slug: string): Promise<Detail> {
     apiFetch<{ id: string; name: string }[]>("/api/categories"),
     apiFetch<ApiProduct[]>("/api/products"),
   ]);
-  const categories = new Map(cats.map((category) => [category.id, category.name]));
-  const product = mapApiProduct(data, 0, categories);
-  const catalog = rows.map((row, index) => mapApiProduct(row, index, categories));
+  const names = categoryNames(cats);
+  const product = mapApiProduct(data, 0, names);
+  const catalog = rows.map((row, index) => mapApiProduct(row, index, names));
   const reviews = await apiFetch<Review[]>("/api/reviews").catch(() => [] as Review[]);
   return { product, catalog, reviews: reviews.filter((review) => review.product_id === product.id) };
 }

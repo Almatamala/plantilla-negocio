@@ -6,7 +6,7 @@
  * guarda en `localStorage` la última respuesta buena y se usa como respaldo, sin service worker ni
  * PWA ni copia en el servidor: no hay proceso que mantener y ocupa unos pocos KB.
  *
- * Alcance acordado (PLAN §0.9, D20):
+ * Alcance acordado (D20):
  * - **Sí:** tienda y ficha de producto (la vidriera: catálogo, ajustes y la ficha por slug).
  * - **No:** el **checkout**, porque con la API caída el pedido no se puede registrar igual; ahí se
  *   avisa explícitamente en vez de mostrar puntos y horarios que quizá ya no existen.

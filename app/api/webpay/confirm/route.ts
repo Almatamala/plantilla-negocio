@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 /**
- * Retorno de Webpay Plus (F2.3 / D8): acá vuelve el **navegador** desde la pasarela.
+ * Retorno de Webpay Plus (D8): acá vuelve el **navegador** desde la pasarela.
  *
  * No devuelve JSON: siempre termina en la **página visible** `/checkout/retorno`, con el estado del
  * pago. Los casos:
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   if (!token) {
     return Response.redirect(retornoUrl(request, "error", pedido), 303);
   }
-  // TODO(F2.3): confirmar con el SDK de Transbank y marcar la orden como pagada:
+  // Pendiente (D8): confirmar con el SDK de Transbank y registrar el pago (ver `PLAN.md` §5):
   //   const tx = new WebpayPlus.Transaction();
   //   const result = await tx.commit(token);
   //   const estado = result.status === "AUTHORIZED" ? "ok" : "rechazado";

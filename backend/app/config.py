@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     auth_jwt_secret: str = "change-me-in-development"
     # Correo transaccional (Resend) para la confirmación de cuentas con código de 6 dígitos.
     # Si RESEND_API_KEY y RESEND_EMAIL_FROM están vacíos, la verificación por correo se
-    # desactiva y las cuentas nuevas entran activas (ver PLAN F2.9).
+    # desactiva y las cuentas nuevas entran activas (D14).
     resend_api_key: str = ""
     resend_email_from: str = ""
     resend_api_url: str = "https://api.resend.com/emails"

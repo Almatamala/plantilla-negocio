@@ -5,9 +5,10 @@ import { AlertTriangle, BarChart3, Box, CircleDollarSign, Package, Store, Trendi
 import { formatPrice, type ProductStatus } from "@/lib/products";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, weekdayFromIso } from "@/lib/schedule";
 import { monthAfter, monthFromKey, monthKey, monthLabel, moveRange, rangeMonths, type MonthKey, type MonthRange } from "@/lib/months";
+import { Metric } from "@/components/admin-metric";
 
 /**
- * Reportes del negocio (PLAN §0.9, RPD §1.7 / D21).
+ * Reportes del negocio (D21).
  *
  * Todo se calcula con lo que el panel ya tiene cargado (`orders` con sus líneas y `products`):
  * ventas del período comparadas con el anterior, productos más y menos vendidos, dónde se retiran
@@ -45,7 +46,7 @@ const PERIODS: { id: PeriodId; label: string }[] = [
  */
 const MAX_RANGE_MONTHS = 12;
 
-/** Mismo tratamiento que los demás selects del panel (PLAN §0.9, A17). */
+/** Mismo tratamiento que los demás selects del panel (`select-field`). */
 const SELECT = "select-field rounded-lg border border-[#d9ddd5] bg-white px-3 py-2 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128]";
 
 /** Los pedidos cancelados no son ventas, pero sí se cuentan como pedidos. */
@@ -124,16 +125,6 @@ function Card({ title, description, children }: { title: string; description?: s
       {description && <p className="mt-2 text-sm text-[#647167]">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
-  );
-}
-
-function Metric({ label, value, hint, icon: Icon }: { label: string; value: string; hint?: React.ReactNode; icon: typeof Package }) {
-  return (
-    <div className="rounded-xl bg-white p-5">
-      <div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div>
-      <p className="display mt-3 text-3xl">{value}</p>
-      {hint && <p className="mt-1 text-xs text-[#748077]">{hint}</p>}
-    </div>
   );
 }
 

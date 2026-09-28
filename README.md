@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Tienda BOSQUE
 
-## Getting Started
+Plantilla de comercio para repostería artesanal: tienda pública con pedidos agendados (retiro
+presencial), carrito, cuenta de cliente y panel de administración.
 
-First, run the development server:
+| Parte | Tecnología |
+|---|---|
+| Frontend | Next.js 16 (App Router, React 19, Tailwind v4) |
+| API (fuente de verdad) | FastAPI + SQLAlchemy + PostgreSQL, en `backend/` |
+| Sesión | JWT en cookie httpOnly; `proxy.ts` exige rol admin en `/admin` |
+| Correo | Resend (códigos de confirmación y avisos de pedido) |
+| Pagos | Webpay Plus (pendiente de credenciales TBK; ver `PLAN.md` §5) |
+
+## Cómo levantarlo
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1) API + base de datos (PostgreSQL 16 + FastAPI)
+docker compose -f docker-compose.backend.yml up --build -d
+
+# 2) Frontend
+npm install
+npm run dev            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+La API queda en `http://localhost:8000` (`/health` responde el estado). El frontend la busca con
+`NEXT_PUBLIC_API_URL`; sin esa variable usa `http://localhost:8000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Dónde | Para qué |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | Frontend | Dominio de la API |
+| `AUTH_JWT_SECRET` | Frontend **y** API | Debe ser el mismo en los dos o las sesiones no validan |
+| `NEXT_PUBLIC_SITE_URL` | Frontend | `returnUrl` de Webpay |
+| `NEXT_PUBLIC_WEBPAY_ENABLED` | Frontend | Solo esconde/muestra la UI de pago |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | API | Login con Google |
+| `RESEND_API_KEY` / `RESEND_EMAIL_FROM` | API | Correos |
+| `ADMIN_EMAILS` | API | Quién obtiene rol `admin` |
+| `CORS_ORIGINS` | API | Dominios permitidos |
+| `INSTAGRAM_USER_ID` / `INSTAGRAM_ACCESS_TOKEN` | API | Feed de Instagram (el token se renueva solo) |
+| `TBK_*` | API / route handlers | Credenciales de Webpay Plus |
 
-## Learn More
+## Estructura
 
-To learn more about Next.js, take a look at the following resources:
+- `app/` — rutas: tienda (`/`), ficha (`/producto/[slug]`), checkout y su retorno, cuenta, login,
+  panel (`/admin`) y editor visual de la página (`/admin/editor`). Los route handlers de `app/api/`
+  solo median entre el navegador y la API (login, Google, Webpay).
+- `components/` — interfaz de la tienda y del panel.
+- `lib/` — tipos y utilidades compartidas (API, carrito, sesión, catálogo, pedidos, agenda, tema).
+- `backend/` — API FastAPI: modelos, schemas, endpoints, correos e Instagram. Crea y migra las tablas
+  al arrancar.
+- `PLAN.md` — pendientes y despliegue (AWS, Webpay).
+- `RPD.md` — estado actual del código y decisiones (D1–D39).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Verificación
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npx tsc --noEmit     # tipos
+npm run lint         # eslint
+npm run build        # compilación
+cd backend && pytest # API
+```
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> Cada cambio en `backend/` exige reconstruir la imagen de la API antes de probar en el frontend;
+> el contenedor arranca sin `--reload`.

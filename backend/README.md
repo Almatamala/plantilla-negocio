@@ -2,7 +2,7 @@
 
 La API es la **única fuente de verdad** de la tienda: catálogo (fotos, ingredientes, alérgenos,
 stock y **días de preparación**), agenda (franjas horarias, fechas cerradas, **puntos de retiro presencial
-con ubicación y horario**), reviews, órdenes (sin despacho a domicilio, ver PLAN §0.7 / D16), ajustes de la
+con ubicación y horario**), reviews, órdenes (sin despacho a domicilio, D16), ajustes de la
 tienda y subida de imágenes. Se despliega dockerizada (AWS) y el frontend la consume
 vía HTTP (`NEXT_PUBLIC_API_URL`).
 
@@ -60,7 +60,7 @@ retiran `products.allow_backorder` (el «bajo pedido» ahora es **implícito** d
 `store_settings.bank_account_info` (la web no publica datos bancarios, D34); un `UPDATE` convierte a
 `active` los productos con **estados retirados** (`draft`, `sold_out`, `preorder`, D36); y otro
 convierte a `pending` los pedidos en los **estados retirados** `paid` y `preparing` (los estados del
-pedido quedaron unificados, D37). Ver PLAN §0.7, §0.8, §0.13, §0.15 y §0.17).
+pedido quedaron unificados, D37). Ver la transición a AWS en **§1 de `PLAN.md`**.
 
 ## Variables de entorno
 

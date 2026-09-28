@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ChevronLeft, ChevronRight, Package, Plus, Search } from "lucide-react";
-import { apiFetch } from "@/lib/api";
 import { useCart } from "@/lib/cart";
+import { fetchCatalog } from "@/lib/catalog";
 import { loadCached } from "@/lib/offline-cache";
-import { formatPrice, mapApiProduct, type ApiProduct, type Product } from "@/lib/products";
+import { formatPrice, type Product } from "@/lib/products";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { CartDrawer } from "@/components/cart-drawer";
@@ -22,16 +22,6 @@ import { WhatsAppButton } from "@/components/whatsapp-button";
  * de la vitrina (no se edita desde el panel), así que la carta siempre pagina igual.
  */
 const PRODUCTS_PER_PAGE = 8;
-
-/** Lee el catálogo de la API. No toca estado: se aplica en un callback. */
-async function fetchCatalog(): Promise<Product[]> {
-  const [rows, cats] = await Promise.all([
-    apiFetch<ApiProduct[]>("/api/products"),
-    apiFetch<{ id: string; name: string }[]>("/api/categories"),
-  ]);
-  const categories = new Map(cats.map((category) => [category.id, category.name]));
-  return rows.map((row, index) => mapApiProduct(row, index, categories));
-}
 
 export function Storefront({ products }: { products: Product[] }) {
   const [catalog, setCatalog] = useState(products);
@@ -61,10 +51,9 @@ export function Storefront({ products }: { products: Product[] }) {
 
   // Catálogo paginado: la vitrina muestra 8 productos por página (4 columnas × 2 filas) y la página se
   // recorta al total para que un filtro más chico no deje la vitrina vacía.
-  const perPage = PRODUCTS_PER_PAGE;
-  const pageCount = Math.max(1, Math.ceil(visible.length / perPage));
+  const pageCount = Math.max(1, Math.ceil(visible.length / PRODUCTS_PER_PAGE));
   const currentPage = Math.min(page, pageCount - 1);
-  const pageProducts = visible.slice(currentPage * perPage, currentPage * perPage + perPage);
+  const pageProducts = visible.slice(currentPage * PRODUCTS_PER_PAGE, currentPage * PRODUCTS_PER_PAGE + PRODUCTS_PER_PAGE);
   const goToPage = (delta: number) => setPage(Math.min(Math.max(currentPage + delta, 0), pageCount - 1));
   // Al filtrar o buscar se vuelve a la primera página, y los productos que quedan se acomodan solos.
   const onSearch = (value: string) => { setSearch(value); setPage(0); };

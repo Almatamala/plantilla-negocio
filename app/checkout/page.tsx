@@ -7,7 +7,9 @@ import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
 import { loadCached } from "@/lib/offline-cache";
-import { formatPrice, mapApiProduct, products as demoProducts, type ApiProduct, type Product } from "@/lib/products";
+import { formatPrice, products as demoProducts, type Product } from "@/lib/products";
+import { fetchCatalog } from "@/lib/catalog";
+import { displayOrderId } from "@/lib/orders";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { CheckoutFooter, CheckoutHeader } from "@/components/checkout-shell";
 import { WEEKDAY_LONG, formatSlot, weekdayFromIso } from "@/lib/schedule";
@@ -60,9 +62,9 @@ export default function CheckoutPage() {
   // falsos) y los **ajustes** (nombre de la tienda, vía `useStoreSettings`).
   // Puntos de retiro, franjas y cierres **no** se respaldan: con la API caída no se puede registrar el
   // pedido igual, así que es más honesto avisar que ofrecer horarios que quizá ya no existen
-  // (PLAN §0.9, D20).
+  // (D20).
   useEffect(() => {
-    void loadCached("catalog", () => apiFetch<ApiProduct[]>("/api/products").then((rows) => rows.map((row, index) => mapApiProduct(row, index))))
+    void loadCached("catalog", fetchCatalog)
       .then(({ value, fromCache }) => {
         setCatalogOk(!fromCache);
         if (value?.length) setCatalog(value);
@@ -150,7 +152,7 @@ export default function CheckoutPage() {
         },
       });
       setPlacedOrder({
-        id: order.id.slice(0, 8).toUpperCase(),
+        id: displayOrderId(order.id),
         total,
         items: items.map(({ name, quantity, unit_price }) => ({ name, quantity, price: unit_price })),
         zone: zone.name,
@@ -268,7 +270,7 @@ export default function CheckoutPage() {
         </div>
 
         {/* Sin API no hay disponibilidad real ni forma de registrar el pedido: se dice de frente en
-            lugar de mostrar puntos y horarios que podrían no existir (PLAN §0.9, D20). */}
+            lugar de mostrar puntos y horarios que podrían no existir (D20). */}
         {unavailable && (
           <div className="mt-4 rounded-xl border border-[#e8c9c1] bg-[#fdf3f1] p-4 text-sm text-[#8a4a44]">
             <p className="font-medium">No podemos conectar con la tienda en este momento.</p>

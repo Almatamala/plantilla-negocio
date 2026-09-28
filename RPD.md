@@ -5,7 +5,7 @@
 **Fecha:** 2026-09-26
 **Estado:** Documento vivo — estado actual del código y decisiones
 
-**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D39). El
+**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D39, con D5, D6, D11 y D23 retiradas). El
 historial de cambios por versión y el plan de trabajo por fases ya no se mantienen: lo aprobado está
 implementado. Los **pendientes** se listan en `PLAN.md` §4.
 
@@ -53,7 +53,7 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | D27 | Footer de la tienda | Footer **profesional** compartido por carta, ficha y cuenta —marca, contacto (correo, teléfono, WhatsApp e Instagram), navegación y copyright—; el checkout mantiene su footer mínimo (D15). | `store-shell.tsx` |
 | D28 | Footer cálido único | **Un solo footer, siempre en la paleta cálida**, en todo el sitio (pierde la prop `warm`); el header conserva `warm`. | `store-shell.tsx` |
 | D29 | Paleta de marca editable | Los **cinco tonos** se editan en **Contenido › Colores** y se guardan en `store_settings.theme_colors`; la tienda los aplica con variables CSS `--brand-*` y deriva el resto con `color-mix`. | Panel, tienda |
-| D30 | Feed de Instagram | **Feed propio** con la **API de Instagram** (15 últimas en 3 filas de 5 columnas, con likes, comentarios y descripción al pasar el mouse); el token vive **solo en la API**. Retira el widget de terceros (D23). | Instagram |
+| D30 | Feed de Instagram | **Feed propio** con la **API de Instagram** (15 últimas en 3 filas de 5 columnas, con likes, comentarios y descripción al pasar el mouse); el token vive **solo en la API**. Retira el widget de terceros (esa decisión quedó retirada: su número no se reutiliza). | Instagram |
 | D31 | Renovación del token de Instagram | **Automática y dentro de la API**: el token de larga duración vive en `instagram_token` y una **tarea de fondo** lo renueva (revisa cada 12 h, renueva a los 50 días); la API sirve el feed y expone estado y renovación manual a los admins. | Backend Instagram |
 | D32 | Días libres, franja y cierre | Los días libres salen de los **días de cada franja** + **fechas cerradas puntuales**; se retiran el **cierre semanal** `closed_weekdays`, el **nombre de la franja** (`time_slots.label`) y el **motivo** de la fecha cerrada (`closed_days.reason`). Ajusta D18 y D19. | Backend, agenda, checkout |
 | D33 | Puntos de entrega | **Un solo tipo: retiro presencial.** En la práctica «retiro presencial» y «punto de encuentro» eran lo mismo (una dirección y unos horarios donde el cliente pasa a buscar), así que se retiran `shipping_zones.type` y `orders.fulfillment`: el punto se define por su nombre, su ubicación y sus franjas. Ajusta D16. | Backend, agenda, pedidos, reportes, checkout |

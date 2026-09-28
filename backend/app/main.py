@@ -76,7 +76,7 @@ AGENDA_COLUMNS = (
 # Contenido retirado del catálogo: los campos SEO y el SKU del producto, las **variantes** (tabla
 # completa, más su columna en `order_items`) y las **páginas editables** (`pages` y `/api/pages`).
 # Ninguno tenía pantalla en el panel ni consumidor en la tienda: el «contenido editable» del plan es
-# `store_settings` (F2.5) y el producto no usa variantes (el panel siempre enviaba una lista vacía).
+# `store_settings` y el producto no usa variantes (el panel siempre enviaba una lista vacía, D22).
 # `create_all` no elimina lo que ya existe, así que se quitan al arrancar en PostgreSQL para que una
 # base ya creada quede igual que una nueva. El orden importa: primero la columna que apunta a la tabla.
 RETIRED_CATALOG_OBJECTS = (
@@ -420,7 +420,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     db.refresh(profile)
     if not needs_verification:
         # Sin proveedor de correo configurado no hay forma de verificar: la cuenta entra
-        # activa para no dejar la tienda sin acceso (ver PLAN F2.9).
+        # activa para no dejar la tienda sin acceso (D14).
         return {
             "token": session_token(profile),
             "user": ProfileOut.model_validate(profile),

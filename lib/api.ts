@@ -38,7 +38,7 @@ function clearAdminToken() {
  *
  * **Toda** petición administrativa debe pasar por acá: la subida de imágenes mandaba únicamente la
  * clave legacy, así que con el login por sesión (D13) respondía 401 y no se podían subir fotos desde
- * el panel (PLAN §0.9, A19).
+ * el panel (A19).
  */
 async function adminHeaders(): Promise<Record<string, string>> {
   const sessionToken = await getSessionToken();

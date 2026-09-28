@@ -7,11 +7,14 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, Menu, MessageSquare, Package, Pencil, Plus, RotateCcw, Search, Store, Tags, Trash2, Upload, X } from "lucide-react";
 import { apiFetch, endSession, uploadImage } from "@/lib/api";
 import { useSession } from "@/lib/account";
-import { formatPrice, type ApiProduct, type Product, type ProductStatus } from "@/lib/products";
+import { formatPrice, type ApiProduct, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
 import { storeConfig } from "@/lib/store-config";
 import { defaultThemeColors, isHexColor, normalizeThemeColors, themeColorFields, type ThemeColorKey, type ThemeColors } from "@/lib/theme";
+import { categoryNames, mapAdminProducts, type AdminProduct } from "@/lib/catalog";
+import { ORDER_STATUS_DB, ORDER_STATUS_LABEL, displayOrderId, type OrderStatus } from "@/lib/orders";
 import { AgendaSection, type SlotRow, type ZoneRow } from "@/components/admin-agenda";
+import { Metric } from "@/components/admin-metric";
 import { ReportsSection } from "@/components/admin-reports";
 import { formatSlot, weekdayFromIso } from "@/lib/schedule";
 
@@ -19,18 +22,11 @@ type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "
 type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
 // Estados unificados (D37): un pedido en preparación ya está pagado, así que «Pagado» y «Preparando»
 // se unificaron en «Pendiente» y solo se ofrecen Pendiente / Enviado / Entregado / Cancelado.
-type OrderStatus = "Pendiente" | "Enviado" | "Entregado" | "Cancelado";
 type Order = { id: string; customer: string; total: number; status: OrderStatus; location: string; items: OrderItem[]; scheduledDate?: string | null; timeSlot?: string | null; timeSlotId?: string | null; zone?: string | null; shippingZoneId?: string | null; paymentMethod?: string | null; customerPhone?: string | null; customerEmail?: string | null; createdAt?: string | null };
-type AdminProduct = Product & { category_id: string | null };
 type CategoryRow = { id: string; name: string; slug: string };
 type ApiOrder = { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; status: string; total: number; payment_method: string | null; scheduled_date: string | null; time_slot_id: string | null; shipping_zone_id: string | null; location: string | null; time_slot_label: string | null; shipping_zone_name: string | null; created_at: string; items: { product_id: string | null; name: string; unit_price: number; quantity: number }[] };
 
 
-// `paid` y `preparing` no se listan: el fallback `statusDbToUi[o.status] ?? "Pendiente"` de `mapApiOrder`
-// ya los muestra como «Pendiente», así que agregarlos solo duplicaba esa regla.
-const statusDbToUi: Record<string, OrderStatus> = { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado", refunded: "Cancelado" };
-const statusUiToDb: Record<OrderStatus, string> = { Pendiente: "pending", Enviado: "shipped", Entregado: "delivered", Cancelado: "cancelled" };
-const displayOrderId = (id: string) => (id.startsWith("#") ? id : id.slice(0, 8).toUpperCase());
 /**
  * Campos de selección del panel.
  *
@@ -49,7 +45,7 @@ function productPayload(p: AdminProduct): Record<string, unknown> {
 }
 
 function mapApiOrder(o: ApiOrder): Order {
-  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: statusDbToUi[o.status] ?? "Pendiente", location: o.location ?? "", scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, createdAt: o.created_at, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
+  return { id: o.id, customer: o.customer_name ?? "Sin nombre", customerPhone: o.customer_phone, customerEmail: o.customer_email, total: o.total, status: (ORDER_STATUS_LABEL[o.status] ?? "Pendiente") as OrderStatus, location: o.location ?? "", scheduledDate: o.scheduled_date, timeSlot: o.time_slot_label, timeSlotId: o.time_slot_id, zone: o.shipping_zone_name, shippingZoneId: o.shipping_zone_id, paymentMethod: o.payment_method, createdAt: o.created_at, items: o.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unit_price, productId: i.product_id })) };
 }
 
 export function AdminDashboard() {
@@ -78,9 +74,8 @@ export function AdminDashboard() {
           apiFetch<ApiOrder[]>("/api/orders", { admin: true }),
         ]);
         if (cancelled) return;
-        const map = new Map(cats.map((c) => [c.id, c.name]));
         setCategories(cats);
-        setCatalog(products.map((p, i) => ({ id: p.id, slug: p.slug, name: p.name, price: p.price, description: p.description ?? "", category: map.get(p.category_id ?? "") ?? "Sin categoría", category_id: p.category_id ?? null, status: p.status, inventory: p.inventory, preparation_days: p.preparation_days ?? 0, images: p.images ?? [], image_url: p.image_url, ingredients: p.ingredients ?? undefined, allergens: p.allergens ?? [], tone: (["warm", "light", "deep", "classic"] as const)[i % 4] })));
+        setCatalog(mapAdminProducts(products, cats));
         setOrders(ordersRows.map(mapApiOrder));
       } catch (e) {
         if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login para acceder al panel." : e.message) : "No se pudo conectar con la API.");
@@ -90,7 +85,7 @@ export function AdminDashboard() {
   }, []);
   /** Refresca el nombre de categoría que muestra cada producto del catálogo. */
   function applyCategories(next: CategoryRow[]) {
-    const map = new Map(next.map((c) => [c.id, c.name]));
+    const map = categoryNames(next);
     setCategories(next);
     setCatalog((items) => items.map((p) => p.category_id ? { ...p, category: map.get(p.category_id) ?? "Sin categoría" } : p));
   }
@@ -117,7 +112,7 @@ export function AdminDashboard() {
   function changeOrder(id: string, patch: Partial<Order>) {
     setOrders((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
     if (patch.status) {
-      apiFetch(`/api/orders/${id}/status`, { method: "PATCH", admin: true, body: { status: statusUiToDb[patch.status] } }).catch((e) => setState(e instanceof Error ? e.message : "No se pudo actualizar."));
+      apiFetch(`/api/orders/${id}/status`, { method: "PATCH", admin: true, body: { status: ORDER_STATUS_DB[patch.status] } }).catch((e) => setState(e instanceof Error ? e.message : "No se pudo actualizar."));
     }
   }
   function orderSaved(order: Order) {
@@ -138,7 +133,6 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
   return <ReportsSection orders={orders} catalog={catalog}/>;
 }
 
-function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="rounded-xl bg-white p-5"><div className="flex items-center justify-between text-[#647167]"><span className="text-sm">{label}</span><Icon size={18}/></div><p className="display mt-3 text-3xl">{value}</p></div>; }
 function OrderTable({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="border-y border-[#e2e5df] text-xs text-[#748077] uppercase"><tr><th className="py-3">Orden</th><th>Cliente</th><th>Entrega</th><th>Fecha</th><th>Total</th><th>Estado</th><th className="text-right">Acciones</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-b border-[#edf0e8]"><td className="py-4 font-medium">{displayOrderId(order.id)}</td><td>{order.customer}{order.customerPhone && <span className="block text-xs text-[#748077]">{order.customerPhone}</span>}</td><td><FulfillmentCell order={order}/></td><td className="whitespace-nowrap">{order.scheduledDate ? `${order.scheduledDate}${order.timeSlot ? ` · ${order.timeSlot}` : ""}` : "—"}</td><td>{formatPrice(order.total)}</td><td><select value={order.status} onChange={(e) => onOrderChange(order.id, { status: e.target.value as OrderStatus })} className={SELECT_FIELD_SM}><option>Pendiente</option><option>Enviado</option><option>Entregado</option><option>Cancelado</option></select></td><td className="text-right"><button onClick={() => onOrderEdit(order)} aria-label={`Editar pedido ${order.id}`} title="Editar" className="rounded-md border border-[#d9ddd5] p-1.5 transition hover:border-[#243128]"><Pencil size={14}/></button></td></tr>)}</tbody></table></div>; }
 // Todos los pedidos son **retiro presencial** (D33): la celda ya no distingue tipo, solo el punto.
 function FulfillmentCell({ order }: { order: Order }) { return <div className="flex items-center gap-2"><span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#e4e9f5] px-2 py-1 text-xs whitespace-nowrap text-[#3d5384]"><Store size={12}/>Retiro presencial</span><span className="text-xs text-[#748077]">Retira en: {order.location || order.zone || "—"}</span></div>; }
@@ -238,7 +232,8 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
     const slug = data.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "producto";
     try {
       const row = await apiFetch<ApiProduct>("/api/products", { method: "POST", admin: true, body: { ...data, slug, image_url: data.image_url ?? null } });
-      onCatalogChange((items) => [{ id: row.id, slug: row.slug, name: row.name, price: row.price, description: row.description ?? "", ingredients: row.ingredients ?? undefined, images: row.images ?? [], image_url: row.image_url, allergens: row.allergens ?? [], category: categories.find((c) => c.id === row.category_id)?.name ?? "Sin categoría", category_id: row.category_id ?? null, inventory: row.inventory, status: row.status, preparation_days: row.preparation_days, tone: "light" as const }, ...items]);
+      const [created] = mapAdminProducts([row], categories);
+      onCatalogChange((items) => [created, ...items]);
       setState("Producto creado.");
       onCreatingChange(false);
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo crear."); }

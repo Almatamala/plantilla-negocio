@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { API_URL } from "@/lib/api";
-import { SESSION_COOKIE } from "@/lib/session";
+import { withSessionCookie } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 días, igual que en la API
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -26,15 +24,8 @@ export async function GET(request: NextRequest) {
       : data.user.role === "admin"
         ? "/admin"
         : "/";
-    const response = NextResponse.redirect(new URL(destination, request.url));
-    response.cookies.set(SESSION_COOKIE, data.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: SESSION_MAX_AGE,
-      path: "/",
-    });
-    return response;
+    // Misma cookie httpOnly que el login y la verificación (`lib/session.ts`), en un solo lugar.
+    return withSessionCookie(NextResponse.redirect(new URL(destination, request.url)), data.token);
   } catch {
     return NextResponse.redirect(new URL("/login?error=1", request.url));
   }
