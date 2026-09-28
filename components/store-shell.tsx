@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AtSign, Mail, Menu, MessageCircle, Phone, Search, ShoppingBag, UserRound } from "lucide-react";
+import { EditableText, useContentEdit } from "@/components/editable-content";
 import { useAccountLink } from "@/lib/account";
 
 /** Datos de tienda que comparten el header y el footer en todas las páginas. */
@@ -41,13 +42,15 @@ export function StoreHeader({
 }) {
   const [menu, setMenu] = useState(false);
   const account = useAccountLink();
+  // Presente solo en el editor del admin (`/admin/editor`, D38); fuera de ahí vale `null`.
+  const contentEdit = useContentEdit();
 
   const announcement = warm ? "bg-[var(--brand-accent)] text-white" : "bg-[#243128] text-[#f7f4ec]";
   const badge = warm ? "bg-[var(--brand-ink)]" : "bg-[#d88480]";
 
   return (
     <>
-      {config.announcement && <div className={`${announcement} px-4 py-2 text-center text-[11px] tracking-[.16em] uppercase`}>{config.announcement} · Plantilla demo</div>}
+      {(config.announcement || contentEdit) && <div className={`${announcement} px-4 py-2 text-center text-[11px] tracking-[.16em] uppercase`}><EditableText field="announcement" value={config.announcement ?? ""}/></div>}
       {/* El margen lateral va **fuera** de `max-w-7xl`, igual que la sección «Productos destacados»
           (`px-5 md:px-10` en el contenedor y `mx-auto max-w-7xl` adentro). Antes el padding iba dentro
           del `max-w-7xl`, así que en PC el borde del header caía 40 px más adentro que la carta. La nav y
@@ -60,7 +63,11 @@ export function StoreHeader({
             <Link href="/#beneficios" onClick={() => setMenu(false)}>Beneficios</Link>
             <Link href="/#historia" onClick={() => setMenu(false)}>Nosotros</Link>
           </nav>
-          <Link href="/" className="display text-3xl tracking-tight md:absolute md:left-1/2 md:-translate-x-1/2">{config.name}</Link>
+          {/* Centrado con `inset-x-0 + mx-auto + w-fit` en vez de `left-1/2 + -translate-x-1/2`: se ve
+              igual, pero una `translate` crea un **contexto de apilado** propio y en el editor dejaba el
+              título (texto y borde) por debajo del velo. Sin `translate`, el título editable se comporta
+              como el resto: `z-index` lo sube por encima del velo y se lee blanco. */}
+          <Link href="/" className="display text-3xl tracking-tight md:absolute md:inset-x-0 md:mx-auto md:w-fit"><EditableText field="name" value={config.name}/></Link>
           <div className="flex items-center gap-4">
             {onSearch
               ? <button onClick={onSearch} aria-label="Buscar"><Search size={20}/></button>
@@ -108,7 +115,7 @@ export function StoreFooter({ config }: { config: ShellConfig }) {
     <footer className="bg-[var(--brand-ink)] text-[var(--brand-on-ink)]">
       <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 md:grid-cols-[1.4fr_1fr_1fr] md:px-10">
         <div>
-          <p className="display text-3xl">{config.name}</p>
+          <EditableText as="p" field="name" value={config.name} className="display text-3xl"/>
           <p className={`mt-3 max-w-xs text-sm leading-6 ${muted}`}>
             Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.
           </p>

@@ -77,3 +77,47 @@ select.select-field {
 .theme-bosque .product-visual[data-tone="deep"] { background: linear-gradient(145deg, var(--brand-muted), var(--brand-ink)); }
 .theme-bosque .product-visual[data-tone="light"] { background: linear-gradient(145deg, var(--brand-surface-lighter), var(--brand-surface)); }
 .theme-bosque .product-visual[data-tone="classic"] { background: linear-gradient(145deg, var(--brand-surface), var(--brand-accent)); }
+
+/*
+ * Modo edición del admin (/admin/editor, D38): con un `ContentEditProvider` arriba, cada texto editable se
+ * pinta **blanco**, así se distingue sobre el velo oscuro y se lee igual en cualquier sección; al pasar el
+ * mouse aparece un **borde inferior** blanco y al hacer clic se cambia por un campo. Fuera del editor la
+ * clase ni siquiera se aplica, así que la tienda pública no cambia.
+ *
+ * El marcador **no toca el layout**: el color no cambia el tamaño y el borde es un `box-shadow` interno
+ * (un `border-bottom` empujaría la caja y correría el texto). Antes fijaba `display`, `max-width`,
+ * `padding` y un `outline` completo; por eso el título y la descripción del hero se corrían de su lugar y
+ * quedaban con un recuadro (A49). Ahora la posición es la de la página y el único ajuste extra es
+ * `z-index`, para que el texto quede por encima del velo del editor (z-40).
+ */
+.editable-text {
+  position: relative;
+  z-index: 50; /* por encima del velo oscuro del editor (z-40) */
+  cursor: text;
+  color: #ffffff; /* en la vista de edición todos los textos editables se ven blancos */
+  transition: box-shadow .15s ease;
+}
+.editable-text:hover {
+  /* Solo el borde inferior, y dibujado por dentro: no cambia el alto ni la posición del texto. */
+  box-shadow: inset 0 -2px 0 0 #ffffff;
+}
+/*
+ * Texto en edición (A50): al hacer clic, **el mismo elemento** pasa a `contentEditable` (no se cambia por
+ * un `<input>`), así conserva la fuente, el tamaño y la posición exacta; el fondo blanco es la única señal
+ * de que se está editando. Va después del `:hover` para ganarle y no dejar el subrayado del marcador.
+ */
+.editable-text[contenteditable="true"] {
+  background: #ffffff;
+  color: #243128;
+  caret-color: #243128; /* la línea del cursor, visible sobre el fondo blanco */
+  box-shadow: none;
+  outline: none;
+}
+/*
+ * El nombre y el anuncio van en una línea (`span`): mientras se editan se les da una caja propia, que es lo
+ * que necesita el navegador para dibujar la línea del cursor (y para que un texto vacío se vea).
+ */
+span.editable-text[contenteditable="true"] {
+  display: inline-block;
+  min-width: 1ch;
+}

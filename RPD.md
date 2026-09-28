@@ -1,11 +1,11 @@
 # RPD — Registro de Producto y Decisiones
 
 **Proyecto:** Tienda BOSQUE (repostería artesanal)
-**Versión del documento:** 1.14
+**Versión del documento:** 1.18
 **Fecha:** 2026-09-26
 **Estado:** Documento vivo — estado actual del código y decisiones
 
-**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D36). El
+**Alcance:** describe **qué existe hoy** en el proyecto y **qué se decidió** en cada punto (D1–D39). El
 historial de cambios por versión y el plan de trabajo por fases ya no se mantienen: lo aprobado está
 implementado. Los **pendientes** se listan en `PLAN.md` §4.
 
@@ -61,6 +61,8 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | D35 | Bajo pedido y días de preparación | Toda la plantilla se trabaja **bajo pedido**: la compra nunca se bloquea por stock y el pedido **no descuenta ni reserva** inventario (se retiran `app/stock.py`, `orders.expires_at`, el estado `expired` y el ajuste `allow_backorder`). Cada producto declara sus **días de preparación** (`preparation_days`, **0** por defecto); el checkout empuja el primer día agendable para que el pedido alcance a prepararse y el **calendario arranca en el primer día disponible**, sin mostrar los bloqueados previos. | Backend, panel, checkout, tienda |
 | D36 | Estados del producto | Solo **dos**: `active` (visible en la tienda) e `inactive` (oculto en la tienda, visible en el panel de inventario). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. Los productos ya guardados en estados retirados se convierten a `active` al arrancar la API. | Schema, API, panel, reportes |
 | D37 | Estados del pedido | **Un solo estado inicial: `pending`.** Un pedido «en preparación» ya está pagado (se pagó en la web o se acordó al cargarlo en el panel), así que `paid` y `preparing` no aportaban nada y se unifican en `pending`. Quedan `pending`, `shipped`, `delivered`, `cancelled` y `refunded` (el panel muestra este último como Cancelado) y los pedidos guardados en `paid`/`preparing` se convierten a `pending` al arrancar la API. Ajusta D8: al confirmar Webpay el pedido **no cambia de estado**; el pago se registra en los datos de la transacción (§5.6/§5.7 de `PLAN.md`). | Schema, API, panel, cuenta, checkout |
+| D38 | Edición visual de la página | El admin entra a **`/admin/editor`** (bajo `/admin`, protegido por `proxy.ts`) y ve el **storefront real**: cada texto editable se resalta y, al hacer clic, **el mismo elemento** se vuelve editable (`contentEditable`), así conserva fuente, tamaño y posición. Solo entran los textos que **ya viven en `store_settings`** (nombre, anuncio, hero y historia); el resto de la copy sigue fija en el código. Los cambios se confirman con **«Guardar cambios»** (un solo `PUT /api/settings`). En el editor la tienda se ve **oscurecida** por un velo y los textos editables quedan por encima con los textos **en blanco** y un **borde inferior** que aparece **solo al pasar el mouse** (un `box-shadow` interno, que **no altera el layout**: la posición sigue siendo la de la página; A49). Ningún texto es la excepción, **incluido el nombre del header**: se centra sin `translate`, así no crea un contexto de apilado que lo deje debajo del velo (A49). La sección **Contenido** deja solo el contacto, los colores y el botón **«Editar en la página»**: esos textos ya no se editan en formularios. Fuera del editor no cambia nada: `EditableText` se comporta como texto normal. | Frontend, panel, settings |
+| D39 | Transición de la galería de la ficha | La **galería de la ficha** (`components/product-detail.tsx`) cambia de foto con un **slide direccional** (framer-motion): al avanzar la foto nueva entra desde un costado y la que sale se va hacia el otro, y al retroceder el movimiento se invierte (flechas y miniaturas). Las fotos se apilan en absoluto dentro del mismo marco (`aspect-[.95]`), así que el alto no salta mientras se desliza. Al pasar el mouse por la **orilla** de la foto aparece la flecha con un degradado que indica la dirección (en táctil la flecha queda siempre visible). | Ficha |
 
 ---
 
@@ -69,11 +71,14 @@ implementado. Los **pendientes** se listan en `PLAN.md` §4.
 | Archivo | Rol |
 |---|---|
 | `app/page.tsx` / `components/storefront.tsx` | Tienda pública (hero, catálogo «Productos destacados», carrito, beneficios, historia, Instagram, footer) |
-| `components/product-detail.tsx` | Ficha de producto `/producto/[slug]`: galería con flechas y miniaturas, ingredientes, alérgenos, stock, comentarios (D1, D2) y la cantidad —editable con los botones y escribiéndola al hacer clic— |
+| `components/product-detail.tsx` | Ficha de producto `/producto/[slug]`: galería con flechas y miniaturas y **slide direccional** al cambiar de foto (D39), ingredientes, alérgenos, stock, comentarios (D1, D2) y la cantidad —editable con los botones y escribiéndola al hacer clic— |
 | `components/instagram-grid.tsx` | **Feed de Instagram propio** (D30): 15 últimas publicaciones (3×5 en escritorio, 2 por fila en celular) con likes, comentarios y descripción al pasar el mouse; lee `GET /api/instagram/feed` |
 | `lib/instagram.ts` | Tipos y **configuración única** del feed (`INSTAGRAM_POST_COUNT = 15`, `INSTAGRAM_COLUMNS = 5`, `INSTAGRAM_COLUMNS_MOBILE = 2`) y espejo de lo que devuelve la API; se edita **solo en el código** (D30) |
 | `backend/app/instagram.py` | Feed de Instagram de la API: consulta Instagram, normaliza las publicaciones (imagen, video → miniatura, carrusel → primera hija), cachea 15 min y **renueva solo** el token con la tarea de fondo (D31). El token se carga **una sola vez en el entorno del backend** |
 | `instagram_token` | Fila única con el token vigente (`access_token`, `refreshed_at`, `last_error`); la crea `create_all` y la actualiza la tarea de fondo. Vive aparte de `store_settings` por ser una credencial (D31) |
+| `components/editable-content.tsx` | Contexto y `EditableText`: vuelven editable un texto **solo** cuando el editor del admin lo envuelve, y lo hacen **en el mismo elemento** (`contentEditable`, conservando fuente, tamaño y posición; A50) con el **cursor en el punto del clic** (A51); fuera de ahí son texto normal (D38) |
+| `components/storefront-editor.tsx` | Editor visual (`/admin/editor`): carga los ajustes, junta el borrador y lo persiste con **«Guardar cambios»** (D38) |
+| `app/admin/editor/page.tsx` | Ruta del editor visual, bajo `/admin` (la sesión admin la exige `proxy.ts`) (D38) |
 | `components/store-shell.tsx` | Header/footer compartidos. El footer trae marca, contacto, navegación y copyright (D27) y usa siempre la paleta cálida (D28); la prop `warm` del **header** aplica esa paleta en la carta y la ficha (D24) |
 | `components/floating-cart.tsx` | Acceso flotante al carrito: aparece **cuando el header sale de pantalla**, encima del botón de WhatsApp; abre el carrito lateral o enlaza al checkout. El header se observa por su `id` (`store-header`) |
 | `app/checkout/retorno/page.tsx` | **Página visible de retorno de Webpay** (D8): muestra el estado del pago (ok / rechazado / anulado / error), la referencia del pedido y qué sigue. Es donde redirige `/api/webpay/confirm` |

@@ -603,24 +603,22 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
   );
 }
 function ContentEditor({ setState }: { setState: (value: string) => void }) {
-  const [settings, setSettings] = useState({
-    name: storeConfig.name, announcement: storeConfig.announcement, hero_title: storeConfig.headline, hero_description: storeConfig.description,
-    story_headline: storeConfig.storyHeadline, story_description: storeConfig.storyDescription, contact_email: "", contact_phone: "",
-    whatsapp_phone: "", instagram_url: "",
-  });
+  // Solo el contacto se edita acá: los textos de la página (nombre, anuncio, hero e historia) pasaron
+  // al editor visual `/admin/editor` (D38), así que ya no se muestran en Contenido.
+  const [contact, setContact] = useState({ contact_email: "", contact_phone: "", whatsapp_phone: "", instagram_url: "" });
   // Paleta de marca (D29): se editan los cinco tonos y el borrador guarda lo que se está escribiendo en
   // el campo de texto, para no volcar a la paleta (ni a la API) un hex a medio escribir.
   const [colors, setColors] = useState<ThemeColors>(defaultThemeColors);
   const [drafts, setDrafts] = useState<ThemeColors>(defaultThemeColors);
   useEffect(() => {
-    apiFetch<typeof settings & { theme_colors?: Partial<Record<string, string>> | null }>("/api/settings").then((data) => {
-      setSettings((current) => ({ ...current, name: data.name ?? current.name, announcement: data.announcement ?? current.announcement, hero_title: data.hero_title ?? current.hero_title, hero_description: data.hero_description ?? current.hero_description, story_headline: data.story_headline ?? current.story_headline, story_description: data.story_description ?? current.story_description, contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "" }));
+    apiFetch<{ contact_email?: string | null; contact_phone?: string | null; whatsapp_phone?: string | null; instagram_url?: string | null; theme_colors?: Partial<Record<string, string>> | null }>("/api/settings").then((data) => {
+      setContact({ contact_email: data.contact_email ?? "", contact_phone: data.contact_phone ?? "", whatsapp_phone: data.whatsapp_phone ?? "", instagram_url: data.instagram_url ?? "" });
       const palette = normalizeThemeColors(data.theme_colors);
       setColors(palette);
       setDrafts(palette);
     }).catch(() => undefined);
   }, []);
-  function set<K extends keyof typeof settings>(key: K, value: string) { setSettings((current) => ({ ...current, [key]: value })); }
+  function set<K extends keyof typeof contact>(key: K, value: string) { setContact((current) => ({ ...current, [key]: value })); }
   // El hex solo pasa a la paleta cuando está completo; si no, se guarda en el borrador y al salir del
   // campo vuelve al último color válido.
   function setColor(key: ThemeColorKey, value: string) {
@@ -642,21 +640,21 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
   async function save(event: React.FormEvent) {
     event.preventDefault();
     try {
-      await apiFetch("/api/settings", { method: "PUT", admin: true, body: { ...settings, theme_colors: colors } });
+      // Los textos de la página se editan en `/admin/editor`, así que se leen de la API y se reenvían
+      // tal cual: guardar contacto o colores no debe pisarlos.
+      const current = await apiFetch<Record<string, unknown> & { id?: unknown; updated_at?: unknown }>("/api/settings");
+      const { id, updated_at, ...base } = current;
+      void id;
+      void updated_at;
+      await apiFetch("/api/settings", { method: "PUT", admin: true, body: { ...base, ...contact, theme_colors: colors } });
       setState("Contenido guardado. Refresca la tienda para ver los cambios.");
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo guardar."); }
   }
-  const field = (key: keyof typeof settings, label: string, placeholder = "") => <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">{label}</span><input value={settings[key]} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>;
+  const field = (key: keyof typeof contact, label: string, placeholder = "") => <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">{label}</span><input value={contact[key]} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/></label>;
   return (
     <form onSubmit={save} className="max-w-2xl space-y-4 rounded-xl bg-white p-5">
-      <div><h2 className="display text-2xl">Contenido de la tienda</h2><p className="mt-2 text-sm text-[#647167]">Estos textos, datos y colores se muestran en la tienda pública. Se guardan en la API (tabla store_settings).</p></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="display text-2xl">Contenido de la tienda</h2><p className="mt-2 text-sm text-[#647167]">El contacto y los colores se guardan en la API (tabla store_settings). Los textos de la página —nombre, anuncio, hero e historia— se editan visualmente en el editor.</p></div><Link href="/admin/editor" className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-[#d9ddd5] bg-white px-4 py-2.5 text-sm transition hover:border-[#243128]"><Pencil size={16}/>Editar en la página</Link></div>
       <div className="grid gap-4 sm:grid-cols-2">
-        {field("name", "Nombre de la tienda", "BOSQUE")}
-        {field("announcement", "Anuncio superior", "Pedidos programados con día y horario")}
-        {field("hero_title", "Título principal", "Pan artesanal de San Javier")}
-        {field("hero_description", "Descripción principal")}
-        {field("story_headline", "Título de Nuestra Historia")}
-        {field("story_description", "Historia (texto largo)")}
         {field("contact_email", "Correo de contacto")}
         {field("contact_phone", "Teléfono de contacto")}
         {field("whatsapp_phone", "WhatsApp (formato +569…)")}

@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D36)
+**Basado en:** `RPD.md` (decisiones D1–D39)
 **Fecha:** 2026-09-25 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
@@ -9,7 +9,7 @@
 ## 0. Cómo usar este documento
 
 - **Qué queda acá:** lo que **falta hacer** y cómo **desplegar**. El **estado actual del código** y las
-  **decisiones** (D1–D36) viven en `RPD.md`.
+  **decisiones** (D1–D39) viven en `RPD.md`.
 - **Regla del proyecto (AGENTS.md):** antes de escribir código, leer la guía correspondiente en
   `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking changes respecto de lo conocido).
 - **Verificación de cada cambio:** `npx tsc --noEmit`, `npm run lint` y `npm run build`; en `backend/`,
@@ -75,8 +75,8 @@ encarga del resto (consulta, caché y renovación).
 
 ## 3. Últimos ajustes del dueño (2026-09-25)
 
-**Implementado y verificado** (`pytest` 54/54; `tsc`, `lint` y `build` sin errores). Diez puntos, con cinco
-decisiones nuevas (**D32**, **D33**, **D34**, **D35** y **D36**):
+**Implementado y verificado** (`pytest` 54/54; `tsc`, `lint` y `build` sin errores). Trece puntos, con ocho
+decisiones nuevas (**D32** a **D39**):
 
 | # | Ajuste pedido | Implementación |
 |---|---|---|
@@ -91,6 +91,10 @@ decisiones nuevas (**D32**, **D33**, **D34**, **D35** y **D36**):
 | **A45** | Días de preparación para una tienda que trabaja **bajo pedido** | **D35:** todo el catálogo se vende **bajo pedido** (se retira `allow_backorder`; el stock no bloquea la compra ni se descuenta) y cada producto declara **días de preparación**, que empujan el primer día agendable del checkout. Se elimina la **reserva de stock** con expiración. |
 | **A46** | Los estados del inventario quedan solo en **activo** e **inactivo** | **D36:** solo **activo** (visible en la tienda) e **inactivo** (oculto en la tienda, visible en el panel). Se retiran `draft`, `sold_out` y `preorder`, unificados en `active`; el catálogo público filtra por `active` y el panel pide `?include_inactive=true`. El filtro de stock «Bajo pedido (sin stock)» pasa a **«Sin stock»**. |
 | **A47** | En el panel, unificar los estados de pedido **pendiente/pagado/preparando** en «Pendiente»; quitar el tag de stock de la vitrina y la ficha; opción para **eliminar un producto** | **D37:** `paid` y `preparing` se unifican en `pending` (un pedido en preparación ya está pagado), el panel ofrece Pendiente/Enviado/Entregado/Cancelado y la API convierte los pedidos viejos al arrancar. Se retira la etiqueta de disponibilidad («Disponible»/«Bajo Pedido») de «Productos destacados» y de la ficha —seguía apareciendo porque dependía del **stock**, no del estado del producto— y `stockLabel` sale de `lib/products.ts`. Se agrega el botón de **eliminar producto** en el panel (la API `DELETE /api/products/{id}` ya existía). |
+| **A48** | Poder editar los textos de la tienda **haciendo clic sobre ellos** | **D38:** nueva ruta **`/admin/editor`** que reutiliza el storefront real; `components/editable-content.tsx` (`EditableText`) vuelve editable un texto —nombre, anuncio, hero e historia— **solo** cuando el editor lo envuelve, y `components/storefront-editor.tsx` junta los cambios y los guarda con el botón **«Guardar cambios»** (`PUT /api/settings`). En el editor la página se ve **oscurecida** (un velo) y los textos editables quedan por encima con un **borde blanco** (`outline`, sin alterar el layout) conservando su color base, y **brillan en blanco** al pasar el mouse; **Contenido** deja solo el contacto, los colores y el botón «Editar en la página». Extiende el pedido del primer mensaje sobre los campos de contenido. |
+| **A49** | En el editor, el título y la descripción del hero deben verse como en la página; en la ficha, las fotos cambian sin transición | **D38/D39:** el marcador de los textos editables deja de alterar el layout —se retiran `display`, `max-width` y `padding`—, así que el **título y la descripción del hero conservan su posición exacta** (antes el `padding` de `.15em` los corría, más en el título de 7xl). En la vista de edición **todos los textos editables se ven blancos** y el **borde inferior** blanco aparece **solo al pasar el mouse** (un `box-shadow` interno: ni recuadro completo, ni parpadeo, ni cambio de alto). El **nombre del header** deja de ser la excepción: su centrado pasa de `-translate-x-1/2` a `inset-x-0 + mx-auto + w-fit`, así ya no crea un contexto de apilado que lo dejara debajo del velo (por eso antes no se veía ni el texto ni el borde) y se ve igual que el resto. En la ficha (**D39**) la galería cambia de foto con un **slide** direccional y la flecha de cada costado aparece al pasar el mouse por la **orilla** de la foto (en táctil queda visible). |
+| **A50** | Quitar «Plantilla demo» del anuncio y que el texto en edición conserve fuente, tamaño y posición | **D38:** se retira el sufijo fijo **«· Plantilla demo»** que se agregaba al anuncio. En el editor, al hacer clic el texto **ya no se cambia por un `<input>`/`<textarea>`**: el **mismo elemento** pasa a `contentEditable`, con su misma clase, así que conserva **fuente, tamaño y posición** y nada de lo que lo rodea se mueve (antes el campo traía ancho, padding y borde propios y saltaba el layout, sobre todo en el título del hero, que ocupa varias líneas). Se retira la clase `.editable-field`; el fondo blanco con texto oscuro queda como la única señal de que se está editando. |
+| **A51** | Al editar, que el cursor quede en el punto donde se hizo clic (sin seleccionar todo) y que se vea la línea del cursor | **D38/A50:** al hacer clic se guarda el **punto** y, al entrar en edición, se traduce a la posición del texto con `caretRangeFromPoint` (respaldo `caretPositionFromPoint` en Firefox); antes se seleccionaba todo, así que la **selección tapaba la línea del cursor**. Además el cursor se pinta oscuro (`caret-color`) sobre el fondo blanco y la colocación se **repite en el próximo cuadro** (`requestAnimationFrame`), porque al terminar el clic el navegador reacomoda la selección. Los dos textos que van **en una línea** en el header —el **nombre** y el **anuncio**— reciben una **caja propia** mientras se editan (`span… { display: inline-block; min-width: 1ch }`): sin eso el navegador no dibujaba la línea del cursor ahí, y un texto vacío tampoco se veía. |
 
 **Decisión D32 (nueva):** los días que no se atiende salen de los **días de cada franja** (por punto, D18) y
 de las **fechas cerradas puntuales** (`closed_days`). Se retira el cierre semanal `closed_weekdays` porque
@@ -125,6 +129,29 @@ estado**; el pago se registra en los datos de la transacción (§5.6/§5.7), as�
 necesita un estado «Pagado». **A47** retira además la etiqueta de disponibilidad de la vitrina y la ficha
 (seguía apareciendo porque dependía del stock, no del estado del producto) y suma el borrado de productos
 en el panel.
+
+**Decisión D38 (nueva):** la edición **visual** de la página vive en la ruta **`/admin/editor`** (bajo
+`/admin`, así que `proxy.ts` ya exige sesión de rol admin). Ahí se muestra el **storefront real** y cada
+texto que vive en `store_settings` —**nombre, anuncio, hero y historia**— se resalta y, al hacer clic, se
+vuelve editable **en el mismo lugar** (el elemento pasa a `contentEditable`, sin cambiar de etiqueta, así
+conserva fuente, tamaño y posición). El resto de la copy («Catálogo», «Productos destacados», beneficios) **no** es editable:
+sigue fija en el código. Los cambios se juntan en un borrador y se confirman con **«Guardar cambios»**, que
+hace un solo `PUT /api/settings` con el objeto completo; el contacto y la paleta siguen editándose en
+**Contenido**, que además deja de mostrar esos textos en formularios y se queda solo con el contacto, los
+colores y el botón **«Editar en la página»**. Durante la edición la tienda se ve **oscurecida** por un
+velo y los textos editables quedan por encima **en blanco**, con un **borde inferior** que aparece **solo
+al pasar el mouse**. Todos se comportan igual, **incluido el nombre del header**: su centrado no usa
+`translate` (que creaba un contexto de apilado y lo dejaba debajo del velo). El marcador **no toca el layout** (el borde es un `box-shadow` interno, no un
+`border`): los textos conservan la posición exacta de la página. El componente `EditableText` no cambia la
+tienda pública: sin el provider del editor se comporta como texto normal.
+
+**Decisión D39 (nueva):** la **galería de la ficha** (`components/product-detail.tsx`) cambia de foto con
+un **slide direccional** (framer-motion): al avanzar, la foto nueva entra desde un costado y la que sale se
+va hacia el otro, y al retroceder —con las flechas o eligiendo una miniatura a la izquierda— el movimiento
+se invierte. Las fotos se apilan en absoluto dentro del mismo marco (`aspect-[.95]`), así que la animación
+no salta de alto y el marco mantiene su tamaño mientras se desliza. Al pasar el mouse por la **orilla** de
+la foto aparece la flecha con un degradado suave que indica hacia dónde se mueve (en táctil la flecha queda
+siempre visible, porque ahí no hay hover).
 
 **Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que

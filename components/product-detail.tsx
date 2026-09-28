@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Star } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useCart } from "@/lib/cart";
@@ -14,6 +15,17 @@ import { CartDrawer } from "@/components/cart-drawer";
 import { FloatingCart } from "@/components/floating-cart";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
+
+/**
+ * Slide de la galería (D39): al pasar de foto la nueva entra desde un costado y la que sale se va hacia
+ * el otro, según la dirección (`1` adelante, `-1` atrás). El `custom` de `AnimatePresence` le pasa esa
+ * dirección también a la foto que sale, así el retroceso no se ve como un avance.
+ */
+const slideVariants: Variants = {
+  enter: (direction: number) => ({ x: direction > 0 ? "100%" : "-100%", opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (direction: number) => ({ x: direction > 0 ? "-100%" : "100%", opacity: 0 }),
+};
 
 type Review = { id: string; product_id: string; author: string; rating: number; comment: string; created_at: string };
 type Detail = { product: Product; catalog: Product[]; reviews: Review[] };
@@ -41,6 +53,8 @@ async function fetchDetail(slug: string): Promise<Detail> {
 export function ProductDetail({ slug }: { slug: string }) {
   const [product, setProduct] = useState<Product | null | undefined>(undefined);
   const [image, setImage] = useState<string | null>(null);
+  // Dirección del slide de la galería (D39): `1` para la próxima foto, `-1` para la anterior.
+  const [slide, setSlide] = useState(1);
   const [qty, setQty] = useState(1);
   // La cantidad se puede escribir: se mantiene el texto aparte para poder borrarlo y reescribirlo
   // sin que el número quede en 0 a medio tipear.
@@ -150,7 +164,15 @@ export function ProductDetail({ slug }: { slug: string }) {
   const currentIndex = Math.max(0, gallery.indexOf(image ?? gallery[0] ?? ""));
   const goTo = (delta: number) => {
     if (gallery.length < 2) return;
+    setSlide(delta);
     setImage(gallery[(currentIndex + delta + gallery.length) % gallery.length]);
+  };
+  // Al elegir una miniatura, el slide va hacia el lado en que está la foto elegida.
+  const selectImage = (src: string) => {
+    const next = gallery.indexOf(src);
+    if (next === currentIndex) return;
+    setSlide(next > currentIndex ? 1 : -1);
+    setImage(src);
   };
 
   return shell(
@@ -159,14 +181,38 @@ export function ProductDetail({ slug }: { slug: string }) {
         <div>
           {gallery.length > 0 ? (
             <>
-              <div className="relative overflow-hidden rounded-2xl">
-                <img src={image ?? gallery[0]} alt={product.name} className="aspect-[.95] w-full object-cover"/>
+              <div className="relative aspect-[.95] w-full overflow-hidden rounded-2xl">
+                {/* Las fotos se apilan en absoluto dentro del contenedor, así el slide no salta de alto. */}
+                <AnimatePresence initial={false} custom={slide}>
+                  <motion.img
+                    key={image ?? gallery[0]}
+                    custom={slide}
+                    src={image ?? gallery[0]}
+                    alt={product.name}
+                    variants={slideVariants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                </AnimatePresence>
                 {gallery.length > 1 && <>
-                  <button type="button" onClick={() => goTo(-1)} aria-label="Foto anterior" className="absolute left-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[var(--brand-ink)] shadow transition hover:bg-white"><ChevronLeft size={20}/></button>
-                  <button type="button" onClick={() => goTo(1)} aria-label="Foto siguiente" className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/85 text-[var(--brand-ink)] shadow transition hover:bg-white"><ChevronRight size={20}/></button>
+                  {/* Zonas de los costados (D39): cubren la orilla de la foto y, al pasar el mouse por
+                      ahí, aparece la flecha con un degradado suave que indica hacia dónde se mueve; el
+                      clic cambia de foto. En pantallas táctiles no hay hover, así que la flecha queda
+                      siempre visible. */}
+                  <button type="button" onClick={() => goTo(-1)} aria-label="Foto anterior" className="group/prev absolute inset-y-0 left-0 flex w-1/5 min-w-[3.25rem] items-center justify-start">
+                    <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/30 to-transparent opacity-0 transition-opacity duration-200 group-hover/prev:opacity-100"/>
+                    <span className="relative ml-3 grid h-10 w-10 place-items-center rounded-full bg-white/85 text-[var(--brand-ink)] shadow transition group-hover/prev:bg-white md:opacity-0 md:group-hover/prev:opacity-100"><ChevronLeft size={20}/></span>
+                  </button>
+                  <button type="button" onClick={() => goTo(1)} aria-label="Foto siguiente" className="group/next absolute inset-y-0 right-0 flex w-1/5 min-w-[3.25rem] items-center justify-end">
+                    <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-l from-black/30 to-transparent opacity-0 transition-opacity duration-200 group-hover/next:opacity-100"/>
+                    <span className="relative mr-3 grid h-10 w-10 place-items-center rounded-full bg-white/85 text-[var(--brand-ink)] shadow transition group-hover/next:bg-white md:opacity-0 md:group-hover/next:opacity-100"><ChevronRight size={20}/></span>
+                  </button>
                 </>}
               </div>
-              {gallery.length > 1 && <div className="mt-3 flex gap-2">{gallery.map((src) => <button key={src} onClick={() => setImage(src)} className={`h-20 w-16 overflow-hidden rounded-lg border-2 ${image === src ? "border-[var(--brand-accent)]" : "border-transparent"}`}><img src={src} alt="" className="h-full w-full object-cover"/></button>)}</div>}
+              {gallery.length > 1 && <div className="mt-3 flex gap-2">{gallery.map((src) => <button key={src} onClick={() => selectImage(src)} className={`h-20 w-16 overflow-hidden rounded-lg border-2 ${image === src ? "border-[var(--brand-accent)]" : "border-transparent"}`}><img src={src} alt="" className="h-full w-full object-cover"/></button>)}</div>}
             </>
           ) : (
             <div data-tone={product.tone} className="product-visual aspect-[.95] w-full rounded-2xl"/>
