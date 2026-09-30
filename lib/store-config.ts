@@ -4,16 +4,25 @@ import { defaultThemeColors, normalizeThemeColors, type ThemeColors } from "@/li
  * Punto único para personalizar una nueva tienda sin modificar la interfaz.
  * Estos valores pueden ser sobreescritos desde la tabla `store_settings` del panel.
  */
+/** Tarjeta de la sección «Beneficios» de la vitrina: título y texto. */
+export type Benefit = { title: string; text: string };
+
 export type StoreConfig = {
   name: string;
   announcement: string;
   eyebrow: string;
   headline: string;
   description: string;
+  /** Las tres tarjetas de «Beneficios», en el orden en que se dibujan (D38). */
+  benefits: [Benefit, Benefit, Benefit];
   featuredCollection: string;
   storyEyebrow: string;
   storyHeadline: string;
   storyDescription: string;
+  /** Ubicación que se muestra al pie de la tienda («San Javier y Talca, Chile»). */
+  footerLocation: string;
+  /** Bajada del pie, debajo del nombre de la marca (D38). */
+  footerTagline: string;
   contact_email: string;
   contact_phone: string;
   whatsapp_phone: string;
@@ -28,8 +37,18 @@ export type ApiSettings = {
   announcement: string | null;
   hero_title: string | null;
   hero_description: string | null;
+  hero_eyebrow: string | null;
   story_headline: string | null;
   story_description: string | null;
+  story_eyebrow: string | null;
+  benefit_1_title: string | null;
+  benefit_1_text: string | null;
+  benefit_2_title: string | null;
+  benefit_2_text: string | null;
+  benefit_3_title: string | null;
+  benefit_3_text: string | null;
+  footer_location: string | null;
+  footer_tagline: string | null;
   contact_email: string | null;
   contact_phone: string | null;
   whatsapp_phone: string | null;
@@ -37,16 +56,30 @@ export type ApiSettings = {
   theme_colors: Partial<Record<string, string>> | null;
 };
 
+/** Una tarjeta de beneficios: lo que llegó de la API y, si viene vacío, el texto por defecto. */
+function mergeBenefit(current: Benefit, title: string | null, text: string | null): Benefit {
+  return { title: title ?? current.title, text: text ?? current.text };
+}
+
 /** Combina los ajustes guardados en el panel con los valores por defecto. */
 export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreConfig {
   return {
     ...current,
     name: data.name ?? current.name,
     announcement: data.announcement ?? current.announcement,
+    eyebrow: data.hero_eyebrow ?? current.eyebrow,
     headline: data.hero_title ?? current.headline,
     description: data.hero_description ?? current.description,
+    benefits: [
+      mergeBenefit(current.benefits[0], data.benefit_1_title, data.benefit_1_text),
+      mergeBenefit(current.benefits[1], data.benefit_2_title, data.benefit_2_text),
+      mergeBenefit(current.benefits[2], data.benefit_3_title, data.benefit_3_text),
+    ],
+    storyEyebrow: data.story_eyebrow ?? current.storyEyebrow,
     storyHeadline: data.story_headline ?? current.storyHeadline,
     storyDescription: data.story_description ?? current.storyDescription,
+    footerLocation: data.footer_location ?? current.footerLocation,
+    footerTagline: data.footer_tagline ?? current.footerTagline,
     contact_email: data.contact_email ?? current.contact_email,
     contact_phone: data.contact_phone ?? current.contact_phone,
     whatsapp_phone: data.whatsapp_phone ?? current.whatsapp_phone,
@@ -63,10 +96,17 @@ export const storeConfig: StoreConfig = {
   eyebrow: "Tu colección, tu estilo",
   headline: "Una tienda que se adapta a tu negocio.",
   description: "Una base limpia para mostrar productos, conectar con clientes y hacer crecer una marca propia.",
+  benefits: [
+    { title: "Compra con confianza", text: "Destaca tus garantías, materiales, soporte o cualquier beneficio importante." },
+    { title: "Una experiencia simple", text: "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra." },
+    { title: "Tu negocio, tu estilo", text: "Cambia textos, precios, fotos y colecciones desde el CMS incluido." },
+  ],
   featuredCollection: "Colección destacada",
   storyEyebrow: "Una plantilla que crece contigo",
   storyHeadline: "Haz que tu marca se sienta única.",
   storyDescription: "Personaliza este espacio para comunicar tu propuesta, historia, beneficios o cualquier mensaje importante para tus clientes.",
+  footerLocation: "San Javier y Talca, Chile",
+  footerTagline: "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.",
   contact_email: "",
   contact_phone: "",
   whatsapp_phone: "",

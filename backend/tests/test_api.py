@@ -1,10 +1,13 @@
+from datetime import date, datetime, timezone
+
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import main
 from app.database import get_db
+from app.models import Order, OrderItem
 
 
 def test_health(client):
@@ -65,6 +68,40 @@ def test_store_settings_save_theme_colors(client, admin_headers):
     assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
     payload["theme_colors"] = {"acento": "#123abc"}
     assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+
+
+def test_store_settings_save_editable_page_texts(client, admin_headers):
+    # Textos que el editor visual de la página (`/admin/editor`, D38) pasó a editar: los antetítulos, las
+    # tres tarjetas de beneficios, la bajada y la ubicación del pie. Cada uno es una columna de `store_settings`, así
+    # que se guardan y vuelven por la API; con `extra="forbid"`, un nombre mal escrito sería un 422.
+    settings = client.get("/api/settings").json()
+    payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
+    payload.update({
+        "name": "BOSQUE",
+        "hero_eyebrow": "Tu colección, tu estilo",
+        "story_eyebrow": "Una plantilla que crece contigo",
+        "benefit_1_title": "Compra con confianza",
+        "benefit_1_text": "Texto del primer beneficio.",
+        "benefit_2_title": "Una experiencia simple",
+        "benefit_2_text": "Texto del segundo beneficio.",
+        "benefit_3_title": "Tu negocio, tu estilo",
+        "benefit_3_text": "Texto del tercer beneficio.",
+        "footer_location": "San Javier y Talca, Chile",
+        "footer_tagline": "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.",
+    })
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["footer_location"] == "San Javier y Talca, Chile"
+    assert saved.json()["footer_tagline"] == "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial."
+
+    stored = client.get("/api/settings").json()
+    assert stored["hero_eyebrow"] == "Tu colección, tu estilo"
+    assert stored["benefit_2_text"] == "Texto del segundo beneficio."
+    assert stored["story_eyebrow"] == "Una plantilla que crece contigo"
+    assert stored["footer_tagline"] == "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial."
+
+    assert client.put("/api/settings", headers=admin_headers, json={**payload, "inventado": "x"}).status_code == 422
 
     # Un campo que la API no conoce se rechaza en vez de descartarse en silencio: con una imagen vieja de
     # la API, guardar la paleta respondía 200 y no guardaba nada (extra="forbid" en SettingsIn).
@@ -459,3 +496,166 @@ def test_instagram_refresh_guarda_el_motivo_del_fallo(client, admin_headers, mon
     status = client.get("/api/instagram/token", headers=admin_headers).json()
     assert status["last_error"] == "Token has not been refreshed in 24 hours"
     assert status["source"] == "entorno"  # sigue usando el del entorno hasta que la renovación funcione
+
+
+def test_orders_por_defecto_solo_los_abiertos(client, admin_headers):
+    # El panel pide en el día a día solo los pedidos **abiertos** (pendientes o enviados), que son los que
+    # se gestionan y nunca se vuelven cientos; el historial completo (entregados y cancelados) entra con
+    # `?include_closed=true`, que es lo que dispara el filtro de la tabla (A63).
+    def make(status: str, name: str) -> None:
+        created = client.post("/api/orders", json={"customer_name": name, "items": [{"name": "Pan", "unit_price": 1000, "quantity": 1}]})
+        assert created.status_code == 201
+        if status != "pending":
+            patched = client.patch(f"/api/orders/{created.json()['id']}/status", headers=admin_headers, json={"status": status})
+            assert patched.status_code == 200
+
+    make("pending", "Pendiente")
+    make("shipped", "Enviado")
+    make("delivered", "Entregado")
+    make("cancelled", "Cancelado")
+
+    assert client.get("/api/orders").status_code == 401  # solo admin
+    activos = client.get("/api/orders", headers=admin_headers).json()
+    assert sorted(order["customer_name"] for order in activos) == ["Enviado", "Pendiente"]
+
+    historial = client.get("/api/orders?include_closed=true", headers=admin_headers).json()
+    assert sorted(order["customer_name"] for order in historial) == ["Cancelado", "Entregado", "Enviado", "Pendiente"]
+
+
+def test_reports_agregan_el_periodo(client, admin_headers, db_session):
+    # Los reportes (D21) se calculan en la API: el panel pedía **todos** los pedidos y sumaba en el
+    # navegador. Acá se revisa el agregado de un período, la comparación con el tramo anterior y quiénes
+    # no suman dinero (cancelados y reembolsados).
+    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "San Javier"}).json()
+    slot = client.post(
+        "/api/time-slots",
+        headers=admin_headers,
+        json={"zone_id": zone["id"], "start_time": "10:00", "end_time": "13:00", "weekdays": [6]},
+    ).json()
+
+    def make_order(when: datetime, status: str, total: int, quantity: int, zone_id: str | None = None, slot_id: str | None = None, scheduled: date | None = None) -> None:
+        order = Order(
+            customer_name="Ana",
+            status=status,
+            total=total,
+            created_at=when,
+            shipping_zone_id=zone_id,
+            time_slot_id=slot_id,
+            scheduled_date=scheduled,
+        )
+        order.items = [OrderItem(name="Torta", unit_price=1000, quantity=quantity)]
+        db_session.add(order)
+
+    # Período: 2026-09-10 → 2026-09-13 (el `to` es exclusivo).
+    make_order(datetime(2026, 9, 10, 12, tzinfo=timezone.utc), "delivered", 2000, 2, zone["id"], slot["id"], date(2026, 9, 12))
+    make_order(datetime(2026, 9, 11, 12, tzinfo=timezone.utc), "cancelled", 5000, 5, zone["id"])
+    make_order(datetime(2026, 9, 12, 12, tzinfo=timezone.utc), "pending", 1000, 1)
+    # Tramo anterior de igual largo: 2026-09-07 → 2026-09-10.
+    make_order(datetime(2026, 9, 8, 12, tzinfo=timezone.utc), "delivered", 7000, 7, zone["id"])
+    # Fuera de todo: no entra en ningún tramo.
+    make_order(datetime(2026, 8, 1, 12, tzinfo=timezone.utc), "delivered", 9000, 9)
+    db_session.commit()
+
+    assert client.get("/api/reports?from=2026-09-10&to=2026-09-13").status_code == 401  # solo admin
+
+    body = client.get("/api/reports?from=2026-09-10&to=2026-09-13&compare=true", headers=admin_headers).json()
+    assert (body["orders"], body["sales_orders"]) == (3, 2)
+    assert body["revenue"] == 3000  # el pedido cancelado cuenta como pedido, no como venta
+    assert body["units"] == 3
+    assert body["pending_pickup"] == 1  # el único pendiente de retirar del período
+    assert body["previous"] == {"orders": 1, "sales_orders": 1, "units": 7, "revenue": 7000}
+    assert body["oldest_order_at"].startswith("2026-08-01")
+
+    # Ranking por producto: el cancelado no suma ni unidades ni dinero.
+    assert body["products"] == [{"name": "Torta", "units": 3, "revenue": 3000}]
+
+    # Punto de retiro: el pedido sin punto cae a «Sin punto definido» y ordena por ingresos.
+    assert body["places"] == [
+        {"label": "San Javier", "orders": 1, "units": 2, "revenue": 2000},
+        {"label": "Sin punto definido", "orders": 1, "units": 1, "revenue": 1000},
+    ]
+
+    # Agenda: el sábado 2026-09-12 y la única franja con pedido.
+    assert body["weekdays"] == [{"weekday": 6, "orders": 1}]
+    assert body["slots"] == [{"label": "10:00–13:00", "orders": 1}]
+
+    # Sin fechas se reporta todo el historial (5 pedidos y 4 que vendieron).
+    everything = client.get("/api/reports", headers=admin_headers).json()
+    assert everything["from_date"] is None and everything["to_date"] is None
+    assert (everything["orders"], everything["sales_orders"]) == (5, 4)
+    assert everything["revenue"] == 19000
+    assert everything["previous"] is None
+
+
+def test_performance_indexes_apuntan_a_columnas_existentes():
+    """Los índices que se crean al arrancar (A61) deben ser válidos e idempotentes.
+
+    Se ejecutan sobre SQLite (mismo `CREATE INDEX … IF NOT EXISTS`) y dos veces seguidas: así un nombre de
+    tabla o de columna mal escrito se detecta acá y no al arrancar la API contra PostgreSQL, que es donde
+    corren de verdad.
+    """
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    main.Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        for _ in range(2):
+            for statement in main.PERFORMANCE_INDEXES:
+                connection.execute(text(statement))
+        created = set(connection.execute(text("SELECT name FROM sqlite_master WHERE type = 'index'")).scalars().all())
+        assert {
+            "idx_order_items_order_id",
+            "idx_reviews_product_status_created",
+            "idx_reviews_status_created",
+            "idx_orders_created_at",
+        } <= created
+
+
+def test_order_status_patch_returns_schedule_labels(client, admin_headers):
+    # El PATCH de estado devuelve el pedido por el mismo `order_out` que el resto de los endpoints, así
+    # que la respuesta trae la franja y el punto de retiro resueltos (antes volvían en `null`).
+    zone = client.post("/api/shipping-zones", headers=admin_headers, json={"name": "San Javier"}).json()
+    slot = client.post(
+        "/api/time-slots",
+        headers=admin_headers,
+        json={"zone_id": zone["id"], "start_time": "10:00", "end_time": "13:00", "weekdays": [6]},
+    ).json()
+    created = client.post(
+        "/api/orders",
+        json={
+            "customer_name": "Ana",
+            "scheduled_date": "2026-09-19",  # sábado
+            "time_slot_id": slot["id"],
+            "shipping_zone_id": zone["id"],
+            "items": [{"name": "Pan", "unit_price": 1000, "quantity": 2}],
+        },
+    )
+    assert created.status_code == 201
+
+    patched = client.patch(f"/api/orders/{created.json()['id']}/status", headers=admin_headers, json={"status": "shipped"})
+    assert patched.status_code == 200
+    assert patched.json()["status"] == "shipped"
+    assert patched.json()["time_slot_label"] == "10:00–13:00"
+    assert patched.json()["shipping_zone_name"] == "San Javier"
+
+
+def test_orders_with_missing_products_are_rejected(client, admin_headers):
+    # Los productos se validan en una sola consulta: un id inexistente sigue siendo 409 (bajo pedido).
+    payload = {
+        "customer_name": "Ana",
+        "items": [
+            {"product_id": "00000000-0000-0000-0000-000000000000", "name": "Fantasma", "unit_price": 1000, "quantity": 1},
+        ],
+    }
+    rejected = client.post("/api/orders", json=payload)
+    assert rejected.status_code == 409
+    assert "Fantasma" in rejected.json()["detail"]
+
+
+def test_deleting_a_category_leaves_products_without_category(client, admin_headers):
+    category = client.post("/api/categories", headers=admin_headers, json={"name": "Tortas", "slug": "tortas"}).json()
+    product = client.post(
+        "/api/products",
+        headers=admin_headers,
+        json={"name": "Torta de chocolate", "slug": "torta-chocolate", "price": 9000, "category_id": category["id"]},
+    ).json()
+    assert client.delete(f"/api/categories/{category['id']}", headers=admin_headers).status_code == 204
+    assert client.get(f"/api/products/{product['id']}").json()["category_id"] is None

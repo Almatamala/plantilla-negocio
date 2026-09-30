@@ -5,16 +5,18 @@ import { useState } from "react";
 import { AtSign, Mail, Menu, MessageCircle, Phone, Search, ShoppingBag, UserRound } from "lucide-react";
 import { EditableText, useContentEdit } from "@/components/editable-content";
 import { useAccountLink } from "@/lib/account";
+import type { StoreConfig } from "@/lib/store-config";
 
-/** Datos de tienda que comparten el header y el footer en todas las páginas. */
-export type ShellConfig = {
-  name: string;
-  announcement?: string | null;
-  contact_email?: string | null;
-  contact_phone?: string | null;
-  whatsapp_phone?: string | null;
-  instagram_url?: string | null;
-};
+/**
+ * Datos de tienda que comparten el header, el footer y el checkout mínimo.
+ *
+ * Las claves se **derivan** de `StoreConfig` (`lib/store-config.ts`) en vez de declararse a mano: así un
+ * campo no puede existir de un solo lado. La ubicación del pie se llamaba `footer_location` acá y
+ * `footerLocation` en los ajustes de tienda, así que el footer recibía `undefined` y dibujaba la línea
+ * vacía; con `Pick` ese desajuste **no compila** (A57).
+ */
+export type ShellConfig = Pick<StoreConfig, "name"> &
+  Partial<Pick<StoreConfig, "announcement" | "contact_email" | "contact_phone" | "whatsapp_phone" | "instagram_url" | "footerLocation" | "footerTagline">>;
 
 /**
  * Header principal de la tienda (anuncio + navegación + buscador + cuenta + carrito).
@@ -90,7 +92,8 @@ export function StoreHeader({
 }
 
 /**
- * Footer de la tienda: marca, datos de contacto, navegación y aviso de copyright.
+ * Footer de la tienda: marca, bajada, datos de contacto, navegación y aviso de copyright. La bajada y la
+ * ubicación del pie se editan en la página (`/admin/editor`, D38); el nombre solo se edita en el header.
  *
  * Sin accesos de cuenta ni de panel: ese botón vive en el header (`/admin` para el admin y
  * `/cuenta` o `/login` para el cliente). Los datos de contacto salen de `store_settings` (Contenido) y
@@ -115,10 +118,10 @@ export function StoreFooter({ config }: { config: ShellConfig }) {
     <footer className="bg-[var(--brand-ink)] text-[var(--brand-on-ink)]">
       <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 md:grid-cols-[1.4fr_1fr_1fr] md:px-10">
         <div>
-          <EditableText as="p" field="name" value={config.name} className="display text-3xl"/>
-          <p className={`mt-3 max-w-xs text-sm leading-6 ${muted}`}>
-            Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.
-          </p>
+          {/* El nombre del pie **no es editable a propósito**: se cambia en el título de arriba (el primero de
+              la página) y el pie y el copyright lo siguen. */}
+          <p className="display text-3xl">{config.name}</p>
+          <EditableText as="p" field="footer_tagline" value={config.footerTagline ?? ""} className={`mt-3 max-w-xs text-sm leading-6 ${muted}`}/>
         </div>
         {hasContact && (
           <div>
@@ -142,8 +145,9 @@ export function StoreFooter({ config }: { config: ShellConfig }) {
       </div>
       <div className="border-t border-[var(--brand-muted)] px-5 py-5 md:px-10">
         <div className={`mx-auto flex max-w-7xl flex-col gap-2 text-xs md:flex-row md:items-center md:justify-between ${muted}`}>
+          {/* El copyright usa el **mismo** campo que el título de arriba (`name`): no tiene texto propio. */}
           <p>© {year} {config.name}. Todos los derechos reservados.</p>
-          <p>San Javier y Talca, Chile</p>
+          <EditableText as="p" field="footer_location" value={config.footerLocation ?? ""}/>
         </div>
       </div>
     </footer>

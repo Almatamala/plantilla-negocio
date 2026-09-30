@@ -24,7 +24,8 @@ Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend
 1. **Reconstruir y redesplegar la imagen de la API (obligatorio).** El `Dockerfile` copia el código
    (`COPY . .`) y arranca `uvicorn` **sin `--reload`**, así que un contenedor viejo sirve código viejo.
    En local basta `docker compose -f docker-compose.backend.yml up --build -d`; en AWS, subir la imagen a
-   ECR y redesplegar (ECS/EC2).
+   ECR y redesplegar (ECS/EC2). Los **índices** de A61 se crean también al arrancar: sin reconstruir la
+   imagen, la base queda sin ellos.
 2. **Schema sin Alembic.** Las tablas se crean al arrancar con `Base.metadata.create_all`, que **no** altera
    tablas existentes. Para mantener al día una base ya creada, la API ejecuta al arrancar listas
    idempotentes de `ALTER TABLE …`/`DROP … IF EXISTS` **solo en PostgreSQL** (catálogo retirado, columnas de
@@ -179,9 +180,55 @@ columnas de Productos (antes había un rango «desde/hasta», que se retiró). E
 buscador solo confirma la dirección y el texto sigue siendo libre) y las **fechas cerradas** no aceptan días
 anteriores a hoy.
 
-**Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` al arrancar; ver §1). El
+### 3.3 Editor visual: más textos editables (2026-09-28 · ampliado 2026-09-29)
+
+**Implementado y verificado** (`pytest` 55/55; `tsc`, `lint` y `build` sin errores). Extiende **D38** (y su
+**A48**): el editor de la página suma los textos que faltaban, sin pantallas nuevas.
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A56** | Que en el editor de la página también se puedan cambiar «Tu colección, tu estilo», las tres tarjetas de beneficios, «Una plantilla que crece contigo» y «San Javier y Talca, Chile»; y destacar que el título del pie y el copyright siguen al primer título de la página | **D38 ampliada:** los nueve textos nuevos son **columnas de `store_settings`** —`hero_eyebrow`, `story_eyebrow`, `benefit_1_title`/`benefit_1_text` … `benefit_3_text`, `footer_tagline` y `footer_location`—, así que se editan con un clic en la página y se guardan con el mismo `PUT /api/settings`; `ALTER TABLE … ADD COLUMN IF NOT EXISTS` los agrega al arrancar sobre una base ya creada. Los **tres beneficios** ya no están en el código: salen de los ajustes, con los textos de la plantilla como valor por defecto (`lib/store-config.ts`). El **nombre** de la tienda es **un solo campo** (`name`) que se dibuja en el título del header, en el del pie y en el **copyright**, pero **solo se edita en el título de arriba**: los otros dos lo siguen (el año del copyright se calcula solo) y la barra del editor lo aclara. Se suma una prueba de API del guardado de estos textos (y de que un campo desconocido siga devolviendo 422). |
+
+**Decisión D38 (ampliada):** el editor visual puede cambiar **todo texto que viva en `store_settings`**; la
+regla no cambia (lo que no es un ajuste guardado se queda en el código: «Catálogo», «Productos destacados»,
+«Contacto», «Tienda»). El **nombre** es un campo compartido por el título de arriba, el del pie y el
+copyright, pero se cambia **solo desde el título de arriba** (el del pie no se marca como editable): la marca
+se edita en un solo lugar.
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A57** | Que en el editor de la página se pueda cambiar también la bajada del pie («Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.») y que la ubicación del pie («San Javier y Talca, Chile») muestre de verdad lo guardado | **D38 ampliada + corrección:** la bajada del pie pasa a ser la columna **`footer_tagline`** (editable con un clic, con el texto de la plantilla como valor por defecto en `lib/store-config.ts`). Y la **ubicación del pie se veía vacía** —antes y después de guardar— porque el contrato del header/footer (`ShellConfig`) la declaraba como `footer_location`, mientras los ajustes de tienda (`StoreConfig`) la llevan como **`footerLocation`**: el pie recibía `undefined` y dibujaba la línea en blanco. Se alinea el nombre del campo, así el pie muestra y guarda el valor; **no hay migración de datos** (la columna de la API sigue igual). El contrato del header/footer (`ShellConfig`) pasa a **derivarse de `StoreConfig`** con `Pick`, así que un campo que exista de un solo lado ya no compila y el desajuste no puede repetirse. |
+
+**Fix del pie (A57):** la ubicación del pie tenía **dos nombres** para el mismo dato —`footer_location` en
+`ShellConfig` y `footerLocation` en `StoreConfig`—, así que `StoreFooter` siempre recibía `undefined` y esa
+línea salía vacía, con o sin cambios guardados. Ahora ambos usan `footerLocation`.
+
+**Al desplegar:** **reconstruir la imagen de la API** (hay `ALTER TABLE`/`DROP TABLE` e **índices** al arrancar;
+ver §1). El
 `DROP TABLE IF EXISTS closed_weekdays` deja de cerrar los días que estuvieran marcados semanalmente: los que
 deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
+
+### 3.4 Rendimiento: lecturas compartidas y consultas (2026-09-29)
+
+**Implementado y verificado** (`pytest` 61/61; `tsc`, `lint` y `build` sin errores). Sale del análisis de
+las llamadas a la API pedido el mismo día; hay tres decisiones nuevas (**D41**, **D42** y **D43**).
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A58** | Evitar llamadas repetidas a la API y sumar un hook para el catálogo | **D41:** `lib/resource.ts` comparte la lectura **en vuelo** por clave (una sola petición aunque la pidan varios componentes) y se suman `useCatalog` (`lib/use-catalog.ts`), `useAgenda` (`lib/use-agenda.ts`) y `loadSettings` (`lib/use-store-settings.ts`). La **ficha** toma el producto del catálogo compartido en vez de repetir `/api/products`, `/api/categories` y el endpoint por slug, y pide **solo los comentarios de su producto** (`?product_id=`, antes traía todos y filtraba en el cliente). El **checkout** y la **Agenda** del panel (y el modal de pedido) comparten una única lectura de la agenda, y `/admin/editor` hace **una** petición a `/api/settings` en lugar de dos. |
+| **A59** | Que las lecturas no paguen un viaje extra | `apiFetch` manda `Content-Type: application/json` **solo cuando hay cuerpo**: en los GET sin cuerpo esa cabecera no aporta nada y, al estar la API en otro origen, obligaba al navegador a un **preflight OPTIONS** en cada lectura. |
+| **A60** | Menos trabajo por consulta en la API | `create_order` valida los productos del pedido en **una** consulta (antes un `db.get` por ítem), `delete_category` anula la categoría de sus productos con un **solo `UPDATE`** y `PATCH /api/orders/{id}/status` devuelve el pedido por `order_out`, así que la respuesta trae la **franja** y el **punto de retiro** resueltos (antes volvían en `null`). Se suman dos pruebas: el `PATCH` con sus etiquetas y el rechazo de un pedido con un producto inexistente. |
+| **A61** | Que las consultas no recorran la tabla completa | **Índices** de las columnas por las que más se consulta, creados al arrancar con `CREATE INDEX IF NOT EXISTS` (idempotente, igual que los `ALTER TABLE`): `order_items.order_id` (los listados de pedidos cargan sus ítems con `selectinload` y era la tabla que más crecía), `reviews (product_id, status, created_at DESC)` (los comentarios de una ficha) más `reviews (status, created_at DESC)` (moderación y listado sin producto) y `orders (created_at DESC)` (todos los listados ordenan por esa fecha). PostgreSQL solo indexa la PRIMARY KEY y los `UNIQUE`: declarar una `ForeignKey` en SQLAlchemy **no** crea índice en la columna hija. Una prueba verifica que las sentencias sean válidas e idempotentes. |
+| **A62** | Que Reportes no obligue a bajar todo el historial de pedidos | **Nuevo `GET /api/reports`** (solo admin) que agrega el período **en la API**: totales (pedidos, pedidos que vendieron, unidades e ingresos), pendientes de retirar, el tramo anterior de igual largo para comparar, ranking por producto, ventas por punto de retiro y pedidos por día y franja, más `oldest_order_at` para el selector de meses. La sección **Reportes** y la tarjeta **«Ventas del último mes»** de Inicio lo leen con `lib/use-reports.ts` (lectura compartida por clave, **sin** respaldo offline: un reporte viejo no sirve para decidir) y el cálculo local desaparece de `components/admin-reports.tsx`, que se queda con la presentación y con lo que aporta el catálogo (categoría de cada producto vendido, los sin ventas y la reposición). Al cambiar un pedido, Inicio vuelve a pedir los reportes para no mostrar ventas viejas. Se suma una prueba con tres pedidos del período, uno cancelado y uno del tramo anterior. |
+
+**Decisión D41 (nueva):** las lecturas de la API que **más de una pantalla** necesita —catálogo, ajustes
+de tienda y agenda— viven en una **lectura compartida por clave** (`lib/resource.ts`), con `useCatalog`,
+`useAgenda` y `loadSettings` como única puerta de entrada. La lectura en vuelo se comparte (una petición,
+no dos) y **no se cancela** al desmontar un consumidor, porque otros pueden estar esperándola; el respaldo
+de la última versión conocida (D20) se mantiene donde corresponde y se **desactiva expresamente** en la
+agenda, que no debe operar con datos viejos (checkout y panel).
+
+| **A63** | Que la tabla de Pedidos no baje todo el historial en el día a día | **Alcance por defecto en `/api/orders`:** el panel pide solo los pedidos **abiertos** (`pending`/`shipped`), que son los que se gestionan y nunca se vuelven cientos; el historial (`delivered`/`cancelled`/`refunded`) entra con `?include_closed=true`, que es lo que dispara el filtro de la tabla al elegir **«Todos los estados»**, **«Entregado»** o **«Cancelado»** (y «Limpiar filtros» vuelve a «Pedidos activos», o sea a la carga liviana). Un pedido que se cierra con la lista en modo activos **sale** de la tabla, porque ya no pertenece a esa vista. La tabla **«Pedidos recientes» de Inicio** usa esa misma lista, así que muestra lo que queda por gestionar. **No hay paginación**: con este corte el listado deja de crecer. Prueba nueva del default y de `include_closed=true`. |
 
 ---
 
@@ -199,6 +246,14 @@ deban seguir cerrados se ajustan en los **días de cada franja** desde Agenda.
 4. **Seed de agenda e inventario:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
    su ubicación y sus **franjas** (días + horario), y todos los productos reales del inventario.
 5. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
+6. **Índices de las tablas chicas (pendiente):** de la tanda de A61 quedaron fuera `time_slots.zone_id`,
+   `orders.customer_id`, `products.category_id` y `products.status`, que hoy casi no se notan (pocas filas)
+   y conviene decidir con volúmenes reales. Se agregarían igual que los otros, con
+   `CREATE INDEX IF NOT EXISTS` al arrancar (ver §1).
+7. **Paginación de pedidos (descartada por ahora):** con A62 y A63 Inicio, Reportes y la tabla de Pedidos
+   dejaron de bajar el historial completo, así que no hace falta paginar. Si algún día el listado de
+   **abiertos** se acercara a los cientos, el paso siguiente sería paginar moviendo búsqueda, estado, punto
+   de retiro y orden por fechas a la API (hoy son filtros locales sobre la lista cargada).
 
 ---
 

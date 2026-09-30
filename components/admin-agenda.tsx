@@ -1,17 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { MapPin, Pencil, Plus, Store, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { Slot, Zone } from "@/lib/agenda";
+import { useAgenda, type AgendaSlot, type AgendaZone } from "@/lib/use-agenda";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, formatSlot, weekdayFromIso } from "@/lib/schedule";
 
 /** Punto de retiro presencial tal como lo devuelve el panel (`active` siempre viene). */
-export type ZoneRow = Zone & { active: boolean };
+export type ZoneRow = AgendaZone;
 /** Franja horaria de un punto tal como la devuelve el panel (`enabled` siempre viene). */
-export type SlotRow = Slot & { enabled: boolean };
-/** Fecha cerrada puntual (lo único que queda de «días cerrados»). */
-type ClosedDayRow = { id: string; date: string };
+export type SlotRow = AgendaSlot;
 
 type ZoneDraft = { name: string; location: string };
 type SlotDraft = { start_time: string; end_time: string; weekdays: number[] };
@@ -158,9 +156,9 @@ function LocationField({ value, onChange }: { value: string; onChange: (value: s
  * puntuales (feriados, vacaciones).
  */
 export function AgendaSection({ setState }: { setState: (value: string) => void }) {
-  const [zones, setZones] = useState<ZoneRow[]>([]);
-  const [slots, setSlots] = useState<SlotRow[]>([]);
-  const [closed, setClosed] = useState<ClosedDayRow[]>([]);
+  // Agenda compartida (`lib/use-agenda.ts`): los mismos puntos y franjas que pide el checkout, sin
+  // respaldo offline a propósito, así que un fallo se avisa en vez de mostrar una agenda vieja (D20).
+  const { zones, slots, closedDays: closed, stale, loading, reload } = useAgenda({ admin: true });
   const [zoneForm, setZoneForm] = useState<ZoneDraft>(EMPTY_ZONE);
   const [editZone, setEditZone] = useState<string | null>(null);
   const [zoneDraft, setZoneDraft] = useState<ZoneDraft>(EMPTY_ZONE);
@@ -173,28 +171,9 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   const [creatingZone, setCreatingZone] = useState(false);
   const [creatingClosed, setCreatingClosed] = useState(false);
 
-  const reload = useCallback(async () => {
-    const [zoneRows, slotRows, closedRows] = await Promise.all([
-      apiFetch<ZoneRow[]>("/api/shipping-zones?include_inactive=true", { admin: true }),
-      apiFetch<SlotRow[]>("/api/time-slots?include_disabled=true", { admin: true }),
-      apiFetch<ClosedDayRow[]>("/api/closed-days"),
-    ]);
-    setZones(zoneRows);
-    setSlots(slotRows);
-    setClosed(closedRows);
-  }, []);
-
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await reload();
-      } catch {
-        if (!cancelled) setState("No se pudo cargar la agenda.");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [reload, setState]);
+    if (!loading && stale) setState("No se pudo cargar la agenda.");
+  }, [loading, stale, setState]);
 
   /** Ejecuta una mutación, recarga la agenda y reporta el resultado. */
   async function send(action: () => Promise<unknown>, ok: string, after?: () => void) {
@@ -421,7 +400,6 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
               <span className="mb-1.5 block text-[#647167]">Fecha a cerrar</span>
               <input required autoFocus type="date" min={todayIso()} value={closedForm.date} onChange={(event) => setClosedForm({ ...closedForm, date: event.target.value })} className={`${FIELD} w-full`}/>
             </label>
-            <p className="text-xs text-[#748077]">Ese día no aparecerá disponible para agendar en el checkout. Las fechas anteriores a hoy quedan bloqueadas.</p>
             <div className="flex justify-end gap-3 pt-1">
               <button type="button" onClick={() => setCreatingClosed(false)} className={LINK_BUTTON}>Cancelar</button>
               <button className={BUTTON}>Cerrar día</button>

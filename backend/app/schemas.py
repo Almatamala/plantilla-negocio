@@ -247,6 +247,18 @@ class SettingsIn(BaseModel):
     hero_description: str | None = None
     story_headline: str | None = Field(default=None, max_length=240)
     story_description: str | None = None
+    # Textos que el editor visual de la página (`/admin/editor`, D38) permite cambiar además del hero y la
+    # historia: los antetítulos, las tres tarjetas de beneficios y la bajada y la ubicación del pie.
+    hero_eyebrow: str | None = Field(default=None, max_length=160)
+    story_eyebrow: str | None = Field(default=None, max_length=160)
+    benefit_1_title: str | None = Field(default=None, max_length=160)
+    benefit_1_text: str | None = None
+    benefit_2_title: str | None = Field(default=None, max_length=160)
+    benefit_2_text: str | None = None
+    benefit_3_title: str | None = Field(default=None, max_length=160)
+    benefit_3_text: str | None = None
+    footer_location: str | None = Field(default=None, max_length=160)
+    footer_tagline: str | None = None
     theme_colors: dict[str, str] | None = None
 
     @field_validator("theme_colors")
@@ -289,6 +301,61 @@ class InstagramPostOut(BaseModel):
 class InstagramFeedOut(BaseModel):
     configured: bool
     posts: list[InstagramPostOut]
+
+
+# ── Reportes del negocio (D21) ──────────────────────────────────────────────
+# El panel calculaba todo esto con la lista completa de pedidos que bajaba del navegador; ahora la API
+# agrega el período y devuelve solo los números. Los nombres van en snake_case como el resto de la API
+# y el espejo del frontend es `lib/use-reports.ts`.
+
+class ReportProductOut(BaseModel):
+    name: str
+    units: int
+    revenue: int
+
+
+class ReportPlaceOut(BaseModel):
+    label: str
+    orders: int
+    units: int
+    revenue: int
+
+
+class ReportWeekdayOut(BaseModel):
+    weekday: int
+    orders: int
+
+
+class ReportSlotOut(BaseModel):
+    label: str
+    orders: int
+
+
+class ReportTotalsOut(BaseModel):
+    orders: int
+    sales_orders: int
+    units: int
+    revenue: int
+
+
+class ReportOut(BaseModel):
+    """Reportes del período pedido (más el tramo anterior de igual largo, si se pide comparación)."""
+    from_date: date | None = None
+    to_date: date | None = None
+    # Totales del período: `orders` cuenta todos (incluidos cancelados) y los de venta son los que suman.
+    orders: int
+    sales_orders: int
+    units: int
+    revenue: int
+    # Pedidos del período que todavía no se retiran (ni entregados ni cancelados).
+    pending_pickup: int
+    # Fecha del pedido más antiguo: el panel arma con ella el selector de meses del rango personalizado.
+    oldest_order_at: datetime | None = None
+    previous: ReportTotalsOut | None = None
+    products: list[ReportProductOut]
+    places: list[ReportPlaceOut]
+    weekdays: list[ReportWeekdayOut]
+    slots: list[ReportSlotOut]
 
 
 class InstagramTokenStatusOut(BaseModel):

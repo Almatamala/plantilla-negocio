@@ -13,7 +13,9 @@ import { storeConfig } from "@/lib/store-config";
 import { defaultThemeColors, isHexColor, normalizeThemeColors, themeColorFields, type ThemeColorKey, type ThemeColors } from "@/lib/theme";
 import { categoryNames, mapAdminProducts, type AdminProduct } from "@/lib/catalog";
 import { ORDER_STATUS_DB, ORDER_STATUS_LABEL, displayOrderId, type OrderStatus } from "@/lib/orders";
-import { AgendaSection, type SlotRow, type ZoneRow } from "@/components/admin-agenda";
+import { useAgenda } from "@/lib/use-agenda";
+import { localDateIso, useReports } from "@/lib/use-reports";
+import { AgendaSection } from "@/components/admin-agenda";
 import { Metric } from "@/components/admin-metric";
 import { ReportsSection } from "@/components/admin-reports";
 import { formatSlot, weekdayFromIso } from "@/lib/schedule";
@@ -41,6 +43,9 @@ const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "inicio", label: "Inicio", icon: LayoutDashboard }, { id: "productos", label: "Productos", icon: Package }, { id: "pedidos", label: "Pedidos", icon: Box }, { id: "agenda", label: "Agenda", icon: CalendarDays }, { id: "comentarios", label: "Comentarios", icon: MessageSquare }, { id: "contenido", label: "Contenido", icon: FileText }, { id: "reportes", label: "Reportes", icon: BarChart3 },
 ];
 
+/** Estados con los que un pedido ya no se gestiona: el panel los pide solo al mostrar el historial. */
+const CLOSED_ORDER_STATUSES: OrderStatus[] = ["Entregado", "Cancelado"];
+
 function productPayload(p: AdminProduct): Record<string, unknown> {
   return { category_id: p.category_id, name: p.name, slug: p.slug, description: p.description, price: p.price, image_url: p.image_url ?? null, images: p.images ?? [], ingredients: p.ingredients ?? null, allergens: p.allergens ?? [], status: p.status, inventory: p.inventory, preparation_days: p.preparation_days ?? 0 };
 }
@@ -58,6 +63,8 @@ export function AdminDashboard() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [catalog, setCatalog] = useState<AdminProduct[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  /** El filtro de la tabla pasó a mostrar entregados o cancelados: hay que pedir el historial completo. */
+  const [includeClosed, setIncludeClosed] = useState(false);
   const [state, setState] = useState("");
   const [creating, setCreating] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -68,22 +75,34 @@ export function AdminDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [cats, products, ordersRows] = await Promise.all([
+        const [cats, products] = await Promise.all([
           apiFetch<CategoryRow[]>("/api/categories", { admin: true }),
           // El panel ve todo el catálogo, incluidos los productos inactivos (ocultos en la tienda).
           apiFetch<ApiProduct[]>("/api/products?include_inactive=true", { admin: true }),
-          apiFetch<ApiOrder[]>("/api/orders", { admin: true }),
         ]);
         if (cancelled) return;
         setCategories(cats);
         setCatalog(mapAdminProducts(products, cats));
-        setOrders(ordersRows.map(mapApiOrder));
       } catch (e) {
         if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login para acceder al panel." : e.message) : "No se pudo conectar con la API.");
       }
     })();
     return () => { cancelled = true; };
   }, []);
+  /**
+   * Pedidos de la tabla (A63). El día a día solo necesita los **abiertos** —pendientes y enviados—, que
+   * son los que se gestionan y nunca se vuelven cientos; el historial completo (entregados y cancelados)
+   * se pide cuando el filtro de estado de la tabla los muestra. Los reportes no dependen de esta lista.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<ApiOrder[]>(`/api/orders${includeClosed ? "?include_closed=true" : ""}`, { admin: true })
+      .then((rows) => { if (!cancelled) setOrders(rows.map(mapApiOrder)); })
+      .catch((e) => {
+        if (!cancelled) setState(e instanceof Error ? (e.message.includes("401") ? "Inicia sesión en /login para acceder al panel." : e.message) : "No se pudo conectar con la API.");
+      });
+    return () => { cancelled = true; };
+  }, [includeClosed]);
   /** Refresca el nombre de categoría que muestra cada producto del catálogo. */
   function applyCategories(next: CategoryRow[]) {
     const map = categoryNames(next);
@@ -101,37 +120,51 @@ export function AdminDashboard() {
     router.push("/");
   }
   // «Ventas del último mes»: los últimos 30 días móviles (mismo criterio que el preset «Últimos 30 días»
-  // de Reportes). Antes sumaba todo el historial sin decir de qué período hablaba.
-  const revenue = useMemo(() => {
+  // de Reportes). Lo **agrega la API** (`lib/use-reports.ts`), así que la métrica no depende de qué lista
+  // de pedidos tenga cargada la tabla y coincide con lo que muestra Reportes.
+  const monthWindow = useMemo(() => {
+    const to = new Date();
+    to.setDate(to.getDate() + 1);
     const from = new Date();
     from.setDate(from.getDate() - 30);
-    const cutoff = from.getTime();
-    return orders
-      .filter((order) => order.status !== "Cancelado" && order.createdAt && new Date(order.createdAt).getTime() >= cutoff)
-      .reduce((sum, order) => sum + order.total, 0);
-  }, [orders]);
+    return { from: localDateIso(from), to: localDateIso(to), compare: false };
+  }, []);
+  const { report: monthReport, reload: reloadReport } = useReports(monthWindow);
+  const revenue = monthReport?.revenue ?? 0;
   function changeOrder(id: string, patch: Partial<Order>) {
-    setOrders((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
+    setOrders((items) => {
+      const next = items.map((item) => item.id === id ? { ...item, ...patch } : item);
+      // Con la lista en modo activos, un pedido que se cierra (Entregado/Cancelado) sale de la tabla: ya
+      // no pertenece a esa vista y dejarlo pegado mostraría un estado que el filtro excluye.
+      return !includeClosed && patch.status && CLOSED_ORDER_STATUSES.includes(patch.status)
+        ? next.filter((item) => item.id !== id)
+        : next;
+    });
     if (patch.status) {
-      apiFetch(`/api/orders/${id}/status`, { method: "PATCH", admin: true, body: { status: ORDER_STATUS_DB[patch.status] } }).catch((e) => setState(e instanceof Error ? e.message : "No se pudo actualizar."));
+      apiFetch(`/api/orders/${id}/status`, { method: "PATCH", admin: true, body: { status: ORDER_STATUS_DB[patch.status] } })
+        // El estado cambia las ventas del mes: se vuelven a pedir los reportes.
+        .then(() => { void reloadReport(); })
+        .catch((e) => setState(e instanceof Error ? e.message : "No se pudo actualizar."));
     }
   }
   function orderSaved(order: Order) {
     setOrders((items) => items.some((item) => item.id === order.id) ? items.map((item) => item.id === order.id ? order : item) : [order, ...items]);
+    // Un pedido nuevo o corregido también cambia las ventas del mes.
+    void reloadReport();
   }
   const selected = menu.find((item) => item.id === section)?.label;
-  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm">{user ? <button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Cerrar sesión</button> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={() => setCreatingOrder(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <div className="flex flex-wrap items-center gap-2"><button onClick={() => setManagingCategories(true)} className="inline-flex items-center gap-2 rounded-lg border border-[#d9ddd5] bg-white px-4 py-2.5 text-sm transition hover:border-[#243128]"><Tags size={16}/>Categorías</button><button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button></div>}{section === "contenido" && <Link href="/admin/editor" className="inline-flex items-center gap-2 rounded-lg border border-[#d9ddd5] bg-white px-4 py-2.5 text-sm transition hover:border-[#243128]"><Pencil size={16}/>Editar en la página</Link>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrderChange={changeOrder} onOrderEdit={setEditingOrder} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div>{state && <button onClick={() => setState("")} title="Cerrar aviso" className="fixed bottom-5 left-5 z-50 max-w-sm rounded-lg bg-[#243128] px-4 py-3 text-left text-sm text-white shadow-lg">{state}</button>}{creatingOrder && <OrderModal catalog={catalog} onClose={() => setCreatingOrder(false)} onSaved={orderSaved} setState={setState}/>}{editingOrder && <OrderModal key={editingOrder.id} order={editingOrder} catalog={catalog} onClose={() => setEditingOrder(null)} onSaved={orderSaved} setState={setState}/>}{managingCategories && <CategoriesModal categories={categories} onChange={applyCategories} onClose={() => setManagingCategories(false)} setState={setState}/>}</main>;
+  return <main className="min-h-screen bg-[#f5f6f2] text-[#243128]"><header className="flex h-16 items-center justify-between border-b border-[#d9ddd5] bg-white px-5 md:px-8"><div className="flex items-center gap-3"><button className="md:hidden" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Abrir menú"><Menu size={22}/></button><Link href="/" className="display text-2xl">{storeConfig.name}</Link></div><div className="flex items-center gap-4 text-sm">{user ? <button onClick={logout} className="rounded-lg border border-[#d9ddd5] px-3 py-2 hover:border-[#243128]">Cerrar sesión</button> : <Link href="/login" className="rounded-lg border border-[#d9ddd5] px-3 py-2">Cuenta</Link>}</div></header>{mobileMenu && <div className="fixed inset-0 z-40 md:hidden"><button aria-label="Cerrar menú" onClick={() => setMobileMenu(false)} className="absolute inset-0 bg-[#243128]/30"/><nav className="absolute top-4 right-4 left-4 rounded-2xl bg-white p-3 shadow-xl">{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { setSection(id); setMobileMenu(false); }} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</nav></div>}<div className="mx-auto flex max-w-[1440px]"><aside className="sticky top-0 hidden h-[calc(100vh-4rem)] w-60 shrink-0 border-r border-[#d9ddd5] bg-white p-4 md:block"><p className="px-3 pb-3 text-[11px] tracking-[.16em] text-[#7a867d] uppercase">Administración</p>{menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setSection(id)} className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${section === id ? "bg-[#243128] text-white" : "hover:bg-[#edf0e8]"}`}><Icon size={17}/>{label}</button>)}</aside><div className="min-w-0 flex-1 p-5 md:p-8"><div className="mb-7 flex items-center justify-between"><div><p className="text-sm text-[#748077]">Administración</p><h1 className="display text-4xl">{selected}</h1></div>{section === "pedidos" && <button onClick={() => setCreatingOrder(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nueva orden</button>}{section === "productos" && <div className="flex flex-wrap items-center gap-2"><button onClick={() => setManagingCategories(true)} className="inline-flex items-center gap-2 rounded-lg border border-[#d9ddd5] bg-white px-4 py-2.5 text-sm transition hover:border-[#243128]"><Tags size={16}/>Categorías</button><button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white"><Plus size={16}/>Nuevo producto</button></div>}{section === "contenido" && <Link href="/admin/editor" className="inline-flex items-center gap-2 rounded-lg border border-[#d9ddd5] bg-white px-4 py-2.5 text-sm transition hover:border-[#243128]"><Pencil size={16}/>Editar en la página</Link>}</div><AdminContent section={section} catalog={catalog} orders={orders} revenue={revenue} onOrderChange={changeOrder} onOrderEdit={setEditingOrder} onOrderScope={setIncludeClosed} categories={categories} onCatalogChange={setCatalog} setState={setState} creatingProduct={creating} onCreateProductChange={setCreating}/></div></div>{state && <button onClick={() => setState("")} title="Cerrar aviso" className="fixed bottom-5 left-5 z-50 max-w-sm rounded-lg bg-[#243128] px-4 py-3 text-left text-sm text-white shadow-lg">{state}</button>}{creatingOrder && <OrderModal catalog={catalog} onClose={() => setCreatingOrder(false)} onSaved={orderSaved} setState={setState}/>}{editingOrder && <OrderModal key={editingOrder.id} order={editingOrder} catalog={catalog} onClose={() => setEditingOrder(null)} onSaved={orderSaved} setState={setState}/>}{managingCategories && <CategoriesModal categories={categories} onChange={applyCategories} onClose={() => setManagingCategories(false)} setState={setState}/>}</main>;
 }
 
-function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {
+function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders: Order[]; revenue: number; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void; onOrderScope: (includeClosed: boolean) => void; categories: { id: string; name: string }[]; onCatalogChange: React.Dispatch<React.SetStateAction<AdminProduct[]>>; setState: (value: string) => void; creatingProduct: boolean; onCreateProductChange: React.Dispatch<React.SetStateAction<boolean>> }) {
   const { section, catalog, orders, revenue, categories, onCatalogChange, setState } = props;
   if (section === "inicio") return <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ventas del último mes" value={formatPrice(revenue)} icon={CircleDollarSign}/><Metric label="Pedidos por gestionar" value={String(orders.filter((o) => !["Entregado", "Cancelado"].includes(o.status)).length)} icon={Box}/><Metric label="Productos activos" value={String(catalog.filter((p) => p.status === "active").length)} icon={Package}/><Metric label="Stock bajo" value={String(catalog.filter((p) => p.inventory > 0 && p.inventory <= 5).length)} icon={BarChart3}/></div><section className="mt-7 rounded-xl bg-white p-5"><h2 className="display mb-4 text-2xl">Pedidos recientes</h2><OrderTable orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section></>;
   if (section === "productos") return <ProductSection catalog={catalog} categories={categories} onCatalogChange={onCatalogChange} setState={setState} creating={props.creatingProduct} onCreatingChange={props.onCreateProductChange} />;
-  if (section === "pedidos") return <section className="rounded-xl bg-white p-5"><p className="text-sm text-[#647167]"></p><OrdersSection orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit}/></section>;
+  if (section === "pedidos") return <section className="rounded-xl bg-white p-5"><p className="text-sm text-[#647167]"></p><OrdersSection orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit} onScopeChange={props.onOrderScope}/></section>;
   if (section === "agenda") return <AgendaSection setState={setState}/>;
   if (section === "comentarios") return <ReviewsSection setState={setState}/>;
   if (section === "contenido") return <ContentEditor setState={setState}/>;
-  return <ReportsSection orders={orders} catalog={catalog}/>;
+  return <ReportsSection catalog={catalog}/>;
 }
 
 /**
@@ -195,7 +228,7 @@ function orderZone(order: Order): string {
   return order.zone ?? order.location ?? "";
 }
 
-function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void }) {
+function OrdersSection({ orders, onOrderChange, onOrderEdit, onScopeChange }: { orders: Order[]; onOrderChange: (id: string, patch: Partial<Order>) => void; onOrderEdit: (order: Order) => void; onScopeChange: (includeClosed: boolean) => void }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"activos" | "all" | OrderStatus>("activos");
   const [zone, setZone] = useState("all");
@@ -230,11 +263,18 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
   function toggleSort(key: OrderSort["key"]) {
     setSort((current) => (current.key !== key ? { key, dir: "asc" } : { key, dir: current.dir === "asc" ? "desc" : "asc" }));
   }
+  /**
+   * Opciones del filtro que muestran pedidos **cerrados**: obligan a pedir el historial completo (A63).
+   * El default («Pedidos activos») y los estados abiertos se quedan con la carga liviana.
+   */
+  const scopeFor = (value: string) => value === "all" || CLOSED_ORDER_STATUSES.includes(value as OrderStatus);
   function clearFilters() {
     setSearch("");
     setStatus("activos");
     setZone("all");
     setSort(ORDER_SORT_DEFAULT);
+    // Vuelve a «Pedidos activos»: la tabla se queda otra vez con la carga liviana.
+    onScopeChange(false);
   }
   return (
     <>
@@ -243,7 +283,7 @@ function OrdersSection({ orders, onOrderChange, onOrderEdit }: { orders: Order[]
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[#748077]"/>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cliente o ubicación..." className="w-full rounded-lg border border-[#d9ddd5] bg-white py-2.5 pr-3 pl-9 text-sm outline-none focus:border-[#243128]"/>
         </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className={`${SELECT_FIELD_INLINE} w-44`}>
+        <select value={status} onChange={(e) => { const next = e.target.value as typeof status; setStatus(next); onScopeChange(scopeFor(next)); }} className={`${SELECT_FIELD_INLINE} w-44`}>
           <option value="activos">Pedidos activos</option>
           <option value="all">Todos los estados</option>
           <option value="Pendiente">Pendiente</option>
@@ -625,8 +665,8 @@ function initialOrderItems(order: Order | undefined, catalog: AdminProduct[]): {
 
 function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Order; catalog: AdminProduct[]; onClose: () => void; onSaved: (order: Order) => void; setState: (value: string) => void }) {
   const isEditing = Boolean(order);
-  const [slots, setSlots] = useState<SlotRow[]>([]);
-  const [zones, setZones] = useState<ZoneRow[]>([]);
+  // Puntos y franjas de la agenda compartida (`lib/use-agenda.ts`): el modal no los pide por su cuenta.
+  const { slots, zones } = useAgenda();
   const [customer, setCustomer] = useState({ name: order?.customer ?? "", phone: order?.customerPhone ?? "", email: order?.customerEmail ?? "" });
   const [zoneId, setZoneId] = useState(order?.shippingZoneId ?? "");
   const [date, setDate] = useState(order?.scheduledDate ?? "");
@@ -637,10 +677,6 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
   const [picker, setPicker] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    apiFetch<SlotRow[]>("/api/time-slots").then((rows) => setSlots(rows.filter((slot) => slot.enabled))).catch(() => undefined);
-    apiFetch<ZoneRow[]>("/api/shipping-zones").then(setZones).catch(() => undefined);
-  }, []);
   const total = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   // Solo hay retiro presencial (D33): el punto elegido define dónde se retira y con qué franjas.
   const selectedZone = zones.find((zone) => zone.id === zoneId) ?? null;

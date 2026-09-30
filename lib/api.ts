@@ -70,8 +70,17 @@ async function errorDetail(response: Response): Promise<string> {
   return detail;
 }
 
+/**
+ * Petición a la API.
+ *
+ * El `Content-Type` se manda **solo cuando hay cuerpo**: en un GET sin `body` esa cabecera no aporta
+ * nada y, por no estar en la lista blanca de CORS, obligaba al navegador a hacer un **preflight
+ * OPTIONS** antes de cada lectura (la API vive en otro origen). Sin ella, los GET son peticiones
+ * simples y van directo, lo que ahorra un viaje por lectura en todas las pantallas.
+ */
 export async function apiFetch<T>(path: string, options: { method?: string; body?: unknown; admin?: boolean } = {}): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {};
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.admin) Object.assign(headers, await adminHeaders());
   const res = await fetch(`${API_URL}${path}`, {
     method: options.method ?? "GET",

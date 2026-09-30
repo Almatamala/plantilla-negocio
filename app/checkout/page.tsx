@@ -6,14 +6,13 @@ import { ArrowLeft, Clock, CreditCard, Store } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
-import { loadCached } from "@/lib/offline-cache";
-import { formatPrice, products as demoProducts, type Product } from "@/lib/products";
-import { fetchCatalog } from "@/lib/catalog";
+import { formatPrice } from "@/lib/products";
 import { displayOrderId } from "@/lib/orders";
+import { useAgenda } from "@/lib/use-agenda";
+import { useCatalog } from "@/lib/use-catalog";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { CheckoutFooter, CheckoutHeader } from "@/components/checkout-shell";
 import { WEEKDAY_LONG, formatSlot, weekdayFromIso } from "@/lib/schedule";
-import type { Slot, Zone } from "@/lib/agenda";
 import { MONTHS_SHORT } from "@/lib/months";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
@@ -37,12 +36,15 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 export default function CheckoutPage() {
   const { cart, clear: clearCart } = useCart();
-  const [catalog, setCatalog] = useState<Product[]>(demoProducts);
+  // Catálogo y agenda salen de las lecturas compartidas (`lib/use-catalog.ts`, `lib/use-agenda.ts`):
+  // el checkout no los vuelve a pedir por su cuenta.
+  const { catalog, offline: catalogOffline } = useCatalog();
+  const agenda = useAgenda();
   const config = useStoreSettings();
   /** Puntos y franjas reales de la API. Si no responden, el checkout avisa en vez de inventarlos. */
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [closedDays, setClosedDays] = useState<string[]>([]);
-  const [zones, setZones] = useState<Zone[]>([]);
+  const zones = agenda.zones;
+  const slots = agenda.slots;
+  const closedDays = useMemo(() => agenda.closedDays.map((day) => day.date), [agenda.closedDays]);
   const [zoneId, setZoneId] = useState("");
   const [date, setDate] = useState("");
   const [slotId, setSlotId] = useState("");
@@ -51,38 +53,16 @@ export default function CheckoutPage() {
   const user = session.user;
   const [message, setMessage] = useState("");
   const [placedOrder, setPlacedOrder] = useState<PlacedOrder | null>(null);
-  /** La API no respondió en alguna lectura clave (catálogo o agenda): no se puede pedir. */
-  const [catalogOk, setCatalogOk] = useState(true);
-  const [scheduleOk, setScheduleOk] = useState(true);
   /** Alto real disponible para la columna de resumen (lo mide `useEffect` más abajo). */
   const [summaryMaxHeight, setSummaryMaxHeight] = useState<number | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
-  // Acá la última versión conocida sólo cubre el **catálogo** (para que el carrito no muestre precios
-  // falsos) y los **ajustes** (nombre de la tienda, vía `useStoreSettings`).
-  // Puntos de retiro, franjas y cierres **no** se respaldan: con la API caída no se puede registrar el
-  // pedido igual, así que es más honesto avisar que ofrecer horarios que quizá ya no existen
-  // (D20).
-  useEffect(() => {
-    void loadCached("catalog", fetchCatalog)
-      .then(({ value, fromCache }) => {
-        setCatalogOk(!fromCache);
-        if (value?.length) setCatalog(value);
-      });
-    apiFetch<Slot[]>("/api/time-slots").then((rows) => {
-      if (!rows.length) return;
-      setSlots(rows.map((slot) => ({ ...slot, weekdays: Array.isArray(slot.weekdays) ? slot.weekdays : [] })));
-    }).catch(() => setScheduleOk(false));
-    apiFetch<{ date: string }[]>("/api/closed-days")
-      .then((rows) => setClosedDays(rows.map((d) => d.date)))
-      .catch(() => setScheduleOk(false));
-    apiFetch<Zone[]>("/api/shipping-zones").then((rows) => {
-      if (rows.length) setZones(rows);
-    }).catch(() => setScheduleOk(false));
-  }, []);
-
-  /** Sin catálogo o sin agenda no hay forma de agendar ni de registrar el pedido. */
-  const unavailable = !catalogOk || !scheduleOk;
+  // Sin catálogo o sin agenda no hay forma de agendar ni de registrar el pedido. El **catálogo** cae a su
+  // última versión conocida (para que el carrito no muestre precios falsos) y los **ajustes** también
+  // (vía `useStoreSettings`); en cambio los puntos, las franjas y las fechas cerradas **no** se respaldan:
+  // con la API caída el pedido no se puede registrar igual, así que es más honesto avisar que ofrecer
+  // horarios que quizá ya no existen (D20).
+  const unavailable = catalogOffline || agenda.stale;
   const whatsappDigits = (config.whatsapp_phone ?? "").replace(/\D/g, "");
 
   // Si hay sesión, el contacto se completa con sus datos. Se deriva en el render (no en un efecto)

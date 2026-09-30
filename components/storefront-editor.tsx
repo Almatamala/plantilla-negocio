@@ -3,20 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { loadSettings, type RawSettings } from "@/lib/use-store-settings";
 import { ContentEditProvider, editableFields, type EditableField } from "@/components/editable-content";
 import { Storefront } from "@/components/storefront";
 import type { Product } from "@/lib/products";
-
-/** Ajustes tal como los devuelve `GET /api/settings` (más los campos de solo lectura que hay que quitar). */
-type SettingsPayload = Record<string, unknown> & {
-  name: string;
-  announcement?: string | null;
-  hero_title?: string | null;
-  hero_description?: string | null;
-  story_headline?: string | null;
-  story_description?: string | null;
-  theme_colors?: Record<string, string> | null;
-};
 
 /**
  * Editor visual de la página (`/admin/editor`, D38): muestra el storefront real y permite hacer clic en
@@ -25,17 +15,20 @@ type SettingsPayload = Record<string, unknown> & {
  * colores— siguen en la sección **Contenido** del panel.
  */
 export function StorefrontEditor({ products }: { products: Product[] }) {
-  const [base, setBase] = useState<SettingsPayload | null>(null);
+  const [base, setBase] = useState<RawSettings | null>(null);
   const [draft, setDraft] = useState<Partial<Record<EditableField, string>>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Los ajustes se leen acá (no con `useStoreSettings`) para poder mandar el objeto completo al guardar.
+  // Los ajustes se leen con la lectura **compartida** (`loadSettings`): la tienda que este editor dibuja
+  // adentro usa la misma, así que la página hace **una** petición a `/api/settings` y no dos. Se lee el
+  // objeto completo (no con `useStoreSettings`) para poder mandarlo tal cual al guardar.
   useEffect(() => {
-    apiFetch<SettingsPayload>("/api/settings")
-      .then(setBase)
-      .catch(() => setMessage("No se pudieron cargar los textos. Revisa la conexión con la API."));
+    void loadSettings().then(({ value }) => {
+      if (value) setBase(value);
+      else setMessage("No se pudieron cargar los textos. Revisa la conexión con la API.");
+    });
   }, []);
 
   function set(field: EditableField, value: string) {
@@ -51,14 +44,14 @@ export function StorefrontEditor({ products }: { products: Product[] }) {
     try {
       // La API reemplaza todos los ajustes, así que se manda la base completa más los textos editados.
       // `id` y `updated_at` son de salida y con `extra="forbid"` no se pueden enviar.
-      const { id, updated_at, ...rest } = base as SettingsPayload & { id?: unknown; updated_at?: unknown };
+      const { id, updated_at, ...rest } = base;
       void id;
       void updated_at;
       const payload: Record<string, unknown> = { ...rest };
       for (const field of editableFields) {
         if (draft[field] !== undefined) payload[field] = draft[field];
       }
-      const saved = await apiFetch<SettingsPayload>("/api/settings", { method: "PUT", admin: true, body: payload });
+      const saved = await apiFetch<RawSettings>("/api/settings", { method: "PUT", admin: true, body: payload });
       setBase(saved);
       setDirty(false);
       setMessage("Cambios guardados. La tienda los muestra al refrescar.");

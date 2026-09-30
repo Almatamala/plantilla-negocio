@@ -10,24 +10,49 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
  * vuelve editable al hacer clic; el botón «Guardar cambios» (en `StorefrontEditor`) es el que persiste
  * todo de una vez en `PUT /api/settings`.
  *
- * Solo entran los textos que **ya viven en `store_settings`** (D38): el resto de los textos de la
- * vitrina —«Catálogo», «Productos destacados», las tarjetas de beneficios— siguen fijos en el código.
+ * Solo entran los textos que **ya viven en `store_settings`** (D38): el nombre, el anuncio, los antetítulos
+ * y textos del hero, las **tres tarjetas de beneficios**, la historia y la **bajada y la ubicación del pie**. El resto de
+ * la copy —«Catálogo», «Productos destacados», «Contacto», «Tienda»— sigue fija en el código.
+ *
+ * El **nombre** se edita **solo en el título del header** (el primero de la página) y el pie y el copyright
+ * lo siguen: son el mismo campo, pero el del pie no se marca como editable a propósito.
  */
 export type EditableField =
   | "name"
   | "announcement"
+  | "hero_eyebrow"
   | "hero_title"
   | "hero_description"
+  | "benefit_1_title"
+  | "benefit_1_text"
+  | "benefit_2_title"
+  | "benefit_2_text"
+  | "benefit_3_title"
+  | "benefit_3_text"
+  | "story_eyebrow"
   | "story_headline"
-  | "story_description";
+  | "story_description"
+  | "footer_tagline"
+  | "footer_location";
 
+/** Campos editables, en el orden en que aparecen en la página (lo usa el editor al guardar). */
 export const editableFields: EditableField[] = [
   "name",
   "announcement",
+  "hero_eyebrow",
   "hero_title",
   "hero_description",
+  "benefit_1_title",
+  "benefit_1_text",
+  "benefit_2_title",
+  "benefit_2_text",
+  "benefit_3_title",
+  "benefit_3_text",
+  "story_eyebrow",
   "story_headline",
   "story_description",
+  "footer_tagline",
+  "footer_location",
 ];
 
 type ContentEditContextValue = {

@@ -194,4 +194,20 @@ class StoreSettings(Base):
     hero_description: Mapped[Optional[str]] = mapped_column(Text)
     story_headline: Mapped[Optional[str]] = mapped_column(String(240))
     story_description: Mapped[Optional[str]] = mapped_column(Text)
+    # Textos que el **editor visual** de la página (`/admin/editor`, D38) pasó a editar además del hero y la
+    # historia: el **antetítulo** de cada sección, las **tres tarjetas de beneficios** y la **bajada** y la
+    # **ubicación** del pie. Cada uno es una columna propia, igual que los textos anteriores, para poder editarlos por
+    # separado; sin valor guardado la vista usa el texto por defecto del frontend (`lib/store-config.ts`).
+    hero_eyebrow: Mapped[Optional[str]] = mapped_column(String(160))
+    story_eyebrow: Mapped[Optional[str]] = mapped_column(String(160))
+    benefit_1_title: Mapped[Optional[str]] = mapped_column(String(160))
+    benefit_1_text: Mapped[Optional[str]] = mapped_column(Text)
+    benefit_2_title: Mapped[Optional[str]] = mapped_column(String(160))
+    benefit_2_text: Mapped[Optional[str]] = mapped_column(Text)
+    benefit_3_title: Mapped[Optional[str]] = mapped_column(String(160))
+    benefit_3_text: Mapped[Optional[str]] = mapped_column(Text)
+    footer_location: Mapped[Optional[str]] = mapped_column(String(160))
+    # Bajada del pie («Repostería artesanal de San Javier y Talca. Pedidos programados con retiro
+    # presencial.»), editable en el editor visual (D38) junto con los demás textos de la página.
+    footer_tagline: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

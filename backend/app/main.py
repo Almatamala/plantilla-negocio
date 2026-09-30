@@ -3,13 +3,13 @@ import logging
 import os
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from contextlib import asynccontextmanager, suppress
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jwt import decode as jwt_decode, encode as jwt_encode
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 import bcrypt
@@ -19,7 +19,7 @@ from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_order_confirmation, send_verification_code
 from .models import Category, ClosedDay, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 logger = logging.getLogger("bosque.main")
@@ -101,10 +101,22 @@ PROFILE_VERIFICATION_COLUMNS = (
     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
 )
 
-# Contenido de la tienda: la **paleta de marca editable** (D29) vive junto a los demás ajustes de
-# `store_settings`; `create_all` no altera tablas existentes, así que se agrega al arrancar en PostgreSQL.
+# Contenido de la tienda: la **paleta de marca editable** (D29) y los textos que el **editor visual**
+# (D38) pasó a editar —antetítulos, tarjetas de beneficios, bajada y ubicación del pie— viven junto a los demás
+# ajustes de `store_settings`; `create_all` no altera tablas existentes, así que se agregan al arrancar en
+# PostgreSQL.
 STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS theme_colors JSON",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_eyebrow VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_eyebrow VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_title VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_text TEXT",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_2_title VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_2_text TEXT",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_3_title VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_3_text TEXT",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS footer_location VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS footer_tagline TEXT",
 )
 
 # Ajustes retirados de `store_settings`: los productos por página de «Productos destacados» quedaron
@@ -141,6 +153,23 @@ ORDER_STATUS_STATEMENTS = (
     "UPDATE orders SET status = 'pending' WHERE status IN ('paid', 'preparing')",
 )
 
+# Índices de las columnas por las que más se consulta (A61). PostgreSQL solo indexa la PRIMARY KEY y los
+# `UNIQUE`: declarar una `ForeignKey` en SQLAlchemy **no** crea índice en la columna hija. Sin estos
+# índices, los listados de pedidos (que cargan sus ítems con `selectinload`), los comentarios de una
+# ficha y el orden por fecha recorrían la tabla completa. Se crean al arrancar en PostgreSQL y `IF NOT
+# EXISTS` los hace idempotentes, así que una base ya creada queda igual que una nueva (en una tabla ya
+# grande convendría `CREATE INDEX CONCURRENTLY`, que no puede correr dentro de una transacción).
+PERFORMANCE_INDEXES = (
+    # Lo que sale en cada carga del panel: `SELECT … FROM order_items WHERE order_id IN (…)`.
+    "CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id)",
+    # Comentarios de una ficha: filtro por producto y estado, ordenados del más nuevo al más viejo.
+    "CREATE INDEX IF NOT EXISTS idx_reviews_product_status_created ON reviews (product_id, status, created_at DESC)",
+    # Moderación y listado público sin producto: filtro por estado y orden por fecha.
+    "CREATE INDEX IF NOT EXISTS idx_reviews_status_created ON reviews (status, created_at DESC)",
+    # Todos los listados de pedidos ordenan por la fecha de creación.
+    "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at DESC)",
+)
+
 VERIFICATION_TTL_MINUTES = 15
 VERIFICATION_RESEND_SECONDS = 60
 VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
@@ -169,6 +198,8 @@ async def lifespan(_: FastAPI):
             for statement in PRODUCT_STATUS_STATEMENTS:
                 connection.execute(text(statement))
             for statement in ORDER_STATUS_STATEMENTS:
+                connection.execute(text(statement))
+            for statement in PERFORMANCE_INDEXES:
                 connection.execute(text(statement))
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
     # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.
@@ -544,8 +575,10 @@ def update_category(category_id: str, payload: CategoryIn, db: Session = Depends
 def delete_category(category_id: str, db: Session = Depends(get_db)):
     """Elimina la categoría; sus productos quedan «Sin categoría» (category_id = NULL)."""
     category = find_or_404(db, Category, category_id)
-    for product in db.scalars(select(Product).where(Product.category_id == category_id)).all():
-        product.category_id = None
+    # Un solo UPDATE en vez de cargar los productos de la categoría para anularlos uno por uno. La FK
+    # ya declara `ON DELETE SET NULL`, pero la anulación explícita deja el catálogo al día sin depender
+    # de que la base aplique la regla.
+    db.execute(update(Product).where(Product.category_id == category_id).values(category_id=None))
     db.delete(category)
     db.commit()
     return Response(status_code=204)
@@ -716,10 +749,21 @@ def _review_out(review: Review) -> ReviewOut:
 
 # ── Órdenes ─────────────────────────────────────────────────────────────────
 
+# Estados que siguen **abiertos**: pendientes de retirar o ya enviados. El panel pide solo estos en el día
+# a día, que es donde está la utilidad y donde el listado nunca crece a cientos; el historial completo se
+# pide con `?include_closed=true` (el filtro de la tabla lo ata a sus opciones). Los reportes no dependen
+# de esta lista: agregan por su cuenta en `/api/reports`.
+OPEN_ORDER_STATUSES = ("pending", "shipped")
+
+
 @app.get("/api/orders", response_model=list[OrderOut], dependencies=[Depends(require_admin)])
-def list_orders(db: Session = Depends(get_db)):
-    rows = db.scalars(select(Order).options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone)).order_by(Order.created_at.desc())).all()
-    return [order_out(o) for o in rows]
+def list_orders(include_closed: bool = False, db: Session = Depends(get_db)):
+    """Pedidos del panel. Por defecto solo los **abiertos** (`pending`/`shipped`); con
+    `include_closed=true` entra también el historial (`delivered`/`cancelled`/`refunded`)."""
+    query = select(Order).options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone)).order_by(Order.created_at.desc())
+    if not include_closed:
+        query = query.where(Order.status.in_(OPEN_ORDER_STATUSES))
+    return [order_out(o) for o in db.scalars(query).all()]
 
 
 def validate_schedule(db: Session, payload: OrderIn) -> None:
@@ -761,11 +805,14 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db)):
         order.customer_id = payload.customer_id
     db.add(order)
     db.flush()
+    # Los productos del pedido se validan en **una** consulta (antes era un `db.get` por ítem). La tienda
+    # es «bajo pedido»: el stock no bloquea la compra, solo se valida que el producto exista, porque el
+    # catálogo pudo cambiar entre que el cliente armó el carrito y confirmó.
+    product_ids = {item.product_id for item in payload.items if item.product_id}
+    existing = set(db.scalars(select(Product.id).where(Product.id.in_(product_ids))).all()) if product_ids else set()
     for item in payload.items:
         db.add(OrderItem(order_id=order.id, **item.model_dump()))
-        if item.product_id and db.get(Product, item.product_id) is None:
-            # La tienda es «bajo pedido»: el stock no bloquea la compra, solo se valida que el producto
-            # exista (el catálogo pudo cambiar entre que el cliente armó el carrito y confirmó).
+        if item.product_id and item.product_id not in existing:
             db.rollback()
             raise HTTPException(status_code=409, detail=f"Producto «{item.name}» no encontrado.")
     try:
@@ -784,7 +831,16 @@ def update_order_status(order_id: str, payload: OrderStatusPatch, db: Session = 
     """Cambia el estado del pedido. No toca el stock: la tienda trabaja **bajo pedido** (D35)."""
     order = find_or_404(db, Order, order_id)
     order.status = payload.status
-    return commit(db, order)
+    db.commit()
+    # Se relee con sus relaciones y se devuelve por `order_out`, igual que el resto de los endpoints: así
+    # la respuesta trae la franja y el punto de retiro resueltos (antes volvían en `null` porque se
+    # devolvía la entidad de SQLAlchemy tal cual).
+    updated = db.scalar(
+        select(Order)
+        .options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone))
+        .where(Order.id == order_id)
+    )
+    return order_out(updated)
 
 
 @app.put("/api/orders/{order_id}", response_model=OrderOut, dependencies=[Depends(require_admin)])
@@ -813,6 +869,104 @@ def my_orders(authorization: str | None = Header(default=None), db: Session = De
         .order_by(Order.created_at.desc())
     ).all()
     return [order_out(o) for o in rows]
+
+
+# ── Reportes del negocio (D21) ──────────────────────────────────────────────
+
+# Estados que **no** suman dinero: el panel muestra `refunded` como Cancelado, así que los dos quedan
+# fuera de las ventas, igual que en las tarjetas de Reportes.
+REPORT_NOT_SALES = ("cancelled", "refunded")
+
+
+def report_orders(db: Session, start: date | None, end: date | None) -> list[Order]:
+    """Pedidos del tramo `[start 00:00, end 00:00)` en UTC; sin fechas, todo el historial."""
+    query = select(Order).options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone))
+    if start is not None:
+        query = query.where(Order.created_at >= datetime.combine(start, time.min, tzinfo=timezone.utc))
+    if end is not None:
+        query = query.where(Order.created_at < datetime.combine(end, time.min, tzinfo=timezone.utc))
+    return list(db.scalars(query).all())
+
+
+def report_totals(orders: list[Order]) -> ReportTotalsOut:
+    """Totales de un tramo: los cancelados cuentan como pedido, pero no como venta."""
+    sales = [order for order in orders if order.status not in REPORT_NOT_SALES]
+    return ReportTotalsOut(
+        orders=len(orders),
+        sales_orders=len(sales),
+        units=sum(item.quantity for order in sales for item in order.items),
+        revenue=sum(order.total for order in sales),
+    )
+
+
+@app.get("/api/reports", response_model=ReportOut, dependencies=[Depends(require_admin)])
+def store_reports(
+    start: date | None = Query(default=None, alias="from"),
+    end: date | None = Query(default=None, alias="to"),
+    compare: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Reportes del negocio (D21) calculados en la API.
+
+    El panel bajaba **todos** los pedidos con sus ítems y sumaba en el navegador; ahora pide este
+    endpoint por período y recibe los números ya agregados, así que el peso de la respuesta no crece con
+    el historial. `to` es **exclusivo** (el día siguiente) y las fechas se interpretan en UTC, como la
+    fecha de creación de los pedidos; sin fechas se reporta todo el historial.
+    """
+    orders = report_orders(db, start, end)
+    sales = [order for order in orders if order.status not in REPORT_NOT_SALES]
+
+    # Productos vendidos en el período. Se agrupa por **nombre**, que es lo que muestra el panel; la
+    # categoría la resuelve el frontend con su catálogo, igual que antes.
+    products: dict[str, dict] = {}
+    for order in sales:
+        for item in order.items:
+            row = products.setdefault(item.name, {"name": item.name, "units": 0, "revenue": 0})
+            row["units"] += item.quantity
+            row["revenue"] += item.unit_price * item.quantity
+
+    # Dónde retiran los pedidos: el punto de retiro (todos son presenciales, D33).
+    places: dict[str, dict] = {}
+    for order in sales:
+        label = order.shipping_zone.name if order.shipping_zone else (order.location or "Sin punto definido")
+        row = places.setdefault(label, {"label": label, "orders": 0, "units": 0, "revenue": 0})
+        row["orders"] += 1
+        row["units"] += sum(item.quantity for item in order.items)
+        row["revenue"] += order.total
+
+    # Día y franja de retiro agendados: sirven para planificar producción y horarios.
+    weekdays: dict[int, int] = {}
+    slots: dict[str, int] = {}
+    for order in sales:
+        if order.scheduled_date is not None:
+            weekday = (order.scheduled_date.weekday() + 1) % 7  # 0 domingo … 6 sábado
+            weekdays[weekday] = weekdays.get(weekday, 0) + 1
+        if order.time_slot is not None:
+            label = f"{order.time_slot.start_time}–{order.time_slot.end_time}"
+            slots[label] = slots.get(label, 0) + 1
+
+    # Comparación con el tramo anterior de igual largo (solo si lo piden y hay fechas).
+    previous = None
+    if compare and start is not None and end is not None:
+        length = end - start
+        previous = report_totals(report_orders(db, start - length, start))
+
+    # El pedido más antiguo se lee como columna (no con `min()`): así la fecha vuelve como datetime y no
+    # como el texto que devolvería una función de agregación.
+    oldest = db.scalar(select(Order.created_at).order_by(Order.created_at.asc()).limit(1))
+
+    return ReportOut(
+        from_date=start,
+        to_date=end,
+        **report_totals(orders).model_dump(),
+        pending_pickup=sum(1 for order in orders if order.status in OPEN_ORDER_STATUSES),
+        oldest_order_at=oldest,
+        previous=previous,
+        products=[ReportProductOut(**row) for row in sorted(products.values(), key=lambda row: (-row["units"], -row["revenue"]))],
+        places=[ReportPlaceOut(**row) for row in sorted(places.values(), key=lambda row: -row["revenue"])],
+        weekdays=[ReportWeekdayOut(weekday=day, orders=count) for day, count in sorted(weekdays.items(), key=lambda row: -row[1])],
+        slots=[ReportSlotOut(label=label, orders=count) for label, count in sorted(slots.items(), key=lambda row: -row[1])],
+    )
 
 
 # ── Imágenes ────────────────────────────────────────────────────────────────
