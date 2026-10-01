@@ -20,6 +20,11 @@ class Profile(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(180))
     phone: Mapped[Optional[str]] = mapped_column(String(60))
+    # Dirección de envío predeterminada del cliente (D44): el checkout la precarga y el cliente la puede
+    # corregir en cada pedido. `city` es la comuna (la cascada país > región > ciudad de Chile).
+    address: Mapped[Optional[str]] = mapped_column(String(200))
+    region: Mapped[Optional[str]] = mapped_column(String(120))
+    city: Mapped[Optional[str]] = mapped_column(String(120))
     google_sub: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="customer")
@@ -114,6 +119,27 @@ class ShippingZone(Base):
     slots: Mapped[list["TimeSlot"]] = relationship(back_populates="zone", cascade="all, delete-orphan")
 
 
+class DeliveryZone(Base):
+    """Zona de **envío a domicilio** (D44), aparte de los puntos de retiro presencial.
+
+    La cobertura se define de forma **local** por país > región > ciudad (comuna): el cliente escribe su
+    dirección en el checkout y se le aplica la tarifa de la zona que cubra su comuna. La tienda puede
+    tener **varias zonas**, cada una con su propia **tarifa** (`fee`) y su propio **límite de cobro**
+    (`free_threshold`): desde ese monto el envío es gratis. Mientras no haya ninguna zona activa, el
+    envío no se menciona en la tienda (D44).
+    """
+    __tablename__ = "delivery_zones"
+    id: Mapped[str] = mapped_column(UUID, primary_key=True, default=new_id)
+    country: Mapped[str] = mapped_column(String(80), nullable=False, default="Chile")
+    region: Mapped[str] = mapped_column(String(120), nullable=False)
+    city: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Tarifa en pesos y monto desde el cual el envío pasa a ser gratis (0 = nunca gratis).
+    fee: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    free_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Review(Base):
     """Comentarios de clientes por producto, moderados por el admin."""
     __tablename__ = "reviews"
@@ -142,6 +168,14 @@ class Order(Base):
     time_slot_id: Mapped[Optional[str]] = mapped_column(ForeignKey("time_slots.id", ondelete="SET NULL"))
     shipping_zone_id: Mapped[Optional[str]] = mapped_column(ForeignKey("shipping_zones.id", ondelete="SET NULL"))
     location: Mapped[Optional[str]] = mapped_column(Text)
+    # Método de entrega (D44): `pickup` (retiro presencial, con su punto y franja) o `delivery` (envío a
+    # domicilio, con la dirección y la tarifa de la zona que cubre la comuna). La tarifa se recalcula en
+    # la API y queda guardada en `shipping_fee`; el `total` ya la incluye.
+    delivery_method: Mapped[str] = mapped_column(String(20), nullable=False, default="pickup")
+    shipping_address: Mapped[Optional[str]] = mapped_column(String(200))
+    shipping_region: Mapped[Optional[str]] = mapped_column(String(120))
+    shipping_city: Mapped[Optional[str]] = mapped_column(String(120))
+    shipping_fee: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     time_slot: Mapped[Optional[TimeSlot]] = relationship()

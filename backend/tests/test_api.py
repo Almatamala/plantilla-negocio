@@ -388,11 +388,56 @@ def test_reviews_are_moderated(client, admin_headers):
     assert created.status_code == 201
     assert created.json()["status"] == "pending"
     assert client.get(f"/api/reviews?product_id={product['id']}").json() == []
+    # La moderación solo muestra los pendientes (D45): al aprobar, el comentario sale del panel y entra
+    # a la tienda.
+    assert [r["id"] for r in client.get("/api/reviews/admin", headers=admin_headers).json()] == [created.json()["id"]]
     approved = client.patch(f"/api/reviews/{created.json()['id']}/status", headers=admin_headers, json={"status": "approved"})
     assert approved.status_code == 200
     public = client.get(f"/api/reviews?product_id={product['id']}").json()
     assert len(public) == 1
     assert public[0]["product_name"] == "Torta"
+    assert client.get("/api/reviews/admin", headers=admin_headers).json() == []
+    # Rechazar **borra** el comentario (D45): no reaparece ni en el panel ni en la tienda.
+    rejected = client.post("/api/reviews", json={"product_id": product["id"], "author": "Pedro", "rating": 1, "comment": "No me gustó"}).json()
+    assert client.patch(f"/api/reviews/{rejected['id']}/status", headers=admin_headers, json={"status": "rejected"}).status_code == 200
+    assert client.get("/api/reviews/admin", headers=admin_headers).json() == []
+    assert client.delete(f"/api/reviews/{rejected['id']}", headers=admin_headers).status_code == 404
+
+
+def test_delivery_zones_cover_local_area_and_charge_fee(client, admin_headers):
+    # Sin zonas activas no hay envío y la tienda no lo menciona (D44).
+    assert client.get("/api/delivery-zones").json() == []
+    assert client.post("/api/delivery-zones", json={"region": "Maule", "city": "Talca"}).status_code == 401
+    zone = client.post("/api/delivery-zones", headers=admin_headers, json={
+        "country": "Chile", "region": "Región del Maule", "city": "San Javier", "fee": 2500, "free_threshold": 20000,
+    }).json()
+    assert zone["active"] is True and zone["fee"] == 2500
+    other = client.post("/api/delivery-zones", headers=admin_headers, json={"region": "Región del Maule", "city": "Talca", "fee": 3000}).json()
+    assert len(client.get("/api/delivery-zones").json()) == 2
+    # El panel ve también las inactivas; la tienda no.
+    client.patch(f"/api/delivery-zones/{other['id']}", headers=admin_headers, json={"active": False})
+    assert len(client.get("/api/delivery-zones").json()) == 1
+    assert len(client.get("/api/delivery-zones?include_inactive=true", headers=admin_headers).json()) == 2
+
+    base = {"customer_name": "Luis", "delivery_method": "delivery", "items": [{"name": "Pan", "unit_price": 10000, "quantity": 1}]}
+    # Dirección incompleta (falta la Comuna) y comuna sin cobertura: se rechazan antes de cobrar.
+    assert client.post("/api/orders", json={**base, "shipping_address": "Av. Principal 1", "shipping_region": "Región del Maule"}).status_code == 422
+    assert client.post("/api/orders", json={**base, "shipping_address": "Av. Principal 1", "shipping_region": "Región del Maule", "shipping_city": "Curicó"}).status_code == 409
+    # Con cobertura, el envío se suma al total (la tarifa la recalcula la API, no el cliente).
+    charged = client.post("/api/orders", json={**base, "shipping_address": "Av. Principal 1", "shipping_region": "Región del Maule", "shipping_city": "San Javier"})
+    assert charged.status_code == 201
+    body = charged.json()
+    assert body["delivery_method"] == "delivery"
+    assert body["shipping_fee"] == 2500
+    assert body["total"] == 12500
+    # Sobre el límite de cobro de la zona, el envío es gratis.
+    free = client.post("/api/orders", json={**base, "items": [{"name": "Torta", "unit_price": 25000, "quantity": 1}], "shipping_fee": 0,
+                                             "shipping_address": "Av. Principal 1", "shipping_region": "Región del Maule", "shipping_city": "San Javier"}).json()
+    assert free["shipping_fee"] == 0
+    assert free["total"] == 25000
+    # Un pedido de retiro no cobra envío.
+    pickup = client.post("/api/orders", json={"customer_name": "Ana", "items": [{"name": "Pan", "unit_price": 5000, "quantity": 1}]}).json()
+    assert pickup["delivery_method"] == "pickup" and pickup["shipping_fee"] == 0
 
 
 # ── Feed de Instagram propio (D30) ──────────────────────────────────────────

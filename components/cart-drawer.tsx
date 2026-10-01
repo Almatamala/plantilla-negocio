@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Minus, Plus, X } from "lucide-react";
 import { cartCount } from "@/lib/cart";
 import { formatPrice, type Product } from "@/lib/products";
+import { useDeliveryZones } from "@/lib/use-delivery";
 
 /**
  * Carrito lateral compartido por la carta y la ficha de producto. Los ítems se
@@ -31,6 +32,12 @@ export function CartDrawer({
   const count = cartCount(cart);
   const total = lines.reduce((sum, product) => sum + product.price * cart[product.id], 0);
   const missing = Object.keys(cart).filter((id) => !products.some((product) => product.id === id)).length;
+  // Envío a domicilio (D44): solo se menciona si la tienda tiene alguna zona activa. La tarifa exacta
+  // se calcula en el checkout, según la comuna de la dirección.
+  const { zones: deliveryZones } = useDeliveryZones();
+  const deliveryFrom = deliveryZones.length > 0 ? Math.min(...deliveryZones.map((zone) => zone.fee)) : 0;
+  const freeFrom = deliveryZones.map((zone) => zone.free_threshold).filter((value) => value > 0);
+  const deliveryFreeFrom = freeFrom.length > 0 ? Math.min(...freeFrom) : null;
 
   return (
     <AnimatePresence>
@@ -63,6 +70,12 @@ export function CartDrawer({
             </div>
             {count > 0 && (
               <div className="border-t border-[var(--brand-accent)] pt-5">
+                {deliveryZones.length > 0 && (
+                  <p className="mb-4 rounded-lg bg-[var(--brand-surface)] p-3 text-xs leading-5 text-[var(--brand-ink)]">
+                    También hacemos <strong>envío a domicilio</strong> desde {formatPrice(deliveryFrom)}
+                    {deliveryFreeFrom !== null ? ` · gratis sobre ${formatPrice(deliveryFreeFrom)}` : ""}. Se calcula en el checkout según tu dirección.
+                  </p>
+                )}
                 <div className="mb-4 flex justify-between"><span>Total</span><span className="display text-xl">{formatPrice(total)}</span></div>
                 <Link href="/checkout" className="block w-full bg-[var(--brand-accent)] py-4 text-center text-sm text-white">Continuar al checkout</Link>
               </div>

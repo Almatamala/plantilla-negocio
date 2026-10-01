@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AtSign, BarChart3, Box, CalendarDays, Check, ChevronDown, ChevronsUpDown, ChevronUp, CircleDollarSign, FileText, LayoutDashboard, Mail, Menu, MessageCircle, MessageSquare, Package, Pencil, Phone, Plus, RotateCcw, Search, Store, Tags, Trash2, Upload, X } from "lucide-react";
 import { apiFetch, endSession, uploadImage } from "@/lib/api";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Modal } from "@/components/modal";
 import { useSession } from "@/lib/account";
 import { formatPrice, type ApiProduct, type ProductStatus } from "@/lib/products";
 import { ALLERGENS } from "@/lib/allergens";
@@ -506,41 +508,18 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
           {filtered.length === 0 && <p className="py-8 text-center text-sm text-[#647167]">No hay productos que coincidan con los filtros.</p>}
         </div>
       </section>
-      {deleting && <DeleteProductModal product={deleting} onCancel={() => setDeleting(null)} onConfirm={() => removeProduct(deleting)}/>}
+      {deleting && <ConfirmDialog title="Eliminar producto" message={<>¿Seguro que quieres eliminar <strong>{deleting.name}</strong>? Se quita del catálogo y no se puede deshacer.</>} onCancel={() => setDeleting(null)} onConfirm={() => removeProduct(deleting)}/>}
       {stocking && <StockModal product={stocking} onCancel={() => setStocking(null)} onAdd={(amount) => addStock(stocking, amount)}/>}
       {editing && <ProductEditor product={editing} categories={categories} onCancel={() => setEditing(null)} onSave={saveProduct} setState={setState}/>}
       {creating && <ProductEditor product={blankProduct} categories={categories} mode="create" onCancel={() => onCreatingChange(false)} onSave={createProduct} setState={setState}/>}
     </div>
   );
 }
-function DeleteProductModal({ product, onCancel, onConfirm }: { product: AdminProduct; onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <div role="alertdialog" aria-modal="true" aria-label={`Eliminar ${product.name}`} className="w-full max-w-sm rounded-xl bg-white p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="display text-2xl">Eliminar producto</h2>
-          <button type="button" onClick={onCancel} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
-        <p className="text-sm text-[#647167]">¿Seguro que quieres eliminar <strong>{product.name}</strong>? Se quita del catálogo y no se puede deshacer.</p>
-        <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
-          <button type="button" onClick={onConfirm} className="rounded-lg bg-[#8a4a44] px-4 py-2.5 text-sm text-white">Eliminar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function StockModal({ product, onCancel, onAdd }: { product: AdminProduct; onCancel: () => void; onAdd: (amount: number) => void }) {
   const [amount, setAmount] = useState("1");
   function submit(event: React.FormEvent) { event.preventDefault(); const value = Number(amount); if (value > 0) onAdd(value); }
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">Agregar stock</h2>
-          <button type="button" onClick={onCancel} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
+    <Modal title="Agregar stock" onClose={onCancel} size="sm" onSubmit={submit}>
         <p className="text-sm text-[#647167]">Suma unidades al stock de <strong>{product.name}</strong>. Stock actual: {product.inventory}.</p>
         <label className="mt-4 block text-sm">
           <span className="mb-1.5 block text-[#647167]">Cantidad a agregar</span>
@@ -550,8 +529,7 @@ function StockModal({ product, onCancel, onAdd }: { product: AdminProduct; onCan
           <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
           <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">Agregar stock</button>
         </div>
-      </form>
-    </div>
+    </Modal>
   );
 }
 
@@ -584,12 +562,7 @@ function ProductEditor({ product, categories, onCancel, onSave, setState, mode =
     onSave({ name, price: Number(price), inventory: Number(inventory), status, category_id: categoryId || null, description, ingredients, images: finalImages, image_url: imageUrl || (finalImages[0] ?? null), allergens, preparation_days: Math.max(0, Number(preparationDays) || 0) });
   }
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">{isCreate ? "Nuevo producto" : "Editar producto"}</h2>
-          <button type="button" onClick={onCancel} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
+    <Modal title={isCreate ? "Nuevo producto" : "Editar producto"} onClose={onCancel} size="md" onSubmit={submit}>
         <div className="space-y-4">
           <label className="block text-sm">
             <span className="mb-1.5 block text-[#647167]">Nombre</span>
@@ -651,8 +624,7 @@ function ProductEditor({ product, categories, onCancel, onSave, setState, mode =
           <button type="button" onClick={onCancel} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
           <button className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white">{isCreate ? "Crear producto" : "Guardar cambios"}</button>
         </div>
-      </form>
-    </div>
+    </Modal>
   );
 }
 function initialOrderItems(order: Order | undefined, catalog: AdminProduct[]): { product: AdminProduct; quantity: number }[] {
@@ -718,12 +690,7 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
   }
   const fieldClass = "w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]";
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">{isEditing ? `Editar pedido ${displayOrderId(order!.id)}` : "Nueva orden"}</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
+    <Modal title={isEditing ? `Editar pedido ${displayOrderId(order!.id)}` : "Nueva orden"} onClose={onClose} size="lg" onSubmit={submit}>
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block text-sm"><span className="mb-1.5 block text-[#647167]">Cliente</span><input required value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className={fieldClass}/></label>
@@ -760,8 +727,7 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
           <button type="button" onClick={onClose} className="rounded-lg border border-[#d9ddd5] px-4 py-2.5 text-sm hover:border-[#243128]">Cancelar</button>
           <button disabled={saving} className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white disabled:opacity-50">{saving ? "Guardando…" : isEditing ? "Guardar cambios" : "Crear pedido"}</button>
         </div>
-      </form>
-    </div>
+    </Modal>
   );
 }
 function ContentEditor({ setState }: { setState: (value: string) => void }) {
@@ -869,20 +835,27 @@ function ContentEditor({ setState }: { setState: (value: string) => void }) {
 
 function ReviewsSection({ setState }: { setState: (value: string) => void }) {
   const [reviews, setReviews] = useState<{ id: string; author: string; rating: number; comment: string; status: string; product: string | null }[]>([]);
+  const [pending, setPending] = useState<{ id: string; author: string } | null>(null);
   useEffect(() => {
     apiFetch<{ id: string; author: string; rating: number; comment: string; status: string; product_name: string | null }[]>("/api/reviews/admin", { admin: true })
       .then((rows) => setReviews(rows.map((r) => ({ id: r.id, author: r.author, rating: r.rating, comment: r.comment, status: r.status, product: r.product_name ?? null }))))
       .catch(() => undefined);
   }, []);
-  async function setStatus(id: string, status: string) { setReviews((items) => items.map((r) => r.id === id ? { ...r, status } : r)); try { await apiFetch(`/api/reviews/${id}/status`, { method: "PATCH", admin: true, body: { status } }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo actualizar."); } }
-  async function remove(id: string) { setReviews((items) => items.filter((r) => r.id !== id)); try { await apiFetch(`/api/reviews/${id}`, { method: "DELETE", admin: true }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar."); } }
-  const pending = reviews.filter((r) => r.status === "pending");
+  async function setStatus(id: string, status: string) {
+    // Aprobar publica el comentario en la tienda; rechazar lo **borra** (D45). En ambos casos sale de
+    // la moderación, así que el panel solo conserva los pendientes.
+    setReviews((items) => items.filter((r) => r.id !== id));
+    try { await apiFetch(`/api/reviews/${id}/status`, { method: "PATCH", admin: true, body: { status } }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo actualizar."); }
+  }
+  function remove(review: { id: string; author: string }) { setPending(review); }
+  async function confirmRemove(id: string) { setReviews((items) => items.filter((r) => r.id !== id)); setPending(null); try { await apiFetch(`/api/reviews/${id}`, { method: "DELETE", admin: true }); } catch (e) { setState(e instanceof Error ? e.message : "No se pudo eliminar."); } }
   return (
     <section className="rounded-xl bg-white p-5">
       <h2 className="display text-2xl">Comentarios de clientes</h2>
-      <p className="mt-2 text-sm text-[#647167]">Los comentarios nuevos quedan pendientes hasta que los apruebes para publicarlos en la ficha del producto.</p>
-      {pending.length > 0 && <div className="mt-5 mb-6 rounded-lg bg-[#fff8e8] p-4"><p className="text-xs tracking-[.16em] text-[#8a6420] uppercase">Por aprobar ({pending.length})</p><div className="mt-3 space-y-3">{pending.map((review) => <ReviewRow key={review.id} review={review} onStatus={(s) => setStatus(review.id, s)} onRemove={() => remove(review.id)}/>)}</div></div>}
-      <div className="mt-4 divide-y divide-[#edf0e8]">{reviews.filter((r) => r.status !== "pending").length === 0 ? <p className="py-3 text-sm text-[#647167]">No hay comentarios revisados todavía.</p> : reviews.filter((r) => r.status !== "pending").map((review) => <ReviewRow key={review.id} review={review} onStatus={(s) => setStatus(review.id, s)} onRemove={() => remove(review.id)}/>)}</div>
+      <div className=" divide-y divide-[#edf0e8]">
+        {reviews.length === 0 ? <p className="py-3 text-sm text-[#647167]">No hay comentarios pendientes.</p> : reviews.map((review) => <ReviewRow key={review.id} review={review} onStatus={(s) => setStatus(review.id, s)} onRemove={() => remove(review)}/>)}
+      </div>
+      {pending && <ConfirmDialog title="Eliminar comentario" message={`¿Eliminar el comentario de ${pending.author}? No se puede deshacer.`} onCancel={() => setPending(null)} onConfirm={() => confirmRemove(pending.id)}/>}
     </section>
   );
 }
@@ -900,6 +873,7 @@ function CategoriesModal({ categories, onChange, onClose, setState }: { categori
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<CategoryRow | null>(null);
   const fieldClass = "w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]";
   const sorted = (rows: CategoryRow[]) => [...rows].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -931,8 +905,10 @@ function CategoriesModal({ categories, onChange, onClose, setState }: { categori
     finally { setBusy(false); }
   }
 
-  async function remove(row: CategoryRow) {
-    if (!window.confirm(`¿Eliminar la categoría «${row.name}»? Los productos que la usen quedarán como «Sin categoría».`)) return;
+  function remove(row: CategoryRow) { setPending(row); }
+
+  async function confirmRemove(row: CategoryRow) {
+    setPending(null);
     setBusy(true);
     try {
       await apiFetch(`/api/categories/${row.id}`, { method: "DELETE", admin: true });
@@ -943,12 +919,7 @@ function CategoriesModal({ categories, onChange, onClose, setState }: { categori
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">Categorías</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
+    <Modal title="Categorías" onClose={onClose} size="md">
         <p className="text-sm text-[#647167]">Organizan la carta y el filtro de la tienda. Al eliminar una categoría, sus productos quedan como «Sin categoría».</p>
         <div className="mt-5 divide-y divide-[#edf0e8]">
           {categories.length === 0 && <p className="py-3 text-sm text-[#647167]">Todavía no hay categorías.</p>}
@@ -977,8 +948,8 @@ function CategoriesModal({ categories, onChange, onClose, setState }: { categori
           </label>
           <button disabled={busy || !newName.trim()} className="mt-3 rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white disabled:opacity-50">Agregar categoría</button>
         </form>
-      </div>
-    </div>
+      {pending && <ConfirmDialog title="Eliminar categoría" message={`¿Eliminar «${pending.name}»? Los productos que la usen quedarán como «Sin categoría».`} onCancel={() => setPending(null)} onConfirm={() => confirmRemove(pending)}/>}
+    </Modal>
   );
 }
 

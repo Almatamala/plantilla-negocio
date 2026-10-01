@@ -1,8 +1,8 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D40; D5, D6, D11 y D23 quedaron retiradas)
-**Fecha:** 2026-09-28 · **Estado:** documento vivo — despliegue y pendientes
+**Basado en:** `RPD.md` (decisiones D1–D45; D5, D6, D11 y D23 quedaron retiradas)
+**Fecha:** 2026-09-30 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
 
@@ -36,7 +36,7 @@ Hoy la tienda corre en local (Next + API dockerizada con `docker-compose.backend
    `products.allow_backorder` (el «bajo pedido» ahora es **implícito**); además se **agrega**
    `products.preparation_days` (los **días de preparación**, **D35**). Un `UPDATE` convierte a `active` los
    productos con estados retirados (`draft`, `sold_out`, `preorder`, **D36**) y otro convierte a `pending`
-   los pedidos guardados en `paid`/`preparing` (estados unificados, **D37**). El usuario de la base
+   los pedidos guardados en `paid`/`preparing` (estados unificados, **D37**). Con **D44** se **crea** la tabla `delivery_zones` (envíos por comuna) y se **agregan** `profiles.address`/`region`/`city` y las columnas de entrega de `orders` (`delivery_method`, `shipping_address`, `shipping_region`, `shipping_city`, `shipping_fee`). El usuario de la base
    debe tener permiso DDL; en RDS, verificar que no esté restringido. En una base nueva no hace nada.
 3. **Variables de entorno.** `AUTH_JWT_SECRET` debe ser **el mismo** en Next.js y en la API (si difiere, las
    sesiones dejan de validar); `CORS_ORIGINS` debe incluir el dominio de producción; `ADMIN_EMAILS` define
@@ -230,6 +230,26 @@ agenda, que no debe operar con datos viejos (checkout y panel).
 
 | **A63** | Que la tabla de Pedidos no baje todo el historial en el día a día | **Alcance por defecto en `/api/orders`:** el panel pide solo los pedidos **abiertos** (`pending`/`shipped`), que son los que se gestionan y nunca se vuelven cientos; el historial (`delivered`/`cancelled`/`refunded`) entra con `?include_closed=true`, que es lo que dispara el filtro de la tabla al elegir **«Todos los estados»**, **«Entregado»** o **«Cancelado»** (y «Limpiar filtros» vuelve a «Pedidos activos», o sea a la carga liviana). Un pedido que se cierra con la lista en modo activos **sale** de la tabla, porque ya no pertenece a esa vista. La tabla **«Pedidos recientes» de Inicio** usa esa misma lista, así que muestra lo que queda por gestionar. **No hay paginación**: con este corte el listado deja de crecer. Prueba nueva del default y de `include_closed=true`. |
 
+### 3.5 Envíos a domicilio y moderación de comentarios (2026-09-30)
+
+**Implementado y verificado** (`pytest` 62/62; `tsc`, `lint` y `build` sin errores). Dos puntos del dueño
+con dos decisiones nuevas (**D44** y **D45**).
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A64** | Agregar **envíos** a la Agenda: (a) la zona se elige de forma **local** por país > región > ciudad, (b) puede haber **varias zonas**, cada una con su **tarifa**, (c) si no hay ninguna zona activa **no se menciona en el carrito** y (d) se puede fijar un **límite de cobro** desde el cual el envío es gratis | **D44:** nueva tabla `delivery_zones` (país/región/ciudad + `fee` + `free_threshold` + `active`) con CRUD en `/api/delivery-zones`; la Agenda del panel suma la sección **Envíos** con un modal que usa la cascada región > comuna (`lib/chile.ts`, 16 regiones y 346 comunas). En el **checkout** el cliente elige retiro o **envío**, deja su **dirección** —precargada desde Mi cuenta— y la API **recalcula la tarifa** con la zona que cubre su comuna (gratis sobre el umbral, rechaza la comuna sin cobertura); el **carrito** solo menciona el envío si hay zonas activas. |
+| **A65** | En **Comentarios** mostrar solo los pendientes; al aceptarlos o rechazarlos dejan de aparecer ahí y quedan en la tienda, donde un admin puede borrarlos con la papelera | **D45:** `GET /api/reviews/admin` devuelve solo `pending`; **rechazar borra** el comentario (`PATCH …/status` con `rejected`) y aprobar lo publica en la ficha. En la ficha, si quien mira tiene rol admin, cada comentario publicado muestra la **papelera** (`DELETE /api/reviews/{id}`). |
+
+**Decisión D44 (nueva):** el **envío a domicilio** entra como método de entrega **aparte del retiro
+presencial** (D16/D33). Cada zona cubre una **comuna** de forma **local** (país > región > ciudad, solo
+Chile) con tarifa y **límite de cobro** propios (por zona); el checkout resuelve la tarifa con la
+**dirección** del cliente y el `total` del pedido la incluye. Sin ninguna zona activa, la tienda **no
+menciona el envío**: ni el carrito ni el checkout lo ofrecen.
+
+**Decisión D45 (nueva):** la moderación de comentarios trabaja **solo con los pendientes**: aprobar
+publica y **rechazar borra**. Los publicados viven en la ficha del producto y el admin los puede borrar
+desde ahí (papelera), sin volver a la sección Comentarios.
+
 ---
 
 ## 4. Pendientes
@@ -243,8 +263,9 @@ agenda, que no debe operar con datos viejos (checkout y panel).
    botón flotante `wa.me` ya funciona.
 3. **Credenciales externas:** OAuth Client de Google (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), cuenta y
    dominio **verificados** en **Resend** (`RESEND_API_KEY`/`RESEND_EMAIL_FROM`) y **rotar** el token de Instagram.
-4. **Seed de agenda e inventario:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
-   su ubicación y sus **franjas** (días + horario), y todos los productos reales del inventario.
+4. **Seed de agenda, envíos e inventario:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
+   su ubicación y sus **franjas** (días + horario), las **zonas de envío** reales (comuna + tarifa + límite de cobro, D44) y
+   todos los productos reales del inventario.
 5. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
 6. **Índices de las tablas chicas (pendiente):** de la tanda de A61 quedaron fuera `time_slots.zone_id`,
    `orders.customer_id`, `products.category_id` y `products.status`, que hoy casi no se notan (pocas filas)

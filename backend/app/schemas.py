@@ -8,6 +8,8 @@ ProductStatus = Literal["active", "inactive"]
 # hablado cargado en el panel), así que `paid` y `preparing` sobraban y quedan unificados en `pending`.
 OrderStatus = Literal["pending", "shipped", "delivered", "cancelled", "refunded"]
 ReviewStatus = Literal["pending", "approved", "rejected"]
+# Método de entrega (D44): retiro presencial (D16/D33) o envío a domicilio con dirección y tarifa.
+DeliveryMethod = Literal["pickup", "delivery"]
 
 
 class ORMModel(BaseModel):
@@ -20,6 +22,10 @@ class ProfileOut(ORMModel):
     phone: str | None
     email: str
     role: str
+    # Dirección de envío predeterminada (D44), para precargar el checkout.
+    address: str | None = None
+    region: str | None = None
+    city: str | None = None
     email_verified: bool = False
     created_at: datetime
 
@@ -27,6 +33,9 @@ class ProfileOut(ORMModel):
 class ProfilePatch(BaseModel):
     name: str | None = Field(default=None, max_length=180)
     phone: str | None = Field(default=None, max_length=60)
+    address: str | None = Field(default=None, max_length=200)
+    region: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=120)
 
 
 class RegisterIn(BaseModel):
@@ -157,6 +166,33 @@ class ShippingZoneOut(ShippingZoneIn, ORMModel):
     created_at: datetime
 
 
+# Zona de **envío a domicilio** (D44): cobertura local país > región > ciudad, con tarifa y límite de
+# cobro propios. Se manejan aparte de los puntos de retiro presencial (`shipping_zones`).
+class DeliveryZoneIn(BaseModel):
+    country: str = Field(default="Chile", min_length=1, max_length=80)
+    region: str = Field(min_length=1, max_length=120)
+    city: str = Field(min_length=1, max_length=120)
+    fee: int = Field(default=0, ge=0)
+    # Monto desde el cual el envío es gratis; 0 significa que nunca es gratis.
+    free_threshold: int = Field(default=0, ge=0)
+    active: bool = True
+
+
+class DeliveryZonePatch(BaseModel):
+    """Edición parcial: solo se aplican los campos enviados."""
+    country: str | None = Field(default=None, min_length=1, max_length=80)
+    region: str | None = Field(default=None, min_length=1, max_length=120)
+    city: str | None = Field(default=None, min_length=1, max_length=120)
+    fee: int | None = Field(default=None, ge=0)
+    free_threshold: int | None = Field(default=None, ge=0)
+    active: bool | None = None
+
+
+class DeliveryZoneOut(DeliveryZoneIn, ORMModel):
+    id: str
+    created_at: datetime
+
+
 class ReviewIn(BaseModel):
     product_id: str
     author: str = Field(min_length=1, max_length=120)
@@ -193,6 +229,11 @@ class OrderIn(BaseModel):
     time_slot_id: str | None = None
     shipping_zone_id: str | None = None
     location: str | None = None
+    # Entrega (D44): `pickup` usa punto y franja; `delivery` usa la dirección y la tarifa de su zona.
+    delivery_method: DeliveryMethod = "pickup"
+    shipping_address: str | None = Field(default=None, max_length=200)
+    shipping_region: str | None = Field(default=None, max_length=120)
+    shipping_city: str | None = Field(default=None, max_length=120)
     items: list[OrderItemIn] = Field(min_length=1)
 
 
@@ -218,6 +259,11 @@ class OrderOut(ORMModel):
     time_slot_id: str | None
     shipping_zone_id: str | None
     location: str | None
+    delivery_method: DeliveryMethod = "pickup"
+    shipping_address: str | None = None
+    shipping_region: str | None = None
+    shipping_city: str | None = None
+    shipping_fee: int = 0
     created_at: datetime
     items: list[OrderItemOut] = Field(default_factory=list)
     time_slot_label: str | None = None

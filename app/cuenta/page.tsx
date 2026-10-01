@@ -11,6 +11,7 @@ import { formatPrice } from "@/lib/products";
 import { refreshSession } from "@/lib/session-client";
 import { displayOrderId, orderStatusLabel } from "@/lib/orders";
 import { useStoreSettings } from "@/lib/use-store-settings";
+import { ComunaSelect, RegionSelect } from "@/components/region-comuna";
 import { themeVars } from "@/lib/theme";
 import { FloatingCart } from "@/components/floating-cart";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
@@ -24,6 +25,10 @@ type MyOrder = {
   scheduled_date: string | null;
   time_slot_label: string | null;
   shipping_zone_name: string | null;
+  delivery_method: string;
+  shipping_city: string | null;
+  shipping_region: string | null;
+  shipping_fee: number;
   items: { name: string; unit_price: number; quantity: number }[];
 };
 
@@ -34,7 +39,7 @@ export default function CuentaPage() {
   const { count } = useCart();
   const config = useStoreSettings();
   /** Lo que el cliente editó en el formulario; lo demás se toma de su sesión. */
-  const [edits, setEdits] = useState<{ name?: string; phone?: string }>({});
+  const [edits, setEdits] = useState<{ name?: string; phone?: string; address?: string; region?: string; city?: string }>({});
   const [orders, setOrders] = useState<MyOrder[]>([]);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -47,6 +52,9 @@ export default function CuentaPage() {
   // Los campos se derivan de la sesión hasta que el cliente los edita (sin efecto intermedio).
   const name = edits.name ?? user?.name ?? "";
   const phone = edits.phone ?? user?.phone ?? "";
+  const address = edits.address ?? user?.address ?? "";
+  const region = edits.region ?? user?.region ?? "";
+  const city = edits.city ?? user?.city ?? "";
 
   useEffect(() => {
     if (!user) return;
@@ -60,7 +68,7 @@ export default function CuentaPage() {
     setMessage("");
     setSaving(true);
     try {
-      await apiFetch("/api/auth/me", { method: "PATCH", admin: true, body: { name, phone } });
+      await apiFetch("/api/auth/me", { method: "PATCH", admin: true, body: { name, phone, address, region, city } });
       // Los datos cambiaron: el checkout y el resto de las pantallas deben verlos.
       void refreshSession();
       setMessage("Datos guardados. Se usarán para llenar tu próximo pedido.");
@@ -106,6 +114,21 @@ export default function CuentaPage() {
                   <span className="mb-1.5 block text-[#647167]">Correo</span>
                   <input value={user?.email ?? ""} disabled className="w-full rounded-lg border border-[#e2e5df] bg-[#f5f6f2] px-3 py-2.5 text-sm text-[#748077]"/>
                 </label>
+                {/* Dirección de envío predeterminada (D44): el checkout la precarga en cada pedido. */}
+                <label className="block text-sm">
+                  <span className="mb-1.5 block text-[#647167]">Dirección de envío (calle y número)</span>
+                  <input value={address} onChange={(e) => setEdits((current) => ({ ...current, address: e.target.value }))} placeholder="Av. Principal 123, depto 4" className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]"/>
+                </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="mb-1.5 block text-[#647167]">Región</span>
+                    <RegionSelect value={region} onChange={(value) => setEdits((current) => ({ ...current, region: value, city: "" }))} className="select-field w-full rounded-lg border border-[#d9ddd5] bg-white px-3 py-2.5 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128]"/>
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1.5 block text-[#647167]">Comuna</span>
+                    <ComunaSelect region={region} value={city} onChange={(value) => setEdits((current) => ({ ...current, city: value }))} className="select-field w-full rounded-lg border border-[#d9ddd5] bg-white px-3 py-2.5 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128] disabled:bg-[#f5f6f2] disabled:text-[#748077]"/>
+                  </label>
+                </div>
                 <button disabled={saving} className="rounded-full bg-[#243128] px-6 py-2.5 text-sm text-white disabled:opacity-50">{saving ? "Guardando…" : "Guardar cambios"}</button>
                 {message && <p className="rounded-lg bg-[#edf0e8] p-3 text-sm">{message}</p>}
               </form>
@@ -124,7 +147,7 @@ export default function CuentaPage() {
                         <p className="flex items-center gap-2 font-medium"><Package size={14} className="text-[#56745c]"/>{displayOrderId(order.id)}</p>
                         <p className="mt-0.5 text-xs text-[#748077]">
                           {order.scheduled_date ? `${order.scheduled_date}${order.time_slot_label ? ` · ${order.time_slot_label}` : ""}` : "Sin fecha agendada"}
-                          {" · Retiro presencial"}
+                          {order.delivery_method === "delivery" ? ` · Envío a ${order.shipping_city ?? order.shipping_region}` : " · Retiro presencial"}
                           {order.payment_method ? ` · ${order.payment_method}` : ""}
                         </p>
                         <p className="mt-0.5 text-xs text-[#748077]">{order.items.map((i) => `${i.quantity} × ${i.name}`).join(", ")}</p>

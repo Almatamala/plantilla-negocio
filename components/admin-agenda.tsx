@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MapPin, Pencil, Plus, Store, Trash2, X } from "lucide-react";
+import { MapPin, Pencil, Plus, Store, Trash2, Truck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Modal } from "@/components/modal";
 import { useAgenda, type AgendaSlot, type AgendaZone } from "@/lib/use-agenda";
+import { useDeliveryZones } from "@/lib/use-delivery";
+import { DELIVERY_COUNTRY } from "@/lib/chile";
+import { ComunaSelect, RegionSelect } from "@/components/region-comuna";
+import type { DeliveryZone } from "@/lib/delivery";
+import { formatPrice } from "@/lib/products";
 import { WEEKDAY_LONG, WEEKDAY_ORDER, formatSlot, weekdayFromIso } from "@/lib/schedule";
 
 /** Punto de retiro presencial tal como lo devuelve el panel (`active` siempre viene). */
@@ -17,6 +24,9 @@ type SlotDraft = { start_time: string; end_time: string; weekdays: number[] };
 const EMPTY_ZONE: ZoneDraft = { name: "", location: "" };
 const EMPTY_SLOT: SlotDraft = { start_time: "10:00", end_time: "13:00", weekdays: [] };
 const FIELD = "rounded-lg border border-[#d9ddd5] px-3 py-2 text-sm outline-none focus:border-[#243128]";
+// Mismo estilo de select que Productos y Pedidos: `select-field` dibuja la flecha propia y quita el
+// widget nativo del navegador (`app/globals.css`).
+const SELECT_FIELD = "select-field w-full rounded-lg border border-[#d9ddd5] bg-white px-3 py-2.5 text-sm outline-none transition hover:border-[#243128] focus:border-[#243128]";
 const BUTTON = "rounded-lg bg-[#243128] px-4 py-2 text-sm text-white";
 const LINK_BUTTON = "rounded-lg border border-[#d9ddd5] px-4 py-2 text-sm transition hover:border-[#243128]";
 const chip = (active: boolean) => `rounded-full px-3 py-1.5 text-xs transition ${active ? "bg-[#243128] text-white" : "border border-[#d9ddd5] text-[#647167] hover:border-[#243128]"}`;
@@ -59,21 +69,6 @@ function todayIso(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-/** Contenedor común de los modales de la agenda (agregar punto y cerrar día). */
-function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <div role="dialog" aria-modal="true" aria-label={title} className={`max-h-[90vh] w-full overflow-auto rounded-xl bg-white p-6 ${wide ? "max-w-lg" : "max-w-sm"}`}>
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 /**
  * Buscador de ubicación con el mapa de Google incrustado.
  *
@@ -89,12 +84,7 @@ function LocationPicker({ initial, onClose, onSelect }: { initial: string; onClo
   const term = query.trim();
   function search() { if (term) setSearched(term); }
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#243128]/40 p-4">
-      <div role="dialog" aria-modal="true" aria-label="Buscar ubicación" className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="display text-2xl">Buscar ubicación</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="text-[#647167] hover:text-[#243128]"><X size={18}/></button>
-        </div>
+    <Modal title="Buscar ubicación" onClose={onClose} size="md">
         <div className="flex gap-2">
           <input
             autoFocus
@@ -122,8 +112,7 @@ function LocationPicker({ initial, onClose, onSelect }: { initial: string; onClo
             <button type="button" onClick={() => onSelect(term)} disabled={!term} className={`${BUTTON} disabled:opacity-40`}>Usar esta ubicación</button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -149,11 +138,182 @@ function LocationField({ value, onChange }: { value: string; onChange: (value: s
   );
 }
 
+type DeliveryDraft = { region: string; city: string; fee: string; free_threshold: string };
+const EMPTY_DELIVERY: DeliveryDraft = { region: "", city: "", fee: "0", free_threshold: "0" };
+
+/** Campos de una zona de envío: país fijo (local), región > comuna en cascada, tarifa y umbral. */
+function DeliveryFields({ draft, setDraft }: { draft: DeliveryDraft; setDraft: (value: DeliveryDraft) => void }) {
+  return (
+    <div className="space-y-4">
+      <label className="block text-sm">
+        <span className="mb-1.5 block text-[#647167]">País</span>
+        <input value={DELIVERY_COUNTRY} disabled className={`${FIELD} w-full bg-[#f5f6f2] text-[#748077]`}/>
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-[#647167]">Región</span>
+          <RegionSelect value={draft.region} onChange={(region) => setDraft({ ...draft, region, city: "" })} className={SELECT_FIELD}/>
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-[#647167]">Ciudad / comuna</span>
+          <ComunaSelect region={draft.region} value={draft.city} onChange={(city) => setDraft({ ...draft, city })} className={`${SELECT_FIELD} disabled:cursor-not-allowed disabled:bg-[#f5f6f2] disabled:text-[#748077]`}/>
+        </label>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-[#647167]">Tarifa de envío (CLP)</span>
+          <input type="number" min="0" step="100" value={draft.fee} onChange={(event) => setDraft({ ...draft, fee: event.target.value })} className={`${FIELD} w-full`}/>
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-[#647167]">Envío gratis sobre (CLP)</span>
+          <input type="number" min="0" step="100" value={draft.free_threshold} onChange={(event) => setDraft({ ...draft, free_threshold: event.target.value })} className={`${FIELD} w-full`}/>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sección de **envíos a domicilio** de la Agenda (D44).
+ *
+ * Cada zona cubre una comuna (país > región > ciudad) con su **tarifa** y su **límite de cobro**; el
+ * checkout resuelve la tarifa del pedido con la dirección del cliente. Mientras no haya ninguna zona
+ * activa, la tienda no menciona el envío (ni el carrito ni el checkout lo ofrecen).
+ */
+function DeliverySection({ setState }: { setState: (value: string) => void }) {
+  const { zones, loading, stale, reload } = useDeliveryZones({ admin: true });
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState<DeliveryDraft>(EMPTY_DELIVERY);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<DeliveryDraft>(EMPTY_DELIVERY);
+  const [pending, setPending] = useState<{ title: string; message: React.ReactNode; action: () => void } | null>(null);
+
+  useEffect(() => {
+    if (!loading && stale) setState("No se pudieron cargar las zonas de envío.");
+  }, [loading, stale, setState]);
+
+  async function send(action: () => Promise<unknown>, ok: string, after?: () => void) {
+    try {
+      await action();
+      after?.();
+      await reload();
+      setState(ok);
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "No se pudo guardar el cambio.");
+    }
+  }
+
+  const body = (value: DeliveryDraft) => ({
+    country: DELIVERY_COUNTRY,
+    region: value.region,
+    city: value.city,
+    fee: Number(value.fee) || 0,
+    free_threshold: Number(value.free_threshold) || 0,
+  });
+
+  function add(event: React.FormEvent) {
+    event.preventDefault();
+    if (!draft.region || !draft.city) { setState("Elige la región y la comuna del envío."); return; }
+    void send(
+      () => apiFetch("/api/delivery-zones", { method: "POST", admin: true, body: body(draft) }),
+      "Zona de envío agregada.",
+      () => { setDraft(EMPTY_DELIVERY); setCreating(false); },
+    );
+  }
+
+  function startEditing(zone: DeliveryZone) {
+    setEditId(zone.id);
+    setEditDraft({ region: zone.region, city: zone.city, fee: String(zone.fee), free_threshold: String(zone.free_threshold) });
+  }
+
+  function save(id: string) {
+    if (!editDraft.region || !editDraft.city) { setState("Elige la región y la comuna del envío."); return; }
+    void send(
+      () => apiFetch(`/api/delivery-zones/${id}`, { method: "PATCH", admin: true, body: body(editDraft) }),
+      "Zona de envío actualizada.",
+      () => setEditId(null),
+    );
+  }
+
+  function toggle(zone: DeliveryZone) {
+    void send(
+      () => apiFetch(`/api/delivery-zones/${zone.id}`, { method: "PATCH", admin: true, body: { active: !zone.active } }),
+      zone.active ? "Zona desactivada: la tienda deja de ofrecer ese envío." : "Zona de envío activa.",
+    );
+  }
+
+  function remove(zone: DeliveryZone) {
+    setPending({
+      title: "Eliminar zona de envío",
+      message: `¿Eliminar el envío a ${zone.city}, ${zone.region}?`,
+      action: () => void send(() => apiFetch(`/api/delivery-zones/${zone.id}`, { method: "DELETE", admin: true }), "Zona de envío eliminada."),
+    });
+  }
+
+  return (
+    <section className="rounded-xl bg-white p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="display text-2xl">Envíos a domicilio</h2>
+          <p className="mt-2 text-sm text-[#647167]">Cada zona cubre una <strong>comuna</strong> (país → región → ciudad) con su <strong>tarifa</strong> y su <strong>límite de cobro</strong>.</p>
+        </div>
+        <button type="button" onClick={() => { setDraft(EMPTY_DELIVERY); setCreating(true); }} className={`${BUTTON} inline-flex shrink-0 items-center gap-2`}><Plus size={16}/>Agregar zona</button>
+      </div>
+
+      <div className="mt-5 divide-y divide-[#edf0e8]">
+        {zones.map((zone) => editId === zone.id ? (
+          <div key={zone.id} className="space-y-4 py-4">
+            <DeliveryFields draft={editDraft} setDraft={setEditDraft}/>
+            <div className="flex gap-2">
+              <button onClick={() => save(zone.id)} className={BUTTON}>Guardar zona</button>
+              <button onClick={() => setEditId(null)} className={LINK_BUTTON}>Cancelar</button>
+            </div>
+          </div>
+        ) : (
+          <div key={zone.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-center gap-2 font-medium"><Truck size={15} className="text-[#56745c]"/>{zone.city}<span className="text-xs font-normal text-[#748077]">{zone.region} · {zone.country}</span></p>
+              <p className="mt-1 text-xs text-[#647167]">{formatPrice(zone.fee)}{zone.free_threshold > 0 ? ` · gratis sobre ${formatPrice(zone.free_threshold)}` : ""}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => toggle(zone)} className={chip(Boolean(zone.active))}>{zone.active ? "Activa" : "Inactiva"}</button>
+              <button onClick={() => startEditing(zone)} aria-label={`Editar envío a ${zone.city}`} title="Editar zona" className="text-[#647167] hover:text-[#243128]"><Pencil size={15}/></button>
+              <button onClick={() => remove(zone)} aria-label={`Eliminar envío a ${zone.city}`} title="Eliminar zona" className="text-[#647167] hover:text-[#243128]"><Trash2 size={15}/></button>
+            </div>
+          </div>
+        ))}
+        {zones.length === 0 && <p className="py-3 text-sm text-[#647167]">Sin envíos configurados. Mientras no agregues una zona activa, la tienda no menciona el envío.</p>}
+      </div>
+
+      {creating && (
+        <Modal title="Agregar zona de envío" size="md" onClose={() => setCreating(false)}>
+          <form onSubmit={add} className="space-y-4">
+            <DeliveryFields draft={draft} setDraft={setDraft}/>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={() => setCreating(false)} className={LINK_BUTTON}>Cancelar</button>
+              <button className={BUTTON}>Agregar zona</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title={pending.title}
+          message={pending.message}
+          onCancel={() => setPending(null)}
+          onConfirm={() => { pending.action(); setPending(null); }}
+        />
+      )}
+    </section>
+  );
+}
+
 /**
  * Agenda del panel (D18): cada **punto de retiro presencial** vive con su **ubicación** y
  * sus **franjas horarias**, y cada franja declara los **días de la semana** en que se atiende.
  * La franja no tiene nombre: se nombra por su horario. Abajo quedan las **fechas cerradas**
- * puntuales (feriados, vacaciones).
+ * puntuales (feriados, vacaciones) y, entre medio, las zonas de **envío a domicilio** (D44).
  */
 export function AgendaSection({ setState }: { setState: (value: string) => void }) {
   // Agenda compartida (`lib/use-agenda.ts`): los mismos puntos y franjas que pide el checkout, sin
@@ -170,6 +330,8 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   // Los formularios de alta viven en un modal que abre el botón de la derecha del encabezado.
   const [creatingZone, setCreatingZone] = useState(false);
   const [creatingClosed, setCreatingClosed] = useState(false);
+  // Borrado pendiente de confirmar: toda acción destructiva pasa por el modal, no por `window.confirm`.
+  const [pending, setPending] = useState<{ title: string; message: React.ReactNode; action: () => void } | null>(null);
 
   useEffect(() => {
     if (!loading && stale) setState("No se pudo cargar la agenda.");
@@ -222,8 +384,11 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   }
 
   function deleteZone(zone: ZoneRow) {
-    if (!window.confirm(`¿Eliminar «${zone.name}»? Se eliminarán también sus franjas horarias.`)) return;
-    void send(() => apiFetch(`/api/shipping-zones/${zone.id}`, { method: "DELETE", admin: true }), "Punto eliminado.");
+    setPending({
+      title: "Eliminar punto",
+      message: `¿Eliminar «${zone.name}»? Se eliminarán también sus franjas horarias.`,
+      action: () => void send(() => apiFetch(`/api/shipping-zones/${zone.id}`, { method: "DELETE", admin: true }), "Punto eliminado."),
+    });
   }
 
   function addSlot(zoneId: string) {
@@ -249,7 +414,11 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
   }
 
   function deleteSlot(slot: SlotRow) {
-    void send(() => apiFetch(`/api/time-slots/${slot.id}`, { method: "DELETE", admin: true }), "Franja eliminada.");
+    setPending({
+      title: "Eliminar franja",
+      message: `¿Eliminar la franja ${formatSlot(slot)}?`,
+      action: () => void send(() => apiFetch(`/api/time-slots/${slot.id}`, { method: "DELETE", admin: true }), "Franja eliminada."),
+    });
   }
 
   function addClosed(event: React.FormEvent) {
@@ -264,8 +433,12 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
     );
   }
 
-  function deleteClosed(id: string) {
-    void send(() => apiFetch(`/api/closed-days/${id}`, { method: "DELETE", admin: true }), "Fecha reabierta.");
+  function deleteClosed(day: { id: string; date: string }) {
+    setPending({
+      title: "Reabrir fecha",
+      message: `¿Quitar el cierre del ${day.date}?`,
+      action: () => void send(() => apiFetch(`/api/closed-days/${day.id}`, { method: "DELETE", admin: true }), "Fecha reabierta."),
+    });
   }
 
   return (
@@ -355,6 +528,8 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
         </div>
       </section>
 
+      <DeliverySection setState={setState}/>
+
       <section className="rounded-xl bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
@@ -369,7 +544,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
               <span className="min-w-0 font-medium">{day.date}</span>
               <span className="flex items-center gap-3">
                 <span className="text-xs text-[#748077]">{WEEKDAY_LONG[weekdayFromIso(day.date)]}</span>
-                <button onClick={() => deleteClosed(day.id)} aria-label={`Quitar ${day.date}`} title="Quitar cierre" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>
+                <button onClick={() => deleteClosed(day)} aria-label={`Quitar ${day.date}`} title="Quitar cierre" className="text-[#647167] hover:text-[#243128]"><Trash2 size={14}/></button>
               </span>
             </div>
           ))}
@@ -378,7 +553,7 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
       </section>
 
       {creatingZone && (
-        <Modal title="Agregar punto" wide onClose={() => setCreatingZone(false)}>
+        <Modal title="Agregar punto" size="md" onClose={() => setCreatingZone(false)}>
           <form onSubmit={addZone} className="space-y-4">
             <label className="block text-sm">
               <span className="mb-1.5 block text-[#647167]">Nombre</span>
@@ -406,6 +581,15 @@ export function AgendaSection({ setState }: { setState: (value: string) => void 
             </div>
           </form>
         </Modal>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title={pending.title}
+          message={pending.message}
+          onCancel={() => setPending(null)}
+          onConfirm={() => { pending.action(); setPending(null); }}
+        />
       )}
     </div>
   );

@@ -18,8 +18,8 @@ from . import instagram
 from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_order_confirmation, send_verification_code
-from .models import Category, ClosedDay, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .models import Category, ClosedDay, DeliveryZone, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, DeliveryZoneIn, DeliveryZoneOut, DeliveryZonePatch, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 logger = logging.getLogger("bosque.main")
@@ -153,6 +153,25 @@ ORDER_STATUS_STATEMENTS = (
     "UPDATE orders SET status = 'pending' WHERE status IN ('paid', 'preparing')",
 )
 
+# Dirección de envío predeterminada del cliente (D44): el checkout la precarga y el cliente la
+# actualiza en Mi cuenta. Como `create_all` no altera tablas existentes, se agregan al arrancar.
+PROFILE_ADDRESS_COLUMNS = (
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS address VARCHAR(200)",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS region VARCHAR(120)",
+    "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS city VARCHAR(120)",
+)
+
+# Entrega del pedido (D44): `pickup` (retiro presencial) o `delivery` (envío a domicilio con dirección y
+# tarifa). La tabla `delivery_zones` la crea `create_all` (tabla nueva); estas columnas se agregan a
+# `orders` porque `create_all` no altera tablas ya creadas.
+ORDER_DELIVERY_COLUMNS = (
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_method VARCHAR(20) NOT NULL DEFAULT 'pickup'",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address VARCHAR(200)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_region VARCHAR(120)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_city VARCHAR(120)",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_fee INTEGER NOT NULL DEFAULT 0",
+)
+
 # Índices de las columnas por las que más se consulta (A61). PostgreSQL solo indexa la PRIMARY KEY y los
 # `UNIQUE`: declarar una `ForeignKey` en SQLAlchemy **no** crea índice en la columna hija. Sin estos
 # índices, los listados de pedidos (que cargan sus ítems con `selectinload`), los comentarios de una
@@ -168,6 +187,8 @@ PERFORMANCE_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_reviews_status_created ON reviews (status, created_at DESC)",
     # Todos los listados de pedidos ordenan por la fecha de creación.
     "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at DESC)",
+    # Zona de envío por comuna: el checkout busca una por país/región/ciudad (D44).
+    "CREATE INDEX IF NOT EXISTS idx_delivery_zones_place ON delivery_zones (country, region, city)",
 )
 
 VERIFICATION_TTL_MINUTES = 15
@@ -198,6 +219,10 @@ async def lifespan(_: FastAPI):
             for statement in PRODUCT_STATUS_STATEMENTS:
                 connection.execute(text(statement))
             for statement in ORDER_STATUS_STATEMENTS:
+                connection.execute(text(statement))
+            for statement in PROFILE_ADDRESS_COLUMNS:
+                connection.execute(text(statement))
+            for statement in ORDER_DELIVERY_COLUMNS:
                 connection.execute(text(statement))
             for statement in PERFORMANCE_INDEXES:
                 connection.execute(text(statement))
@@ -363,7 +388,11 @@ def notify_order_created(db: Session, order: Order, out: OrderOut) -> None:
             total=order.total,
             scheduled_date=order.scheduled_date.isoformat() if order.scheduled_date else "",
             time_slot=out.time_slot_label or "",
-            place=out.shipping_zone_name or order.location or "",
+            place=(
+            "Envío a domicilio: " + ", ".join(filter(None, [order.shipping_address, order.shipping_city, order.shipping_region]))
+            if order.delivery_method == "delivery"
+            else (out.shipping_zone_name or order.location or "")
+        ),
             payment_method=order.payment_method or "",
             store_name=settings.store_name,
             store_url=settings.store_url,
@@ -711,6 +740,40 @@ def delete_shipping_zone(zone_id: str, db: Session = Depends(get_db)):
     db.delete(find_or_404(db, ShippingZone, zone_id)); db.commit(); return Response(status_code=204)
 
 
+# ── Envío a domicilio (D44) ─────────────────────────────────────────────────
+# Zonas de cobertura **locales** definidas por país > región > ciudad (comuna), cada una con su tarifa y
+# su límite de cobro. Son un concepto aparte de los puntos de retiro: la tienda puede tener las dos cosas.
+# Mientras no haya ninguna zona activa, el carrito y el checkout no mencionan el envío.
+
+@app.get("/api/delivery-zones", response_model=list[DeliveryZoneOut])
+def list_delivery_zones(include_inactive: bool = False, db: Session = Depends(get_db)):
+    """Zonas de envío. La tienda solo ve las activas; el panel pide `include_inactive=true`."""
+    query = select(DeliveryZone).order_by(DeliveryZone.region, DeliveryZone.city)
+    if not include_inactive:
+        query = query.where(DeliveryZone.active.is_(True))
+    return db.scalars(query).all()
+
+
+@app.post("/api/delivery-zones", response_model=DeliveryZoneOut, status_code=201, dependencies=[Depends(require_admin)])
+def create_delivery_zone(payload: DeliveryZoneIn, db: Session = Depends(get_db)):
+    return commit(db, DeliveryZone(**payload.model_dump()))
+
+
+@app.patch("/api/delivery-zones/{zone_id}", response_model=DeliveryZoneOut, dependencies=[Depends(require_admin)])
+def update_delivery_zone(zone_id: str, payload: DeliveryZonePatch, db: Session = Depends(get_db)):
+    """Edición parcial: solo se aplican los campos enviados."""
+    zone = find_or_404(db, DeliveryZone, zone_id)
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(zone, key, value)
+    return commit(db, zone)
+
+
+@app.delete("/api/delivery-zones/{zone_id}", status_code=204, dependencies=[Depends(require_admin)])
+def delete_delivery_zone(zone_id: str, db: Session = Depends(get_db)):
+    db.delete(find_or_404(db, DeliveryZone, zone_id)); db.commit(); return Response(status_code=204)
+
+
 # ── Reviews / comentarios ───────────────────────────────────────────────────
 
 @app.get("/api/reviews", response_model=list[ReviewOut])
@@ -721,8 +784,16 @@ def list_public_reviews(product_id: str | None = None, db: Session = Depends(get
 
 
 @app.get("/api/reviews/admin", response_model=list[ReviewOut], dependencies=[Depends(require_admin)])
-def list_all_reviews(db: Session = Depends(get_db)):
-    return [_review_out(r) for r in db.scalars(select(Review).options(selectinload(Review.product)).order_by(Review.created_at.desc())).all()]
+def list_pending_reviews(db: Session = Depends(get_db)):
+    """Moderación (D45): el panel solo muestra los comentarios **pendientes**. Los aprobados pasan a la
+    tienda y los rechazados se borran, así que ninguno de los dos vuelve a esta lista."""
+    query = (
+        select(Review)
+        .options(selectinload(Review.product))
+        .where(Review.status == "pending")
+        .order_by(Review.created_at.desc())
+    )
+    return [_review_out(r) for r in db.scalars(query).all()]
 
 
 @app.post("/api/reviews", response_model=ReviewOut, status_code=201)
@@ -733,7 +804,16 @@ def create_review(payload: ReviewIn, db: Session = Depends(get_db)):
 
 @app.patch("/api/reviews/{review_id}/status", response_model=ReviewOut, dependencies=[Depends(require_admin)])
 def update_review_status(review_id: str, payload: ReviewStatusPatch, db: Session = Depends(get_db)):
-    review = find_or_404(db, Review, review_id); review.status = payload.status; return commit(db, review)
+    """Modera un comentario (D45). Aprobarlo lo publica en la tienda; **rechazarlo lo borra** (no queda
+    pendiente de nada). El borrado devuelve los datos del comentario para que la interfaz pueda despedirlo."""
+    review = find_or_404(db, Review, review_id)
+    if payload.status == "rejected":
+        data = _review_out(review)
+        db.delete(review)
+        db.commit()
+        return data
+    review.status = payload.status
+    return commit(db, review)
 
 
 @app.delete("/api/reviews/{review_id}", status_code=204, dependencies=[Depends(require_admin)])
@@ -766,14 +846,44 @@ def list_orders(include_closed: bool = False, db: Session = Depends(get_db)):
     return [order_out(o) for o in db.scalars(query).all()]
 
 
+def resolve_delivery_fee(db: Session, payload: OrderIn, subtotal: int) -> int:
+    """Tarifa de envío del pedido (D44), recalculada en la API a partir de la dirección.
+
+    Busca la zona **activa** que cubre la comuna (país > región > ciudad) y aplica su tarifa; si el
+    subtotal alcanza el **límite de cobro** de la zona, el envío es gratis. Nunca se confía en el monto
+    que mande el cliente: el `total` se rearma acá. Si no hay zona que cubra la dirección, se rechaza el
+    pedido en vez de cobrar un envío inventado.
+    """
+    if payload.delivery_method != "delivery":
+        return 0
+    region = (payload.shipping_region or "").strip()
+    city = (payload.shipping_city or "").strip()
+    address = (payload.shipping_address or "").strip()
+    if not address or not region or not city:
+        raise HTTPException(status_code=422, detail="Completa la dirección de envío: calle, región y comuna.")
+    zone = db.scalar(
+        select(DeliveryZone).where(
+            func.lower(DeliveryZone.region) == region.lower(),
+            func.lower(DeliveryZone.city) == city.lower(),
+            DeliveryZone.active.is_(True),
+        )
+    )
+    if not zone:
+        raise HTTPException(status_code=409, detail="No tenemos envío a esa comuna. Revisa la dirección o escríbenos por WhatsApp.")
+    if zone.free_threshold and subtotal >= zone.free_threshold:
+        return 0
+    return zone.fee
+
+
 def validate_schedule(db: Session, payload: OrderIn) -> None:
     """Verifica que la franja exista, esté habilitada, sea del punto elegido y aplique a ese día.
 
-    Las **fechas cerradas** puntuales son una regla de disponibilidad de la tienda: el checkout no
-    ofrece esos días, pero el admin puede registrar un pedido fuera de agenda (p. ej. una excepción
-    acordada).
+    Un pedido de **envío** (D44) no usa punto ni franja: su dirección y su tarifa se resuelven aparte
+    (`resolve_delivery_fee`). Las **fechas cerradas** puntuales son una regla de disponibilidad de la
+    tienda: el checkout no ofrece esos días, pero el admin puede registrar un pedido fuera de agenda
+    (p. ej. una excepción acordada).
     """
-    if not payload.time_slot_id:
+    if payload.delivery_method == "delivery" or not payload.time_slot_id:
         return
     slot = db.get(TimeSlot, payload.time_slot_id)
     if not slot:
@@ -791,11 +901,14 @@ def validate_schedule(db: Session, payload: OrderIn) -> None:
 @app.post("/api/orders", response_model=OrderOut, status_code=201)
 def create_order(payload: OrderIn, db: Session = Depends(get_db)):
     validate_schedule(db, payload)
-    total = sum(item.unit_price * item.quantity for item in payload.items)
+    subtotal = sum(item.unit_price * item.quantity for item in payload.items)
+    # La tarifa de envío se recalcula en el servidor (D44): el `total` es subtotal + envío.
+    shipping_fee = resolve_delivery_fee(db, payload, subtotal)
+    total = subtotal + shipping_fee
     customer_profile = None
     if payload.customer_email:
         customer_profile = db.scalar(select(Profile).where(Profile.email == payload.customer_email.strip().lower()))
-    order = Order(**payload.model_dump(exclude={"items", "customer_id"}), total=total)
+    order = Order(**payload.model_dump(exclude={"items", "customer_id"}), total=total, shipping_fee=shipping_fee)
     if customer_profile:
         order.customer_id = customer_profile.id
     elif payload.customer_id:
@@ -847,10 +960,12 @@ def update_order_status(order_id: str, payload: OrderStatusPatch, db: Session = 
 def update_order(order_id: str, payload: OrderIn, db: Session = Depends(get_db)):
     """Corrige los datos de un pedido. No toca el stock ni el estado (el estado se cambia en su endpoint)."""
     order = find_or_404(db, Order, order_id)
-    total = sum(item.unit_price * item.quantity for item in payload.items)
+    subtotal = sum(item.unit_price * item.quantity for item in payload.items)
+    shipping_fee = resolve_delivery_fee(db, payload, subtotal)
     for key, value in payload.model_dump(exclude={"items", "customer_id", "status"}).items():
         setattr(order, key, value)
-    order.total = total
+    order.shipping_fee = shipping_fee
+    order.total = subtotal + shipping_fee
     order.items = [OrderItem(**item.model_dump()) for item in payload.items]
     db.commit()
     order = db.scalar(select(Order).options(selectinload(Order.items), selectinload(Order.time_slot), selectinload(Order.shipping_zone)).where(Order.id == order_id))

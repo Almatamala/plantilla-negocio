@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
-import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Star } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Star, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
 import { fetchCatalog } from "@/lib/catalog";
 import { formatPrice, type Product } from "@/lib/products";
@@ -13,6 +14,7 @@ import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { allergenInfo } from "@/lib/allergens";
 import { CartDrawer } from "@/components/cart-drawer";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { FloatingCart } from "@/components/floating-cart";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
@@ -67,7 +69,13 @@ export function ProductDetail({ slug }: { slug: string }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [reviewMsg, setReviewMsg] = useState("");
+  // Comentario pendiente de borrar: el admin confirma en un modal antes de eliminarlo (D45).
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; author: string } | null>(null);
   const { cart, add, change, count } = useCart();
+  // Sesión (D45): si quien mira la ficha es admin, cada comentario publicado trae la papelera para
+  // borrarlo desde la propia tienda.
+  const session = useSession();
+  const isAdmin = session.user?.role === "admin";
 
   const applyDetail = useCallback((data: Detail) => {
     setProduct(data.product);
@@ -99,6 +107,15 @@ export function ProductDetail({ slug }: { slug: string }) {
     add(product.id, qty);
     setDrawer(true);
     setAdded(true);
+  }
+
+  async function deleteReview(id: string) {
+    try {
+      await apiFetch(`/api/reviews/${id}`, { method: "DELETE", admin: true });
+      setReviews((items) => items.filter((review) => review.id !== id));
+    } catch {
+      setReviewMsg("No se pudo eliminar el comentario.");
+    }
   }
 
   async function submitReview(event: React.FormEvent) {
@@ -235,7 +252,18 @@ export function ProductDetail({ slug }: { slug: string }) {
           {added && <div className="mt-4 rounded-lg bg-[#e7eae0] p-3 text-sm text-[#4d573e]">Producto agregado a tu carrito. <Link href="/checkout" className="underline underline-offset-2">Ir al checkout</Link> o <Link href="/#coleccion" className="underline underline-offset-2">seguir comprando</Link>.</div>}
           <div className="mt-8 border-t border-[var(--brand-surface)] pt-6">
             <h2 className="display text-2xl">Comentarios {hasReviews && <span className="text-base text-[var(--brand-muted)]">({reviews.length})</span>}</h2>
-            {hasReviews ? <div className="mt-4 space-y-4">{reviews.map((review) => <div key={review.id} className="rounded-xl bg-white p-4"><div className="flex items-center justify-between"><p className="text-sm font-medium">{review.author}</p><span className="inline-flex items-center gap-0.5 text-[#c9962e]">{Array.from({ length: review.rating }).map((_, i) => <Star key={i} size={13} fill="currentColor"/>)}</span></div><p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">{review.comment}</p></div>)}</div> : <p className="mt-3 text-sm text-[var(--brand-muted)]">Aún no hay comentarios para este producto.</p>}
+            {hasReviews ? <div className="mt-4 space-y-4">{reviews.map((review) => (
+              <div key={review.id} className="rounded-xl bg-white p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{review.author}</p>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-0.5 text-[#c9962e]">{Array.from({ length: review.rating }).map((_, i) => <Star key={i} size={13} fill="currentColor"/>)}</span>
+                    {isAdmin && <button onClick={() => setPendingDelete({ id: review.id, author: review.author })} aria-label={`Eliminar comentario de ${review.author}`} title="Eliminar comentario" className="text-[var(--brand-muted)] transition hover:text-[#8a4a44]"><Trash2 size={15}/></button>}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">{review.comment}</p>
+              </div>
+            ))}</div> : <p className="mt-3 text-sm text-[var(--brand-muted)]">Aún no hay comentarios para este producto.</p>}
             <form onSubmit={submitReview} className="mt-6 space-y-3 rounded-xl bg-white p-4">
               <h3 className="text-sm font-medium">Deja tu comentario</h3>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -249,6 +277,7 @@ export function ProductDetail({ slug }: { slug: string }) {
           </div>
         </div>
       </div>
+      {pendingDelete && <ConfirmDialog title="Eliminar comentario" message={`¿Eliminar el comentario de ${pendingDelete.author}? No se puede deshacer.`} onCancel={() => setPendingDelete(null)} onConfirm={() => { const id = pendingDelete.id; setPendingDelete(null); void deleteReview(id); }}/>}
     </div>,
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Clock, CreditCard, Store } from "lucide-react";
+import { ArrowLeft, Clock, CreditCard, Store, Truck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
@@ -10,13 +10,16 @@ import { formatPrice } from "@/lib/products";
 import { displayOrderId } from "@/lib/orders";
 import { useAgenda } from "@/lib/use-agenda";
 import { useCatalog } from "@/lib/use-catalog";
+import { useDeliveryZones } from "@/lib/use-delivery";
+import { deliveryFee, findDeliveryZone } from "@/lib/delivery";
+import { ComunaSelect, RegionSelect } from "@/components/region-comuna";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { CheckoutFooter, CheckoutHeader } from "@/components/checkout-shell";
 import { WEEKDAY_LONG, formatSlot, weekdayFromIso } from "@/lib/schedule";
 import { MONTHS_SHORT } from "@/lib/months";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
-type PlacedOrder = { id: string; total: number; items: { name: string; quantity: number; price: number }[]; zone: string; date: string; slot: string; payment: string };
+type PlacedOrder = { id: string; total: number; items: { name: string; quantity: number; price: number }[]; place: string; detail: string; fee: number; payment: string };
 
 /** El cliente puede agendar hasta dos semanas de anticipación (D16). */
 const SCHEDULE_WINDOW_DAYS = 14;
@@ -40,6 +43,8 @@ export default function CheckoutPage() {
   // el checkout no los vuelve a pedir por su cuenta.
   const { catalog, offline: catalogOffline } = useCatalog();
   const agenda = useAgenda();
+  // Envío a domicilio (D44): si no hay zonas activas, el checkout solo ofrece retiro presencial.
+  const { zones: deliveryZones } = useDeliveryZones();
   const config = useStoreSettings();
   /** Puntos y franjas reales de la API. Si no responden, el checkout avisa en vez de inventarlos. */
   const zones = agenda.zones;
@@ -49,6 +54,9 @@ export default function CheckoutPage() {
   const [date, setDate] = useState("");
   const [slotId, setSlotId] = useState("");
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "" });
+  // Entrega (D44): retiro presencial o envío. La dirección de envío se precarga de la cuenta.
+  const [methodChoice, setMethodChoice] = useState<"pickup" | "delivery">("pickup");
+  const [ship, setShip] = useState({ address: "", region: "", city: "" });
   const session = useSession();
   const user = session.user;
   const [message, setMessage] = useState("");
@@ -75,8 +83,21 @@ export default function CheckoutPage() {
 
   const lines = useMemo(() => Object.entries(cart).flatMap(([id, qty]) => { const p = catalog.find((c) => c.id === id); return p ? [{ product: p, qty }] : []; }), [cart, catalog]);
   const total = lines.reduce((sum, { product, qty }) => sum + product.price * qty, 0);
-  // No hay despacho a domicilio: el tipo de entrega se deriva del punto de retiro elegido (D16).
+  // Retiro presencial: el punto se identifica por su nombre (D16/D33).
   const selectedZone = zones.find((z) => z.id === zoneId) ?? null;
+  const hasDelivery = deliveryZones.length > 0;
+  // Si hay envío pero no quedan puntos de retiro, el envío es la única forma de entrega.
+  const method = hasDelivery && zones.length === 0 ? "delivery" : methodChoice;
+  // Dirección de envío: lo que el cliente escribió o, si no, la que tiene guardada en su cuenta.
+  const shipping = {
+    address: ship.address || user?.address || "",
+    region: ship.region || user?.region || "",
+    city: ship.city || user?.city || "",
+  };
+  // Zona que cubre la comuna y tarifa del carrito (0 si supera el límite de cobro de la zona).
+  const matchedDelivery = findDeliveryZone(deliveryZones, shipping.region, shipping.city);
+  const shippingFee = method === "delivery" ? deliveryFee(matchedDelivery, total) : 0;
+  const grandTotal = total + shippingFee;
   /** Franjas del punto elegido (D18): cada una declara los días de la semana en que atiende. */
   const zoneSlots = useMemo(() => slots.filter((slot) => slot.zone_id === selectedZone?.id), [slots, selectedZone?.id]);
   /** Días de preparación del pedido (D35): manda el producto que más tarda del carrito. */
@@ -115,34 +136,41 @@ export default function CheckoutPage() {
   async function confirm() {
     setMessage("");
     if (unavailable) { setMessage("No podemos conectar con la tienda. Vuelve a intentarlo en unos minutos."); return; }
-    if (!selectedZone || !selectedDate || !selectedSlot) { setMessage("Elige punto de retiro, día y horario."); return; }
     if (!contact.name || !contact.phone) { setMessage("Completa tu nombre y teléfono."); return; }
-    const zone = selectedZone;
-    const slot = selectedSlot;
+    if (method === "delivery") {
+      if (!shipping.address.trim() || !shipping.region || !shipping.city) { setMessage("Completa la dirección de envío: calle, región y comuna."); return; }
+      if (!matchedDelivery) { setMessage("No tenemos envío a esa comuna. Revisa la dirección o escríbenos por WhatsApp y lo coordinamos."); return; }
+    } else if (!selectedZone || !selectedDate || !selectedSlot) {
+      setMessage("Elige punto de retiro, día y horario.");
+      return;
+    }
     const items = lines.map(({ product, qty }) => ({ product_id: product.id, name: product.name, unit_price: product.price, quantity: qty }));
+    const pickup = method === "pickup";
     try {
       const order = await apiFetch<{ id: string }>("/api/orders", {
         method: "POST",
         body: {
           customer_name: contact.name, customer_phone: contact.phone, customer_email: contact.email || null,
           payment_method: "Webpay",
-          scheduled_date: selectedDate, time_slot_id: slotId, shipping_zone_id: zone.id,
-          location: zone.location || zone.name,
+          delivery_method: method,
+          ...(pickup
+            ? { scheduled_date: selectedDate, time_slot_id: slotId, shipping_zone_id: selectedZone!.id, location: selectedZone!.location || selectedZone!.name }
+            : { shipping_address: shipping.address.trim(), shipping_region: shipping.region, shipping_city: shipping.city }),
           items,
         },
       });
       setPlacedOrder({
         id: displayOrderId(order.id),
-        total,
+        total: grandTotal,
         items: items.map(({ name, quantity, unit_price }) => ({ name, quantity, price: unit_price })),
-        zone: zone.name,
-        date: selectedDate,
-        slot: `${slot.start_time}–${slot.end_time}`,
+        place: pickup ? (selectedZone?.name ?? "Retiro presencial") : `Envío a ${shipping.city}, ${shipping.region}`,
+        detail: pickup ? `${selectedDate} · ${selectedSlot!.start_time}–${selectedSlot!.end_time}` : "Te contactamos para coordinar el día de entrega",
+        fee: shippingFee,
         payment: "Webpay Plus",
       });
       clearCart();
       if (process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL) {
-        fetch(process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, customer: contact.name, total, date, slot: `${slot.start_time}–${slot.end_time}`, zone: zone.name, payment: "Webpay" }) }).catch(() => undefined);
+        fetch(process.env.NEXT_PUBLIC_ORDER_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, customer: contact.name, total: grandTotal, date: selectedDate, slot: selectedSlot ? `${selectedSlot.start_time}–${selectedSlot.end_time}` : "", place: pickup ? (selectedZone?.name ?? "") : shipping.city, payment: "Webpay" }) }).catch(() => undefined);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo registrar el pedido. Intenta nuevamente.");
@@ -191,8 +219,9 @@ export default function CheckoutPage() {
               ))}
             </div>
             <div className="mt-4 space-y-1.5 text-sm">
-              <div className="flex justify-between"><span className="text-[#647167]">Retiro</span><span>{placedOrder.zone}</span></div>
-              <div className="flex justify-between"><span className="text-[#647167]">Fecha</span><span>{placedOrder.date} · {placedOrder.slot}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-[#647167]">Entrega</span><span className="text-right">{placedOrder.place}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-[#647167]">Cuándo</span><span className="text-right">{placedOrder.detail}</span></div>
+              {placedOrder.fee > 0 && <div className="flex justify-between"><span className="text-[#647167]">Envío</span><span>{formatPrice(placedOrder.fee)}</span></div>}
               <div className="flex justify-between"><span className="text-[#647167]">Pago</span><span>{placedOrder.payment}</span></div>
               <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(placedOrder.total)}</strong></div>
             </div>
@@ -228,9 +257,13 @@ export default function CheckoutPage() {
       </div>
       <div className="mt-3 shrink-0 space-y-1.5 border-t border-[#e2e5df] pt-3 text-sm">
         <div className="flex justify-between"><span className="text-[#647167]">Subtotal</span><span>{formatPrice(total)}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-[#647167]">Retiro</span><span className="text-right">{selectedZone ? selectedZone.name : "Por elegir"}</span></div>
-        <div className="flex justify-between gap-3"><span className="text-[#647167]">Agenda</span><span className="text-right">{selectedDate ? `${selectedDate}${selectedSlot ? ` · ${selectedSlot.start_time}–${selectedSlot.end_time}` : ""}` : "Por elegir"}</span></div>
-        <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(total)}</strong></div>
+        {method === "delivery" ? (
+          <div className="flex justify-between gap-3"><span className="text-[#647167]">Envío</span><span className="text-right">{!shipping.region || !shipping.city ? "Por calcular" : matchedDelivery ? (shippingFee === 0 ? "Gratis" : formatPrice(shippingFee)) : "Sin cobertura"}</span></div>
+        ) : (
+          <div className="flex justify-between gap-3"><span className="text-[#647167]">Retiro</span><span className="text-right">{selectedZone ? selectedZone.name : "Por elegir"}</span></div>
+        )}
+        {method === "pickup" && <div className="flex justify-between gap-3"><span className="text-[#647167]">Agenda</span><span className="text-right">{selectedDate ? `${selectedDate}${selectedSlot ? ` · ${selectedSlot.start_time}–${selectedSlot.end_time}` : ""}` : "Por elegir"}</span></div>}
+        <div className="flex justify-between border-t border-[#e2e5df] pt-3 text-base"><span className="font-medium">Total</span><strong className="display text-xl">{formatPrice(grandTotal)}</strong></div>
       </div>
       <button onClick={confirm} disabled={lines.length === 0 || unavailable} className="mt-4 w-full shrink-0 rounded-full bg-[#243128] py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40">{unavailable ? "Sin conexión con la tienda" : "Confirmar pedido"}</button>
       {message && <p className="mt-3 shrink-0 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{message}</p>}
@@ -263,7 +296,7 @@ export default function CheckoutPage() {
 
         {/* En móvil el resumen va plegado arriba, como en la referencia. */}
         <details className="mt-6 border-y border-[#e2e5df] py-4 lg:hidden">
-          <summary className="flex cursor-pointer items-center justify-between text-sm font-medium">Resumen del pedido<span className="display text-base">{formatPrice(total)}</span></summary>
+          <summary className="flex cursor-pointer items-center justify-between text-sm font-medium">Resumen del pedido<span className="display text-base">{formatPrice(grandTotal)}</span></summary>
           <div className="mt-4">{summary}</div>
         </details>
 
@@ -291,38 +324,84 @@ export default function CheckoutPage() {
             </section>
 
             <section className={SECTION}>
-              <h2 className="text-sm font-semibold">2 · Punto de retiro</h2>
+              <h2 className="text-sm font-semibold">2 · Entrega</h2>
               {unavailable ? (
-                <p className="mt-2 text-sm text-[#8a4a44]">La disponibilidad de puntos de retiro se habilita cuando vuelva la conexión con la tienda.</p>
+                <p className="mt-2 text-sm text-[#8a4a44]">La disponibilidad de la entrega se habilita cuando vuelva la conexión con la tienda.</p>
               ) : (
-              <>
-              <p className="mt-2 text-xs text-[#647167]">Elige dónde irás a buscar tu pedido. No tenemos despacho a domicilio.</p>
-              <div className="mt-3 space-y-2">
-                {zones.map((zone) => {
-                  const slotSummary = slots.filter((slot) => slot.zone_id === zone.id).map((slot) => formatSlot(slot));
-                  return (
-                    <label key={zone.id} className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm transition ${zoneId === zone.id ? "border-[#243128]" : "border-[#e2e5df] hover:border-[#a7b2a3]"}`}>
-                      <input type="radio" name="zone" checked={zoneId === zone.id} onChange={() => { setZoneId(zone.id); setDate(""); setSlotId(""); }} className="mt-0.5 h-4 w-4 shrink-0 accent-[#243128]"/>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
-                          <Store size={15} className="shrink-0 text-[#56745c]"/>
-                          <span className="break-words">{zone.name}</span>
-                        </span>
-                        {zone.location && <span className="mt-1 block break-words text-xs text-[#647167]">{zone.location}</span>}
-                        <span className="mt-1 flex items-start gap-1.5 text-xs text-[#647167]">
-                          <Clock size={12} className="mt-0.5 shrink-0"/>
-                          <span className="break-words">{slotSummary.length > 0 ? `Atiende: ${slotSummary.join(" · ")}` : "Sin horarios publicados todavía"}</span>
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-                {zones.length === 0 && <p className="text-xs text-[#748077]">Aún no hay puntos de retiro configurados.</p>}
-              </div>
-              </>
+                <>
+                  {/* El envío solo se ofrece si la tienda tiene alguna zona activa (D44). */}
+                  {hasDelivery && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {zones.length > 0 && (
+                        <label className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-sm transition ${method === "pickup" ? "border-[#243128]" : "border-[#e2e5df] hover:border-[#a7b2a3]"}`}>
+                          <input type="radio" name="method" checked={method === "pickup"} onChange={() => setMethodChoice("pickup")} className="h-4 w-4 shrink-0 accent-[#243128]"/>
+                          <span className="flex items-center gap-2"><Store size={15} className="shrink-0 text-[#56745c]"/>Retiro presencial</span>
+                        </label>
+                      )}
+                      <label className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-sm transition ${method === "delivery" ? "border-[#243128]" : "border-[#e2e5df] hover:border-[#a7b2a3]"}`}>
+                        <input type="radio" name="method" checked={method === "delivery"} onChange={() => setMethodChoice("delivery")} className="h-4 w-4 shrink-0 accent-[#243128]"/>
+                        <span className="flex items-center gap-2"><Truck size={15} className="shrink-0 text-[#56745c]"/>Envío a domicilio</span>
+                      </label>
+                    </div>
+                  )}
+                  {method === "pickup" ? (
+                    <>
+                      <p className="mt-3 text-xs text-[#647167]">Elige dónde irás a buscar tu pedido.</p>
+                      <div className="mt-3 space-y-2">
+                        {zones.map((zone) => {
+                          const slotSummary = slots.filter((slot) => slot.zone_id === zone.id).map((slot) => formatSlot(slot));
+                          return (
+                            <label key={zone.id} className={`flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm transition ${zoneId === zone.id ? "border-[#243128]" : "border-[#e2e5df] hover:border-[#a7b2a3]"}`}>
+                              <input type="radio" name="zone" checked={zoneId === zone.id} onChange={() => { setZoneId(zone.id); setDate(""); setSlotId(""); }} className="mt-0.5 h-4 w-4 shrink-0 accent-[#243128]"/>
+                              <span className="min-w-0 flex-1">
+                                <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                                  <Store size={15} className="shrink-0 text-[#56745c]"/>
+                                  <span className="break-words">{zone.name}</span>
+                                </span>
+                                {zone.location && <span className="mt-1 block break-words text-xs text-[#647167]">{zone.location}</span>}
+                                <span className="mt-1 flex items-start gap-1.5 text-xs text-[#647167]">
+                                  <Clock size={12} className="mt-0.5 shrink-0"/>
+                                  <span className="break-words">{slotSummary.length > 0 ? `Atiende: ${slotSummary.join(" · ")}` : "Sin horarios publicados todavía"}</span>
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                        {zones.length === 0 && <p className="text-xs text-[#748077]">Aún no hay puntos de retiro configurados.</p>}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-xs text-[#647167]">Indica dónde te lo llevamos. El envío se cobra según tu comuna y es gratis sobre el límite de la zona (se puede guardar como dirección predeterminada en Mi cuenta).</p>
+                      <div className="mt-4 space-y-4">
+                        <Field label="Dirección (calle y número)">
+                          <input required value={shipping.address} onChange={(e) => setShip({ ...ship, address: e.target.value })} placeholder="Av. Principal 123, depto 4" className={FIELD}/>
+                        </Field>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field label="Región">
+                            <RegionSelect value={shipping.region} onChange={(region) => setShip({ ...ship, region, city: "" })} className={`${FIELD} select-field bg-white`}/>
+                          </Field>
+                          <Field label="Comuna">
+                            <ComunaSelect region={shipping.region} value={shipping.city} onChange={(city) => setShip({ ...ship, city })} className={`${FIELD} select-field bg-white disabled:bg-[#f5f6f2] disabled:text-[#748077]`}/>
+                          </Field>
+                        </div>
+                        {shipping.region && shipping.city && !matchedDelivery && (
+                          <p className="rounded-lg bg-[#fdf3f1] p-3 text-xs text-[#8a4a44]">Todavía no tenemos envío a {shipping.city}, {shipping.region}. Escríbenos por WhatsApp y lo coordinamos.</p>
+                        )}
+                        {matchedDelivery && (
+                          <p className="rounded-lg bg-[#edf0e8] p-3 text-xs text-[#4d573e]">
+                            Envío a {shipping.city}: {shippingFee === 0 ? "gratis" : formatPrice(shippingFee)}
+                            {matchedDelivery.free_threshold > 0 && shippingFee > 0 ? ` · gratis sobre ${formatPrice(matchedDelivery.free_threshold)}` : ""}.
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </>
               )}
             </section>
 
+            {method === "pickup" && (
             <section className={SECTION}>
               <h2 className="text-sm font-semibold">3 · Día y horario</h2>
               {unavailable ? (
@@ -352,9 +431,10 @@ export default function CheckoutPage() {
                 </>
               )}
             </section>
+            )}
 
             <section className={SECTION}>
-              <h2 className="text-sm font-semibold">4 · Pago</h2>
+              <h2 className="text-sm font-semibold">{method === "pickup" ? "4" : "3"} · Pago</h2>
               {/* Único medio: Webpay Plus (D8). Hasta cargar las credenciales TBK aparece deshabilitado;
                   el pedido se registra igual y el pago se coordina por WhatsApp. */}
               <div className={`mt-3 flex items-start gap-3 border-y border-[#e2e5df] py-4 ${webpayEnabled ? "" : "opacity-60"}`}>

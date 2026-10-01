@@ -16,6 +16,10 @@ export type SessionUser = {
   phone: string | null;
   email: string;
   role: string;
+  /** Dirección de envío predeterminada (D44): el checkout la precarga y Mi cuenta la edita. */
+  address?: string | null;
+  region?: string | null;
+  city?: string | null;
 };
 
 export type SessionState = {
