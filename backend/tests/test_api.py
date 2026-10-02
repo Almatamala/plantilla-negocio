@@ -116,6 +116,47 @@ def test_store_settings_save_editable_page_texts(client, admin_headers):
     assert client.get("/api/settings").json()["theme_colors"] is None
 
 
+def test_store_settings_save_hero_image(client, admin_headers):
+    # Foto de fondo del hero (D47/D48): es una columna de `store_settings` y se edita en el editor visual de
+    # la página. Guarda la URL que devuelve `/api/upload` (o una externa) y, sin valor, la tienda usa la
+    # foto de la plantilla.
+    assert client.get("/api/settings").json()["hero_image"] is None
+
+    payload = {key: value for key, value in client.get("/api/settings").json().items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["hero_image"] = "http://localhost:8000/uploads/portada.jpg"
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["hero_image"] == "http://localhost:8000/uploads/portada.jpg"
+    assert client.get("/api/settings").json()["hero_image"] == "http://localhost:8000/uploads/portada.jpg"
+
+    # Volver a la foto de la plantilla: basta con vaciar el ajuste.
+    payload["hero_image"] = None
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["hero_image"] is None
+
+
+def test_store_settings_save_hero_logo(client, admin_headers):
+    # Logo del hero (D49, **opcional**): es otra columna de `store_settings`, se edita desde el editor de la
+    # página y, sin valor, la tienda no dibuja nada en la esquina.
+    assert client.get("/api/settings").json()["hero_logo"] is None
+
+    payload = {key: value for key, value in client.get("/api/settings").json().items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["hero_logo"] = "http://localhost:8000/uploads/logo.png"
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["hero_logo"] == "http://localhost:8000/uploads/logo.png"
+    assert client.get("/api/settings").json()["hero_logo"] == "http://localhost:8000/uploads/logo.png"
+
+    # Quitar el logo: basta con vaciar el ajuste.
+    payload["hero_logo"] = None
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["hero_logo"] is None
+
+
 def test_admin_token_is_required(client):
     response = client.post("/api/categories", json={"name": "Catálogo", "slug": "catalogo"})
     assert response.status_code == 401

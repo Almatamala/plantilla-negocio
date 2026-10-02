@@ -276,7 +276,6 @@ class OrderOut(ORMModel):
 THEME_COLOR_KEYS = ("accent", "ink", "surface", "muted", "detail")
 HEX_COLOR = re.compile(r"^#[0-9a-f]{6}$")
 
-
 class SettingsIn(BaseModel):
     # `extra="forbid"`: el panel es el único cliente de este endpoint y un campo que la API no conoce se
     # descartaba **en silencio** —parecía guardarse y no se guardaba nada—, que es justo lo que pasó al
@@ -291,6 +290,11 @@ class SettingsIn(BaseModel):
     announcement: str | None = Field(default=None, max_length=240)
     hero_title: str | None = Field(default=None, max_length=200)
     hero_description: str | None = None
+    # Foto de fondo del hero, editable en el editor visual de la página (D47/D48); sin valor, la tienda
+    # usa la de la plantilla.
+    hero_image: str | None = Field(default=None, max_length=500)
+    # Logo de la tienda en el hero (opcional, D49); sin valor no se dibuja.
+    hero_logo: str | None = Field(default=None, max_length=500)
     story_headline: str | None = Field(default=None, max_length=240)
     story_description: str | None = None
     # Textos que el editor visual de la página (`/admin/editor`, D38) permite cambiar además del hero y la

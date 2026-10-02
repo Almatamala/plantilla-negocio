@@ -101,12 +101,15 @@ PROFILE_VERIFICATION_COLUMNS = (
     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
 )
 
-# Contenido de la tienda: la **paleta de marca editable** (D29) y los textos que el **editor visual**
-# (D38) pasó a editar —antetítulos, tarjetas de beneficios, bajada y ubicación del pie— viven junto a los demás
-# ajustes de `store_settings`; `create_all` no altera tablas existentes, así que se agregan al arrancar en
-# PostgreSQL.
+# Contenido de la tienda: la **paleta de marca editable** (D29), las **imágenes del hero** —la foto y el
+# **logo** opcional (D47/D49), editables desde el editor visual de la página— y los textos que el **editor
+# visual** (D38) pasó a editar —antetítulos, tarjetas de beneficios, bajada y ubicación del pie— viven junto a
+# los demás ajustes de `store_settings`; `create_all` no altera tablas existentes, así que se agregan al
+# arrancar en PostgreSQL.
 STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS theme_colors JSON",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_image VARCHAR(500)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_logo VARCHAR(500)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_title VARCHAR(160)",

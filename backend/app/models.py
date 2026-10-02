@@ -226,6 +226,13 @@ class StoreSettings(Base):
     announcement: Mapped[Optional[str]] = mapped_column(String(240))
     hero_title: Mapped[Optional[str]] = mapped_column(String(200))
     hero_description: Mapped[Optional[str]] = mapped_column(Text)
+    # Foto de fondo del hero, editable en el **editor visual** de la página (`/admin/editor`, D47/D48).
+    # Guarda la URL que devuelve `/api/upload` (o una externa); sin valor, la tienda usa la de la
+    # plantilla (`public/hero-bosque.png`).
+    hero_image: Mapped[Optional[str]] = mapped_column(String(500))
+    # Logo de la tienda en el hero (**opcional**, D49): el círculo de la esquina inferior. Guarda la misma
+    # clase de URL que la foto; **sin valor** no se dibuja, así que una tienda sin logo se ve igual que antes.
+    hero_logo: Mapped[Optional[str]] = mapped_column(String(500))
     story_headline: Mapped[Optional[str]] = mapped_column(String(240))
     story_description: Mapped[Optional[str]] = mapped_column(Text)
     # Textos que el **editor visual** de la página (`/admin/editor`, D38) pasó a editar además del hero y la

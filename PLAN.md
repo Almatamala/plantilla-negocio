@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D45; D5, D6, D11 y D23 quedaron retiradas)
+**Basado en:** `RPD.md` (decisiones D1–D49; D5, D6, D11 y D23 quedaron retiradas)
 **Fecha:** 2026-09-30 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
@@ -9,7 +9,7 @@
 ## 0. Cómo usar este documento
 
 - **Qué queda acá:** lo que **falta hacer** y cómo **desplegar**. El **estado actual del código** y las
-  **decisiones** (D1–D39, con D5, D6, D11 y D23 retiradas) viven en `RPD.md`.
+  **decisiones** (D1–D49, con D5, D6, D11 y D23 retiradas) viven en `RPD.md`.
 - **Regla del proyecto (AGENTS.md):** antes de escribir código, leer la guía correspondiente en
   `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking changes respecto de lo conocido).
 - **Verificación de cada cambio:** `npx tsc --noEmit`, `npm run lint` y `npm run build`; en `backend/`,
@@ -249,6 +249,70 @@ menciona el envío**: ni el carrito ni el checkout lo ofrecen.
 **Decisión D45 (nueva):** la moderación de comentarios trabaja **solo con los pendientes**: aprobar
 publica y **rechazar borra**. Los publicados viven en la ficha del producto y el admin los puede borrar
 desde ahí (papelera), sin volver a la sección Comentarios.
+
+### 3.6 Hero con foto de fondo (2026-10-01)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores). Un punto del dueño con una decisión
+nueva (**D46**):
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A66** | En la sección justo debajo del header, que una foto ocupe **todo el espacio** de la sección, con un fondo `bg-linear-to-r` del color de la página para que la foto se mimetice, el texto del lado izquierdo y la foto de fondo mostrando **solo su lado derecho**; y quitar la caja «Destacado · Colección destacada» | **D46:** el hero deja de ser una grilla de dos columnas con un visual de relleno y pasa a una **sección de ancho completo** (`relative`) con la foto `public/hero-bosque.png` en **absoluto cubriendo todo** (`inset-0 h-full w-full object-cover object-right`, así se ve el costado derecho) y, encima, un **degradado hacia la derecha del color de la página** (`bg-linear-to-r` con `from-[var(--cream)] to-transparent`) que la funde con el fondo y deja el texto a la izquierda sobre un bloque liso. La **caja «Destacado · Colección destacada»** se retira y, con ella, el campo `featuredCollection` de `StoreConfig` y el CSS `.theme-bosque .hero-visual` (ya no se usa). El texto sigue dentro de `max-w-7xl` —alineado con el resto de la página— para que sus ediciones del editor visual (D38) no cambien de lugar. |
+
+**Decisión D46 (nueva):** el **hero** lleva una **foto de fondo a todo el ancho** con un **degradado lateral
+del color de la página** en lugar del visual de relleno: la imagen cubre la sección completa, el degradado
+la mimetiza con el fondo y el texto queda a la izquierda, así que de la foto solo se ve el costado derecho.
+La foto quedó como **asset estático** de la plantilla (`public/hero-bosque.png`); **D47** (§3.7) la vuelve
+un ajuste y **D48** (§3.8) la hace editable desde el editor de la página, que sigue siendo el valor por
+defecto. Se retiran `featuredCollection` de `lib/store-config.ts` y el `background` de
+`.theme-bosque .hero-visual` en `app/globals.css`.
+
+### 3.7 Foto del hero editable (2026-10-01)
+
+**Implementado y verificado** (`pytest` 63/63; `tsc`, `lint` y `build` sin errores). Un punto del dueño con
+una decisión nueva (**D47**) que amplía **D46**:
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A67** | Poder **cambiar la foto del hero** | **D47:** la foto deja de ser solo el asset de la plantilla y pasa a ser el ajuste **`hero_image`** de `store_settings` (columna `VARCHAR(500)`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS` al arrancar). Guarda la **URL** que devuelve `/api/upload` —la misma que usan las fotos de producto— o una externa; la tienda dibuja `config.heroImage` y, **sin valor guardado**, cae a `public/hero-bosque.png`, así que una tienda sin la foto cargada se ve igual que antes. **Desde dónde se cambia** lo define **D48** (§3.8). |
+
+**Decisión D47 (nueva):** la **foto del hero** vive en `store_settings.hero_image`; es una columna propia
+(no un JSON) y la API la valida como texto de hasta 500 caracteres. Guarda la **URL** que devuelve
+`/api/upload` —igual que las fotos de producto— o una externa, y **sin valor** la tienda usa la foto de la
+plantilla (`public/hero-bosque.png`), así que una tienda sin la foto cargada se ve igual que antes. Ajusta
+**D46**, que la había dejado como asset estático.
+
+### 3.8 Foto del hero desde el editor de la página (2026-10-01)
+
+**Implementado y verificado** (`pytest` 63/63; `tsc`, `lint` y `build` sin errores). Un punto del dueño con
+una decisión nueva (**D48**) que amplía **D47**:
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A68** | Poder cambiar la foto del hero **dentro de «Editar en la página»**, pulsando un **ícono de imagen** que aparezca **encima del hero**; y sacar el bloque de Contenido | **D48:** nuevo **`EditableImage`** en `components/editable-content.tsx`, hermano de `EditableText`: fuera del editor es solo la foto y, con el editor abierto, dibuja encima un **botón redondo con un ícono de imagen** (`absolute z-50`, por encima del velo) que abre el selector de archivos, sube la foto con el mismo `uploadImage` del panel y deja la URL en el **borrador**, así que la foto nueva se ve al instante y se publica con **«Guardar cambios»**. Si hay una foto propia, al lado aparece el botón de **volver a la de la plantilla**, que vacía el ajuste. `hero_image` entra en `editableFields`, así que se guarda junto con los demás textos, y el **bloque «Foto del hero» sale de Contenido**: Contenido queda con el contacto y la paleta, como pedía D38. La barra del editor recibe un `notify` para contar que la subida terminó y su texto guía menciona el botón de la foto. |
+
+**Decisión D48 (nueva):** la **foto del hero** se cambia **en la misma página** (`/admin/editor`) con un
+botón sobre la foto, no desde un formulario de Contenido: el editor suma **`EditableImage`**, que sube el
+archivo a la API y deja la URL en el borrador (se publica con «Guardar cambios», D38) y ofrece **volver a la
+foto de la plantilla**. `hero_image` pasa a formar parte de `editableFields` y el bloque «Foto del hero» sale
+de **Contenido**, que se queda con el contacto y la paleta. Fuera del editor nada cambia: `EditableImage` es
+solo la imagen. Amplía **D47**.
+
+### 3.9 Logo opcional en el hero (2026-10-01)
+
+**Implementado y verificado** (`pytest` 64/64; `tsc`, `lint` y `build` sin errores). Un punto del dueño con
+una decisión nueva (**D49**) que amplía **D48**:
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A69** | Poner **otra foto** en la **esquina inferior del hero**, dentro de un **círculo**, para que sea el **logo** de la tienda. **Totalmente opcional** | **D49:** nueva columna `store_settings.hero_logo` (`VARCHAR(500)`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS` al arrancar) y el logo entra en `EditableField`/`editableFields`, así que se sube con el **mismo botón del editor de la página** (D48) y se guarda con «Guardar cambios». En el hero se dibuja como un **círculo** (`rounded-full` con borde blanco) en la **esquina inferior derecha**, **después** del texto para quedar por encima. Sin logo **no se dibuja nada**: en la tienda la esquina queda vacía y en el editor aparece el botón con borde punteado para subirlo, más el de **quitarlo**. `EditableImage` pasa a agrupar la imagen y sus botones en un contenedor (`containerClassName`), cambia de ícono según haya foto o no y solo dibuja el `<img>` cuando hay valor, así que un campo **opcional** vacío no deja una imagen rota. |
+
+**Decisión D49 (nueva):** el **logo** de la tienda es un ajuste **opcional** (`store_settings.hero_logo`)
+que se dibuja como un **círculo en la esquina inferior derecha del hero**; **sin valor no hay logo** y la
+sección se ve igual que antes. Se edita desde el **editor de la página**, con el mismo botón que la foto
+(D48) más el de quitarlo, que vacía el ajuste. Amplía **D48**: `EditableImage` sirve para las dos imágenes y
+el campo admite quedar en blanco. El logo va de un **tamaño fijo** en el código (un círculo de 80 px, 96 en
+pantallas medianas); para agrandarlo o correrlo de los bordes se cambian sus clases en `components/storefront.tsx`.
 
 ---
 

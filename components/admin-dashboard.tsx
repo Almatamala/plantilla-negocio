@@ -731,8 +731,8 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
   );
 }
 function ContentEditor({ setState }: { setState: (value: string) => void }) {
-  // Solo el contacto se edita acá: los textos de la página (nombre, anuncio, hero e historia) pasaron
-  // al editor visual `/admin/editor` (D38), así que ya no se muestran en Contenido.
+  // Solo el contacto y la paleta se editan acá: los textos de la página y la **foto del hero** viven en el
+  // editor visual `/admin/editor` (D38 y D48), así que ya no se muestran en Contenido.
   const [contact, setContact] = useState({ contact_email: "", contact_phone: "", whatsapp_phone: "", instagram_url: "" });
   // Paleta de marca (D29): se editan los cinco tonos y el borrador guarda lo que se está escribiendo en
   // el campo de texto, para no volcar a la paleta (ni a la API) un hex a medio escribir.

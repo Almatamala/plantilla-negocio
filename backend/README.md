@@ -53,7 +53,9 @@ posteriores de columnas se aplican al arrancar **solo en PostgreSQL** con `ALTER
 `orders.notes` y de `store_settings.products_per_page`, ya que la cantidad de productos por página
 quedó **fija en 8**, y de `store_settings.instagram_embed_url`, al reemplazar el widget de terceros por el
 **feed propio** con la API de Instagram (D30); más la columna de contenido `theme_colors` —la **paleta
-editable** desde el panel— y la de `products.preparation_days` (los **días de preparación**, D35). También se
+editable** desde el panel—, las de `store_settings.hero_image` y `store_settings.hero_logo` (la **foto del
+hero** y su **logo** opcional, editables en el editor visual de la página, D47/D49) y la de
+`products.preparation_days` (los **días de preparación**, D35). También se
 retiran `products.allow_backorder` (el «bajo pedido» ahora es **implícito** de toda la tienda) y
 `orders.expires_at` (la antigua **reserva de stock**), además de `shipping_zones.type` y
 `orders.fulfillment` (retiro presencial y punto de encuentro se unificaron, D33) y

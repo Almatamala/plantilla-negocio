@@ -13,9 +13,12 @@ export type StoreConfig = {
   eyebrow: string;
   headline: string;
   description: string;
+  /** Foto de fondo del hero (D47): la de la plantilla si no se subió ninguna desde el editor de la página. */
+  heroImage: string;
+  /** Logo de la tienda en el hero (**opcional**, D49): vacío quiere decir que no se dibuja. */
+  heroLogo: string;
   /** Las tres tarjetas de «Beneficios», en el orden en que se dibujan (D38). */
   benefits: [Benefit, Benefit, Benefit];
-  featuredCollection: string;
   storyEyebrow: string;
   storyHeadline: string;
   storyDescription: string;
@@ -37,6 +40,8 @@ export type ApiSettings = {
   announcement: string | null;
   hero_title: string | null;
   hero_description: string | null;
+  hero_image: string | null;
+  hero_logo: string | null;
   hero_eyebrow: string | null;
   story_headline: string | null;
   story_description: string | null;
@@ -70,6 +75,10 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
     eyebrow: data.hero_eyebrow ?? current.eyebrow,
     headline: data.hero_title ?? current.headline,
     description: data.hero_description ?? current.description,
+    // La foto del hero cae a la de la plantilla si no hay ninguna guardada (o si se dejó vacía).
+    heroImage: data.hero_image?.trim() || current.heroImage,
+    // El logo es opcional: sin valor guardado no se dibuja nada en la esquina del hero (D49).
+    heroLogo: data.hero_logo?.trim() || "",
     benefits: [
       mergeBenefit(current.benefits[0], data.benefit_1_title, data.benefit_1_text),
       mergeBenefit(current.benefits[1], data.benefit_2_title, data.benefit_2_text),
@@ -90,18 +99,25 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
   };
 }
 
+/**
+ * Foto de fondo del hero de la plantilla (D47): la que se usa mientras no se suba otra desde el editor de
+ * la página. El editor la necesita aparte para ofrecer «volver a la de la plantilla».
+ */
+export const defaultHeroImage = "/hero-bosque.png";
+
 export const storeConfig: StoreConfig = {
   name: "Tienda Base",
   announcement: "Compra simple, productos que importan",
   eyebrow: "Tu colección, tu estilo",
   headline: "Una tienda que se adapta a tu negocio.",
   description: "Una base limpia para mostrar productos, conectar con clientes y hacer crecer una marca propia.",
+  heroImage: defaultHeroImage,
+  heroLogo: "",
   benefits: [
     { title: "Compra con confianza", text: "Destaca tus garantías, materiales, soporte o cualquier beneficio importante." },
     { title: "Una experiencia simple", text: "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra." },
     { title: "Tu negocio, tu estilo", text: "Cambia textos, precios, fotos y colecciones desde el CMS incluido." },
   ],
-  featuredCollection: "Colección destacada",
   storyEyebrow: "Una plantilla que crece contigo",
   storyHeadline: "Haz que tu marca se sienta única.",
   storyDescription: "Personaliza este espacio para comunicar tu propuesta, historia, beneficios o cualquier mensaje importante para tus clientes.",

@@ -10,9 +10,9 @@ import type { Product } from "@/lib/products";
 
 /**
  * Editor visual de la página (`/admin/editor`, D38): muestra el storefront real y permite hacer clic en
- * los textos que viven en `store_settings` para cambiarlos. Los cambios se confirman con un botón
- * («Guardar cambios») y se envían juntos en `PUT /api/settings`; el resto de los ajustes —contacto y
- * colores— siguen en la sección **Contenido** del panel.
+ * los textos que viven en `store_settings` para cambiarlos, y cambiar la **foto del hero** con el botón que
+ * aparece encima de ella (D48). Los cambios se confirman con un botón («Guardar cambios») y se envían juntos
+ * en `PUT /api/settings`; el contacto y los colores siguen en la sección **Contenido** del panel.
  */
 export function StorefrontEditor({ products }: { products: Product[] }) {
   const [base, setBase] = useState<RawSettings | null>(null);
@@ -64,7 +64,7 @@ export function StorefrontEditor({ products }: { products: Product[] }) {
 
   return (
     <>
-      <ContentEditProvider draft={draft} set={set}>
+      <ContentEditProvider draft={draft} set={set} notify={setMessage}>
         {/* `pb-24` deja aire abajo para que la barra fija no tape el pie de la tienda. */}
         <div className="pb-24"><Storefront products={products}/></div>
       </ContentEditProvider>
@@ -73,7 +73,7 @@ export function StorefrontEditor({ products }: { products: Product[] }) {
       <div aria-hidden className="pointer-events-none fixed inset-0 z-40 bg-[#0d1710]/60"/>
       <div className="fixed inset-x-0 bottom-0 z-[60] border-t border-[#d9ddd5] bg-white/95 px-4 py-3 shadow-[0_-6px_20px_rgba(36,49,40,.08)] backdrop-blur">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[#647167]">{message || "Haz clic en cualquier texto resaltado para cambiarlo."}</p>
+          <p className="text-sm text-[#647167]">{message || "Haz clic en cualquier texto resaltado para cambiarlo, o usa el botón sobre la foto del hero para reemplazarla."}</p>
           <div className="flex items-center gap-3">
             <Link href="/admin" className="rounded-lg border border-[#d9ddd5] px-4 py-2 text-sm transition hover:border-[#243128]">Volver al panel</Link>
             <button onClick={save} disabled={!dirty || saving || !base} className="rounded-lg bg-[#243128] px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40">

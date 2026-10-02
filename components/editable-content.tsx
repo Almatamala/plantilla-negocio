@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { ImagePlus, ImageUp, Loader2, RotateCcw } from "lucide-react";
+import { uploadImage } from "@/lib/api";
 
 /**
  * Modo edición del admin (`/admin/editor`).
@@ -10,9 +12,10 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
  * vuelve editable al hacer clic; el botón «Guardar cambios» (en `StorefrontEditor`) es el que persiste
  * todo de una vez en `PUT /api/settings`.
  *
- * Solo entran los textos que **ya viven en `store_settings`** (D38): el nombre, el anuncio, los antetítulos
- * y textos del hero, las **tres tarjetas de beneficios**, la historia y la **bajada y la ubicación del pie**. El resto de
- * la copy —«Catálogo», «Productos destacados», «Contacto», «Tienda»— sigue fija en el código.
+ * Entran los textos que **ya viven en `store_settings`** (D38): el nombre, el anuncio, los antetítulos y
+ * textos del hero, las **tres tarjetas de beneficios**, la historia y la **bajada y la ubicación del pie**
+ * —más la **foto del hero** con `EditableImage` (D48)—. El resto de la copy —«Catálogo», «Productos
+ * destacados», «Contacto», «Tienda»— sigue fija en el código.
  *
  * El **nombre** se edita **solo en el título del header** (el primero de la página) y el pie y el copyright
  * lo siguen: son el mismo campo, pero el del pie no se marca como editable a propósito.
@@ -20,6 +23,8 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 export type EditableField =
   | "name"
   | "announcement"
+  | "hero_image"
+  | "hero_logo"
   | "hero_eyebrow"
   | "hero_title"
   | "hero_description"
@@ -39,6 +44,8 @@ export type EditableField =
 export const editableFields: EditableField[] = [
   "name",
   "announcement",
+  "hero_image",
+  "hero_logo",
   "hero_eyebrow",
   "hero_title",
   "hero_description",
@@ -59,6 +66,11 @@ type ContentEditContextValue = {
   /** Valores cambiados en esta sesión de edición, por campo. Lo que falte sale del valor que se muestra. */
   draft: Partial<Record<EditableField, string>>;
   set: (field: EditableField, value: string) => void;
+  /**
+   * Aviso en la barra del editor. Lo usan los campos que hacen trabajo extra —como la **foto del hero**,
+   * que se sube a la API— para contar qué pasó sin abrir un diálogo aparte.
+   */
+  notify?: (message: string) => void;
 };
 
 const ContentEditContext = createContext<ContentEditContextValue | null>(null);
@@ -66,13 +78,15 @@ const ContentEditContext = createContext<ContentEditContextValue | null>(null);
 export function ContentEditProvider({
   draft,
   set,
+  notify,
   children,
 }: {
   draft: Partial<Record<EditableField, string>>;
   set: (field: EditableField, value: string) => void;
+  notify?: (message: string) => void;
   children: ReactNode;
 }) {
-  return <ContentEditContext.Provider value={{ draft, set }}>{children}</ContentEditContext.Provider>;
+  return <ContentEditContext.Provider value={{ draft, set, notify }}>{children}</ContentEditContext.Provider>;
 }
 
 /** `null` fuera del editor, que es lo que usa `EditableText` para saber si debe permitir editar. */
@@ -223,4 +237,84 @@ function renderText(
   if (tag === "h2") return <h2 {...shared}>{content}</h2>;
   if (tag === "h3") return <h3 {...shared}>{content}</h3>;
   return <span {...shared}>{content}</span>;
+}
+
+/**
+ * Foto que se cambia desde el propio editor (`/admin/editor`, D48).
+ *
+ * Igual que `EditableText`, fuera del editor es solo la imagen: la tienda pública no cambia. Con un
+ * `ContentEditProvider` arriba, sobre la foto aparece un **botón con un ícono de imagen**; al pulsarlo se
+ * elige un archivo, se sube con el mismo `uploadImage` del panel y la URL queda en el borrador, así que la
+ * foto nueva se ve al instante y se publica con **«Guardar cambios»**. El botón cambia de ícono según haya
+ * foto o no, y con `resetTo` aparece además el de **quitarla** (vuelve a la foto de la plantilla, o la deja
+ * en blanco si el campo es opcional, como el **logo** del hero).
+ */
+export function EditableImage({
+  field,
+  value,
+  alt = "",
+  className,
+  containerClassName,
+  controlsClassName,
+  resetTo,
+  resetLabel = "Volver a la foto de la plantilla",
+  label = "Cambiar la foto",
+}: {
+  field: EditableField;
+  value: string;
+  alt?: string;
+  /** Clase del `<img>`: la foto sigue ocupando su lugar en el diseño. */
+  className?: string;
+  /** Clase del contenedor que agrupa la foto y sus botones (dónde queda anclada). */
+  containerClassName?: string;
+  /** Posición de los botones **dentro** del contenedor (p. ej. `absolute right-5 top-5 z-50`). */
+  controlsClassName?: string;
+  /**
+   * Valor del botón de quitar: la foto de la plantilla o `""` para dejarlo sin foto. **Sin esto no hay
+   * botón**: el campo solo se puede reemplazar (la foto del hero siempre tiene una, el logo no).
+   */
+  resetTo?: string;
+  resetLabel?: string;
+  label?: string;
+}) {
+  const context = useContentEdit();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Fuera del editor (o antes de que cargue) es solo la foto: la tienda pública no cambia. El contenedor
+  // se dibuja igual, porque es el que la ancla en su lugar; solo se salta el botón y el selector.
+  if (!context) return <div className={containerClassName ?? ""}>{value && <img src={value} alt={alt} className={className}/>}</div>;
+
+  const current = context.draft[field] ?? value;
+  const own = resetTo !== undefined && current !== resetTo;
+
+  async function upload(file: File) {
+    if (!context) return;
+    setBusy(true);
+    try {
+      context.set(field, await uploadImage(file));
+      context.notify?.("Foto subida. Guarda los cambios para publicarla.");
+    } catch (error) {
+      context.notify?.(error instanceof Error ? error.message : "No se pudo subir la imagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={containerClassName ?? ""}>
+      {/* Sin valor no se dibuja nada: así un campo vacío —el logo es **opcional** (D49)— no deja una
+          imagen rota, y en el editor solo queda el botón para subir la foto. */}
+      {current && <img src={current} alt={alt} className={className}/>}
+      <div className={`flex items-center gap-2 ${controlsClassName ?? ""}`}>
+        <button type="button" onClick={() => input.current?.click()} disabled={busy} title={label} aria-label={label} className={`grid h-11 w-11 place-items-center rounded-full bg-white text-[#243128] shadow-lg transition hover:scale-105 disabled:cursor-progress disabled:opacity-70 ${current ? "" : "border-2 border-dashed border-[#243128]/40"}`}>
+          {busy ? <Loader2 size={19} className="animate-spin"/> : current ? <ImageUp size={19}/> : <ImagePlus size={19}/>}
+        </button>
+        {own && <button type="button" onClick={() => context.set(field, resetTo ?? "")} title={resetLabel} aria-label={resetLabel} className="grid h-11 w-11 place-items-center rounded-full bg-white/90 text-[#243128] shadow-lg transition hover:scale-105"><RotateCcw size={19}/></button>}
+      </div>
+      {/* El mismo selector del panel: al elegir un archivo se sube y queda en el borrador. Se limpia el
+          `value` para poder volver a elegir el mismo archivo después. */}
+      <input ref={input} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }}/>
+    </div>
+  );
 }
