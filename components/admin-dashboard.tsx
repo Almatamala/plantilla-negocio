@@ -425,7 +425,7 @@ function ProductSection({ catalog, categories, onCatalogChange, setState, creati
     } catch (e) { setState(e instanceof Error ? e.message : "No se pudo actualizar."); }
   }
   async function createProduct(data: AdminProductData) {
-    const slug = data.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "producto";
+    const slug = slugify(data.name) || "producto";
     try {
       const row = await apiFetch<ApiProduct>("/api/products", { method: "POST", admin: true, body: { ...data, slug, image_url: data.image_url ?? null } });
       const [created] = mapAdminProducts([row], categories);

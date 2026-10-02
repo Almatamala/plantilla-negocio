@@ -314,6 +314,24 @@ sección se ve igual que antes. Se edita desde el **editor de la página**, con 
 el campo admite quedar en blanco. El logo va de un **tamaño fijo** en el código (un círculo de 80 px, 96 en
 pantallas medianas); para agrandarlo o correrlo de los bordes se cambian sus clases en `components/storefront.tsx`.
 
+### 3.10 Limpieza del arranque de la API (2026-10-01)
+
+**Implementado y verificado** (`pytest` 64/64). Un ajuste de **mantenimiento** (A70), sin decisión de
+producto: el mantenimiento de la base al arrancar (`backend/app/main.py`) ejecutaba **once bucles
+idénticos** —uno por cada bloque de declaraciones (`ALTER`, `DROP`, `UPDATE` e índices)—. Ahora los bloques
+se concatenan en **`STARTUP_STATEMENTS`**, una sola lista **ordenada** (el orden importa: primero la columna
+que apunta a una tabla que se va a eliminar), y `lifespan` la recorre con **un único bucle**. Mismo
+comportamiento, unas 20 líneas menos.
+
+### 3.11 Un solo `slugify` en el panel (2026-10-01)
+
+**Implementado y verificado** (`tsc`, `lint` sin errores y `build`). Un ajuste de **mantenimiento** (A71),
+sin decisión de producto: el panel convertía un nombre en slug (`«Plátano manjar»` → `platano-manjar`) con
+**dos copias** del mismo código en `components/admin-dashboard.tsx` —la función `slugify` que usan las
+categorías y la lógica reinlinada dentro de `createProduct`—. `createProduct` pasa a llamar a `slugify` y
+se queda con su respaldo `|| "producto"` para un nombre sin caracteres válidos. Mismo resultado (la
+función, además, recorta a 140 caracteres), una sola definición.
+
 ---
 
 ## 4. Pendientes
@@ -323,22 +341,12 @@ pantallas medianas); para agrandarlo o correrlo de los bordes se cambian sus cla
    retorno** (`/checkout/retorno`) y la **confirmación por correo** al cliente y a la tienda. Antes de
    activarlo hay que cumplir la **checklist de §5**. Es el **único medio de pago** del checkout y del
    panel; hasta activarlo, el pedido se registra y el pago se coordina por WhatsApp.
-2. **Notificación automática de WhatsApp (D9):** elegir proveedor (API de Meta Cloud vs. enlace `wa.me`). El
-   botón flotante `wa.me` ya funciona.
-3. **Credenciales externas:** OAuth Client de Google (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), cuenta y
+2. **Credenciales externas:** OAuth Client de Google (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), cuenta y
    dominio **verificados** en **Resend** (`RESEND_API_KEY`/`RESEND_EMAIL_FROM`) y **rotar** el token de Instagram.
-4. **Seed de agenda, envíos e inventario:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
-   su ubicación y sus **franjas** (días + horario), las **zonas de envío** reales (comuna + tarifa + límite de cobro, D44) y
-   todos los productos reales del inventario.
-5. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
-6. **Índices de las tablas chicas (pendiente):** de la tanda de A61 quedaron fuera `time_slots.zone_id`,
-   `orders.customer_id`, `products.category_id` y `products.status`, que hoy casi no se notan (pocas filas)
-   y conviene decidir con volúmenes reales. Se agregarían igual que los otros, con
-   `CREATE INDEX IF NOT EXISTS` al arrancar (ver §1).
-7. **Paginación de pedidos (descartada por ahora):** con A62 y A63 Inicio, Reportes y la tabla de Pedidos
-   dejaron de bajar el historial completo, así que no hace falta paginar. Si algún día el listado de
-   **abiertos** se acercara a los cientos, el paso siguiente sería paginar moviendo búsqueda, estado, punto
-   de retiro y orden por fechas a la API (hoy son filtros locales sobre la lista cargada).
+3. **Seed de agenda y envíos:** cargar en Agenda los **puntos reales de retiro presencial** (San Javier / Talca) con
+   su ubicación y sus **franjas** (días + horario), y las **zonas de envío** reales (comuna + tarifa + límite de cobro,
+   D44). El **catálogo real ya está cargado**.
+4. **Desplegar en AWS** (§1): reconstruir la imagen de la API y cargar las variables de entorno.
 
 ---
 

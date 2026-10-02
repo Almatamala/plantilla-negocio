@@ -194,6 +194,25 @@ PERFORMANCE_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_delivery_zones_place ON delivery_zones (country, region, city)",
 )
 
+# Todo el mantenimiento de la base al arrancar (columnas retiradas, columnas nuevas, índices y las
+# conversiones de datos) en **una sola lista ordenada**: antes `lifespan` repetía un bucle idéntico por
+# cada bloque de declaraciones. El orden importa (primero la columna que apunta a una tabla que se va a
+# eliminar), y concatenar los bloques lo conserva.
+STARTUP_STATEMENTS = (
+    *(f"ALTER TABLE products DROP COLUMN IF EXISTS {column}" for column in LEGACY_PRODUCT_COLUMNS),
+    *PROFILE_VERIFICATION_COLUMNS,
+    *STORE_CONTENT_COLUMNS,
+    *AGENDA_COLUMNS,
+    *RETIRED_CATALOG_OBJECTS,
+    *RETIRED_STORE_SETTINGS_COLUMNS,
+    *ORDER_PREPARATION_COLUMNS,
+    *PRODUCT_STATUS_STATEMENTS,
+    *ORDER_STATUS_STATEMENTS,
+    *PROFILE_ADDRESS_COLUMNS,
+    *ORDER_DELIVERY_COLUMNS,
+    *PERFORMANCE_INDEXES,
+)
+
 VERIFICATION_TTL_MINUTES = 15
 VERIFICATION_RESEND_SECONDS = 60
 VERIFICATION_MAX_SENDS = 4  # envío inicial + 3 reenvíos
@@ -205,29 +224,7 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
-            for column in LEGACY_PRODUCT_COLUMNS:
-                connection.execute(text(f"ALTER TABLE products DROP COLUMN IF EXISTS {column}"))
-            for statement in PROFILE_VERIFICATION_COLUMNS:
-                connection.execute(text(statement))
-            for statement in STORE_CONTENT_COLUMNS:
-                connection.execute(text(statement))
-            for statement in AGENDA_COLUMNS:
-                connection.execute(text(statement))
-            for statement in RETIRED_CATALOG_OBJECTS:
-                connection.execute(text(statement))
-            for statement in RETIRED_STORE_SETTINGS_COLUMNS:
-                connection.execute(text(statement))
-            for statement in ORDER_PREPARATION_COLUMNS:
-                connection.execute(text(statement))
-            for statement in PRODUCT_STATUS_STATEMENTS:
-                connection.execute(text(statement))
-            for statement in ORDER_STATUS_STATEMENTS:
-                connection.execute(text(statement))
-            for statement in PROFILE_ADDRESS_COLUMNS:
-                connection.execute(text(statement))
-            for statement in ORDER_DELIVERY_COLUMNS:
-                connection.execute(text(statement))
-            for statement in PERFORMANCE_INDEXES:
+            for statement in STARTUP_STATEMENTS:
                 connection.execute(text(statement))
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
     # token de 60 días antes de que venza. Se cancela al apagar para no dejar nada colgado.
