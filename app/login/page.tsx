@@ -6,6 +6,12 @@ import { useEffect, useState } from "react";
 import { refreshSession } from "@/lib/session-client";
 import { storeConfig } from "@/lib/store-config";
 
+// Login con Google: el flujo ya está implementado (`app/api/auth/google`), pero **sin credenciales en
+// Google Cloud Console** el botón solo llevaba a un aviso de error. Por mientras queda **oculto**; al
+// tener `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` en el backend —y el redirect
+// URI registrado— basta con poner esta constante en `true` para que el botón vuelva a aparecer.
+const GOOGLE_LOGIN_ENABLED = false;
+
 type Mode = "login" | "register";
 type Step = "form" | "verify";
 
@@ -195,12 +201,16 @@ export default function LoginPage() {
         {error && <p className="mt-4 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{error}</p>}
         {message && <p className="mt-4 rounded-lg bg-[#edf0e8] p-3 text-sm">{message}</p>}
 
-        <div className="mt-8 flex items-center gap-3 text-xs text-[#748077]"><span className="h-px flex-1 bg-[#e2e5df]"/>o continúa con<span className="h-px flex-1 bg-[#e2e5df]"/></div>
-        {googleError && <p className="mt-6 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{googleError}</p>}
-        <a href="/api/auth/google" className="mt-6 flex w-full items-center justify-center gap-3 rounded-full border border-[#d9ddd5] bg-white py-3 text-sm font-medium transition hover:border-[#243128]">
-          <GoogleIcon className="h-4 w-4"/>
-          Continuar con Google
-        </a>
+        {GOOGLE_LOGIN_ENABLED && (
+          <>
+            <div className="mt-8 flex items-center gap-3 text-xs text-[#748077]"><span className="h-px flex-1 bg-[#e2e5df]"/>o continúa con<span className="h-px flex-1 bg-[#e2e5df]"/></div>
+            {googleError && <p className="mt-6 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">{googleError}</p>}
+            <a href="/api/auth/google" className="mt-6 flex w-full items-center justify-center gap-3 rounded-full border border-[#d9ddd5] bg-white py-3 text-sm font-medium transition hover:border-[#243128]">
+              <GoogleIcon className="h-4 w-4"/>
+              Continuar con Google
+            </a>
+          </>
+        )}
         <Link href="/" className="mt-8 inline-block text-sm underline underline-offset-4">Volver a la tienda</Link>
       </section>
     </main>
