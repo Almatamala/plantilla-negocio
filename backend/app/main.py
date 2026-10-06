@@ -114,6 +114,7 @@ STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_image_position VARCHAR(20)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_eyebrow VARCHAR(160)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_image VARCHAR(500)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_title VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_text TEXT",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_2_title VARCHAR(160)",
@@ -127,13 +128,15 @@ STORE_CONTENT_COLUMNS = (
 # Ajustes retirados de `store_settings`: los productos por página de «Productos destacados» quedaron
 # **fijos en 8** (D26), la **URL del iframe del widget de Instagram** sale al reemplazar el widget de
 # terceros por el feed propio con la API de Instagram (D30) y los **datos bancarios** salen porque la
-# web dejó de ofrecer transferencia (el pago se coordina por WhatsApp, D34). Así que los tres
-# salen del panel y de la API y las columnas se eliminan al arrancar para que una base ya creada quede
-# igual que una nueva.
+# web dejó de ofrecer transferencia (el pago se coordina por WhatsApp, D34). El **lado de la foto de la
+# historia** (`story_image_side`) también se retira (D53): la foto va **siempre a la izquierda**, así que
+# era un ajuste de un solo valor útil. Los cuatro salen del panel y de la API y las columnas se eliminan
+# al arrancar para que una base ya creada quede igual que una nueva.
 RETIRED_STORE_SETTINGS_COLUMNS = (
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS products_per_page",
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS instagram_embed_url",
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS bank_account_info",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS story_image_side",
 )
 
 # Días de preparación del producto (D35). Como `create_all` no altera tablas existentes, la columna

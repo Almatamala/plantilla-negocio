@@ -242,6 +242,11 @@ class StoreSettings(Base):
     hero_image_position: Mapped[Optional[str]] = mapped_column(String(20))
     story_headline: Mapped[Optional[str]] = mapped_column(String(240))
     story_description: Mapped[Optional[str]] = mapped_column(Text)
+    # Foto de la sección de historia (A76/D53): la convierte en una sección de **about us** —foto de un lado
+    # y texto del otro—. Guarda la misma clase de URL que las demás imágenes (`/api/upload` o una externa);
+    # **sin valor la sección queda como texto centrado**, igual que antes. La foto va **siempre a la
+    # izquierda**: no hay ajuste de lado.
+    story_image: Mapped[Optional[str]] = mapped_column(String(500))
     # Textos que el **editor visual** de la página (`/admin/editor`, D38) pasó a editar además del hero y la
     # historia: el **antetítulo** de cada sección, las **tres tarjetas de beneficios** y la **bajada** y la
     # **ubicación** del pie. Cada uno es una columna propia, igual que los textos anteriores, para poder editarlos por

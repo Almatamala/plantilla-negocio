@@ -309,6 +309,10 @@ class SettingsIn(BaseModel):
     hero_image_position: str | None = Field(default=None, max_length=20, pattern=IMAGE_POSITION)
     story_headline: str | None = Field(default=None, max_length=240)
     story_description: str | None = None
+    # Foto de la sección de historia (A76/D53): sin valor el texto sigue centrado, así que la sección
+    # funciona como «about us» solo cuando hay foto. La foto va **siempre a la izquierda** (el lado no es
+    # un ajuste).
+    story_image: str | None = Field(default=None, max_length=500)
     # Textos que el editor visual de la página (`/admin/editor`, D38) permite cambiar además del hero y la
     # historia: los antetítulos, las tres tarjetas de beneficios y la bajada y la ubicación del pie.
     hero_eyebrow: str | None = Field(default=None, max_length=160)

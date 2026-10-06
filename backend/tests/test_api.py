@@ -215,6 +215,31 @@ def test_store_settings_save_hero_image_position(client, admin_headers):
     assert client.get("/api/settings").json()["hero_image_position"] is None
 
 
+def test_store_settings_save_story_image(client, admin_headers):
+    # Foto de la sección de historia (A76/D53): la convierte en una sección de «about us» —foto de un lado
+    # y el texto del otro— y se edita desde el editor visual de la página. Sin valor, la sección queda como
+    # estaba: el texto centrado y sin foto. La foto va **siempre a la izquierda**: el lado no es un ajuste.
+    assert client.get("/api/settings").json()["story_image"] is None
+
+    payload = {key: value for key, value in client.get("/api/settings").json().items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["story_image"] = "http://localhost:8000/uploads/historia.jpg"
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["story_image"] == "http://localhost:8000/uploads/historia.jpg"
+    assert client.get("/api/settings").json()["story_image"] == "http://localhost:8000/uploads/historia.jpg"
+
+    # El lado dejó de existir como ajuste: si un cliente viejo lo manda, la API lo rechaza en vez de
+    # darlo por bueno (`extra="forbid"`).
+    assert client.put("/api/settings", headers=admin_headers, json={**payload, "story_image_side": "right"}).status_code == 422
+
+    # Sin foto, la sección vuelve al texto centrado: basta con vaciar el ajuste.
+    payload["story_image"] = None
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["story_image"] is None
+
+
 def test_admin_token_is_required(client):
     response = client.post("/api/categories", json={"name": "Catálogo", "slug": "catalogo"})
     assert response.status_code == 401

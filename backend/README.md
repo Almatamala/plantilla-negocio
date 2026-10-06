@@ -54,14 +54,17 @@ posteriores de columnas se aplican al arrancar **solo en PostgreSQL** con `ALTER
 quedó **fija en 8**, y de `store_settings.instagram_embed_url`, al reemplazar el widget de terceros por el
 **feed propio** con la API de Instagram (D30); más la columna de contenido `theme_colors` —la **paleta
 editable** desde el panel—, las de `store_settings.hero_image`, `store_settings.hero_image_position`,
-`store_settings.hero_logo` y `store_settings.hero_logo_shape` (la **foto del hero**, su **encuadre** movible
-con el mouse, el **logo** opcional y la **forma** de su marco —redonda, de bordes difuminados o flor—, editables en el editor visual
-de la página, D47/D48/D49/D50/D51) y la de
+`store_settings.hero_logo`, `store_settings.hero_logo_shape` y la de `store_settings.story_image` (la
+**foto del hero**, su **encuadre** movible con el mouse, el **logo** opcional, la **forma** de su marco
+—redonda, de bordes difuminados o flor— y la **foto de la historia** —que va siempre a la **izquierda** y
+convierte esa sección en un «about us»—, editables en el editor visual de la página, D47/D48/D49/D50/D51/A76)
+y la de
 `products.preparation_days` (los **días de preparación**, D35). También se
 retiran `products.allow_backorder` (el «bajo pedido» ahora es **implícito** de toda la tienda) y
 `orders.expires_at` (la antigua **reserva de stock**), además de `shipping_zones.type` y
 `orders.fulfillment` (retiro presencial y punto de encuentro se unificaron, D33) y
-`store_settings.bank_account_info` (la web no publica datos bancarios, D34); un `UPDATE` convierte a
+`store_settings.bank_account_info` (la web no publica datos bancarios, D34) y `store_settings.story_image_side`
+(la foto de la historia va **siempre a la izquierda**, A76); un `UPDATE` convierte a
 `active` los productos con **estados retirados** (`draft`, `sold_out`, `preorder`, D36); y otro
 convierte a `pending` los pedidos en los **estados retirados** `paid` y `preparing` (los estados del
 pedido quedaron unificados, D37). Ver la transición a AWS en **§1 de `PLAN.md`**.

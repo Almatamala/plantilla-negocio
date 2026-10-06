@@ -14,8 +14,9 @@ import { uploadImage } from "@/lib/api";
  *
  * Entran los textos que **ya viven en `store_settings`** (D38): el nombre, el anuncio, los antetítulos y
  * textos del hero, las **tres tarjetas de beneficios**, la historia y la **bajada y la ubicación del pie**
- * —más la **foto del hero** con `EditableImage` (D48)—. El resto de la copy —«Catálogo», «Productos
- * destacados», «Contacto», «Tienda»— sigue fija en el código.
+ * —más las **fotos** con `EditableImage`: la del hero (D48) y la de la **sección de historia** (A76), que
+ * además elige de qué lado se dibuja (D53)—. El resto de la copy —«Catálogo», «Productos destacados»,
+ * «Contacto», «Tienda»— sigue fija en el código.
  *
  * El **nombre** se edita **solo en el título del header** (el primero de la página) y el pie y el copyright
  * lo siguen: son el mismo campo, pero el del pie no se marca como editable a propósito.
@@ -45,6 +46,7 @@ export const editableFields = [
   "story_eyebrow",
   "story_headline",
   "story_description",
+  "story_image",
   "footer_tagline",
   "footer_location",
 ] as const;

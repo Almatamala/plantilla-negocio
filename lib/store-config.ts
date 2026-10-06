@@ -55,6 +55,11 @@ export type StoreConfig = {
   storyEyebrow: string;
   storyHeadline: string;
   storyDescription: string;
+  /**
+   * Foto de la sección de historia (A76/D53): **vacía** quiere decir «sin foto» y el texto va centrado. Con
+   * foto, la sección se parte en dos mitades y la foto va **siempre a la izquierda** (no hay ajuste de lado).
+   */
+  storyImage: string;
   /** Ubicación que se muestra al pie de la tienda («San Javier y Talca, Chile»). */
   footerLocation: string;
   /** Bajada del pie, debajo del nombre de la marca (D38). */
@@ -81,6 +86,7 @@ export type ApiSettings = {
   story_headline: string | null;
   story_description: string | null;
   story_eyebrow: string | null;
+  story_image: string | null;
   benefit_1_title: string | null;
   benefit_1_text: string | null;
   benefit_2_title: string | null;
@@ -127,6 +133,9 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
     storyEyebrow: data.story_eyebrow ?? current.storyEyebrow,
     storyHeadline: data.story_headline ?? current.storyHeadline,
     storyDescription: data.story_description ?? current.storyDescription,
+    // La foto de la historia (A76) sigue el criterio del hero: un valor vacío se respeta tal cual, así que
+    // «Quitar foto» deja la sección **sin foto** (texto centrado) en vez de volver a ninguna imagen.
+    storyImage: data.story_image?.trim() ?? current.storyImage,
     footerLocation: data.footer_location ?? current.footerLocation,
     footerTagline: data.footer_tagline ?? current.footerTagline,
     contact_email: data.contact_email ?? current.contact_email,
@@ -164,6 +173,8 @@ export const storeConfig: StoreConfig = {
   storyEyebrow: "Una plantilla que crece contigo",
   storyHeadline: "Haz que tu marca se sienta única.",
   storyDescription: "Personaliza este espacio para comunicar tu propuesta, historia, beneficios o cualquier mensaje importante para tus clientes.",
+  // La historia arranca **sin foto** (A76): con foto la sección se vuelve un «about us» de dos mitades.
+  storyImage: "",
   footerLocation: "San Javier y Talca, Chile",
   footerTagline: "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.",
   contact_email: "",

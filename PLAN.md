@@ -394,6 +394,38 @@ perdida). De paso baja de **7 a 6** los avisos de `<img>` de `lint`.
 
 ---
 
+## 3.14 Sección de historia con foto: «about us» (2026-10-06)
+
+**Implementado y verificado** (`pytest` 67/67; `tsc`, `lint` y `build` sin errores; contra la API en vivo los
+dos ajustes nuevos se guardan, vuelven por el `GET` y un lado inválido responde `422`). Un punto del dueño:
+la sección de historia —«Una plantilla que crece contigo · Haz que tu marca se sienta única.»— tiene que
+poder llevar **una foto** para funcionar como un «about us».
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A76** | Poder **agregar una foto** a la sección de historia, **encuadrada**, para que la sección funcione como un «about us»; **sin foto** el texto sigue **centrado** como ahora y, **con foto**, la sección se reparte en **dos mitades** con la foto a la **izquierda** | **D53:** nueva columna `store_settings.story_image` (`VARCHAR(500)`: la URL de `/api/upload` o una externa), agregada con `ALTER TABLE … ADD COLUMN IF NOT EXISTS` al arrancar. En la tienda la sección se parte en **dos mitades iguales** (`md:grid-cols-2`, **sin** separación entre ellas: cada mitad se queda con la mitad del ancho y el alto completo de la sección), la **izquierda** con la **foto** y la **derecha** con los **textos**. El encuadre es un bloque del **detalle cálido** de la paleta (`bg-[var(--brand-detail)]`, distinto del color base de la sección, que no cambia) y la foto va adentro como una **copia más pequeña y centrada del propio bloque** (un margen parejo, `inset-8` / `md:inset-14`), **sin** esquinas redondeadas ni borde: el bloque hace de marco; **sin foto** queda el texto **centrado** de siempre. Los tres textos se declaran **una sola vez** y se reusan en las dos formas de la sección. En el **editor de la página** la foto se sube con el mismo `EditableImage` del hero —y se quita con «Quitar foto», que vacía el ajuste—, todo viaja en el `PUT /api/settings` de siempre. Los botones —el de **agregar/cambiar la foto** y los demás— van con `relative z-50`, **por encima del velo** del editor, así no quedan debajo de la capa oscurecida y se ven igual que los del hero. |
+
+**Decisión D53 (nueva):** la **historia** de la tienda es un «about us» **opcional**: con `story_image` la
+sección se dibuja en **dos mitades** —la foto encuadrada a la **izquierda** y el texto a la derecha—, y
+**sin** foto queda el **texto centrado**, así que una tienda sin foto se ve igual que antes. Amplía **D38/D48** (los textos y las fotos que edita el editor visual).
+
+**Ajuste del mismo día (A76):** la foto pasó a ser una **copia más pequeña y centrada del bloque** que la
+contiene (antes era un rectángulo propio —`aspect-[4/5]`— que no coincidía con la forma del bloque); la
+**sección de historia se movió arriba de «Beneficios»** (se intercambiaron, así la historia queda pegada al
+catálogo); y se **retiró el ajuste de lado**: la foto va siempre a la **izquierda**, así que se fueron el
+botón con las dos miniaturas, `story_image_side` del frontend y de la API, y la columna —que se **elimina al
+arrancar** desde `RETIRED_STORE_SETTINGS_COLUMNS`, para que una base ya creada quede igual que una nueva—.
+La foto que ya estuviera cargada no se toca: queda del lado izquierdo, que era justamente el valor por
+defecto.
+
+**Trampa real que salió al verificar (y su arreglo):** en un `className` con plantilla, una clase **pegada**
+al `${…}` condicional **no se genera**: Tailwind no la reconoce como candidata y la clase **no aparece en el
+CSS**, así el estilo se pierde en silencio. Se detectó revisando el CSS emitido —faltaba el `padding` de
+escritorio de la mitad de la foto—, se separó con un espacio y se corrigió el mismo patrón en el hero
+(`md:px-10 ${…}`), que se salvaba solo porque esa clase se usa también sin plantilla.
+
+---
+
 ## 4. Pendientes
 
 1. **Webpay Plus (D8):** solicitar credenciales TBK e integrar el SDK en `app/api/webpay/*` (el `create`
