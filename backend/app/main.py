@@ -110,6 +110,8 @@ STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS theme_colors JSON",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_image VARCHAR(500)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_logo VARCHAR(500)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_logo_shape VARCHAR(20)",
+    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_image_position VARCHAR(20)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_title VARCHAR(160)",

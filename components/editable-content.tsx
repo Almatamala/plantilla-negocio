@@ -20,32 +20,19 @@ import { uploadImage } from "@/lib/api";
  * El **nombre** se edita **solo en el título del header** (el primero de la página) y el pie y el copyright
  * lo siguen: son el mismo campo, pero el del pie no se marca como editable a propósito.
  */
-export type EditableField =
-  | "name"
-  | "announcement"
-  | "hero_image"
-  | "hero_logo"
-  | "hero_eyebrow"
-  | "hero_title"
-  | "hero_description"
-  | "benefit_1_title"
-  | "benefit_1_text"
-  | "benefit_2_title"
-  | "benefit_2_text"
-  | "benefit_3_title"
-  | "benefit_3_text"
-  | "story_eyebrow"
-  | "story_headline"
-  | "story_description"
-  | "footer_tagline"
-  | "footer_location";
-
-/** Campos editables, en el orden en que aparecen en la página (lo usa el editor al guardar). */
-export const editableFields: EditableField[] = [
+/**
+ * Campos editables, en el orden en que aparecen en la página (lo usa el editor al guardar).
+ *
+ * La **lista es la fuente** y el tipo sale de ella (`typeof …[number]`): antes el union y el arreglo
+ * enumeraban los mismos veinte nombres por separado y había que tocar los dos al sumar un texto.
+ */
+export const editableFields = [
   "name",
   "announcement",
   "hero_image",
+  "hero_image_position",
   "hero_logo",
+  "hero_logo_shape",
   "hero_eyebrow",
   "hero_title",
   "hero_description",
@@ -60,7 +47,9 @@ export const editableFields: EditableField[] = [
   "story_description",
   "footer_tagline",
   "footer_location",
-];
+] as const;
+
+export type EditableField = (typeof editableFields)[number];
 
 type ContentEditContextValue = {
   /** Valores cambiados en esta sesión de edición, por campo. Lo que falte sale del valor que se muestra. */
@@ -224,6 +213,29 @@ function rangeFromPoint(x: number, y: number): Range | null {
   return fallback;
 }
 
+/**
+ * «X% Y%» → las dos coordenadas del encuadre (D51). Un valor que no sea un porcentaje válido cae al
+ * centro, que es el valor por defecto de `object-position` en CSS.
+ */
+function parseImagePosition(value: string): { x: number; y: number } {
+  const [x, y] = value.split(" ");
+  const coordinate = (part: string | undefined) => {
+    const parsed = Number.parseFloat(part ?? "");
+    return Number.isFinite(parsed) ? clampPercent(parsed) : 50;
+  };
+  return { x: coordinate(x), y: coordinate(y) };
+}
+
+/** Redondea un porcentaje del encuadre a un entero entre 0 y 100 (el rango de `object-position`). */
+function clampPercent(value: number): number {
+  return Math.round(Math.min(100, Math.max(0, value)));
+}
+
+/** `object-position` de la foto (D51): el encuadre guardado, o `undefined` si no hay ninguno. */
+function imagePositionStyle(position: string | undefined): React.CSSProperties | undefined {
+  return position ? { objectPosition: position } : undefined;
+}
+
 /** Renderiza el texto en la etiqueta pedida (con las props opcionales del modo edición). */
 function renderText(
   tag: EditableTag,
@@ -248,6 +260,10 @@ function renderText(
  * foto nueva se ve al instante y se publica con **«Guardar cambios»**. El botón cambia de ícono según haya
  * foto o no, y con `resetTo` aparece además el de **quitarla** (vuelve a la foto de la plantilla, o la deja
  * en blanco si el campo es opcional, como el **logo** del hero).
+ *
+ * Dos extras para el hero: con `panField` la foto se **arrastra con el mouse** para elegir su encuadre
+ * (`object-position`, D51), y con `tools` se le suman botones propios —la **forma del logo** (D50) y el
+ * botón para volver al encuadre original—.
  */
 export function EditableImage({
   field,
@@ -256,6 +272,9 @@ export function EditableImage({
   className,
   containerClassName,
   controlsClassName,
+  position,
+  panField,
+  tools,
   resetTo,
   resetLabel = "Volver a la foto de la plantilla",
   label = "Cambiar la foto",
@@ -269,6 +288,16 @@ export function EditableImage({
   containerClassName?: string;
   /** Posición de los botones **dentro** del contenedor (p. ej. `absolute right-5 top-5 z-50`). */
   controlsClassName?: string;
+  /** `object-position` de la foto (D51): el encuadre guardado; fuera del editor se aplica tal cual. */
+  position?: string;
+  /**
+   * Habilita **arrastrar la foto para encuadrarla** (D51) y guarda el resultado en ese campo: el editor
+   * mueve la imagen con el mouse y el encuadre sale del gesto, así una foto apaisada no queda fuera de
+   * cuadro. Solo actúa dentro del editor.
+   */
+  panField?: EditableField;
+  /** Botones extra junto a los de la foto (la forma del logo, volver al encuadre; D50/D51). */
+  tools?: ReactNode;
   /**
    * Valor del botón de quitar: la foto de la plantilla o `""` para dejarlo sin foto. **Sin esto no hay
    * botón**: el campo solo se puede reemplazar (la foto del hero siempre tiene una, el logo no).
@@ -280,16 +309,68 @@ export function EditableImage({
   const context = useContentEdit();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // Punto de partida del arrastre del encuadre (D51): dónde se tomó la foto y con qué encuadre arrancó.
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+
+  // Dentro del editor la foto sale del borrador (lo recién subido); fuera, del valor recibido.
+  const current = context ? context.draft[field] ?? value : value;
+  // El encuadre sigue el mismo criterio: con `panField`, el editor lo mueve y lo deja en el borrador.
+  const currentPosition = context && panField ? context.draft[panField] ?? position : position;
+
+  /**
+   * Encuadre con el mouse (D51): mover la foto hacia la derecha muestra más de su lado izquierdo, así que
+   * el porcentaje del `object-position` baja; el alto va en el mismo sentido. Se redondea a entero y se
+   * acota a 0–100, que es todo el rango que entiende `object-position`.
+   */
+  function pan(event: React.PointerEvent<HTMLImageElement>) {
+    if (!context || !panField || !drag.current) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const dx = ((event.clientX - drag.current.x) / Math.max(rect.width, 1)) * 100;
+    const dy = ((event.clientY - drag.current.y) / Math.max(rect.height, 1)) * 100;
+    context.set(panField, `${clampPercent(drag.current.left - dx)}% ${clampPercent(drag.current.top - dy)}%`);
+  }
+
+  /**
+   * Manijas del arrastre (D51), vacías fuera del editor o sin `panField`: así la foto se declara **una sola
+   * vez** y la misma pieza sirve para la tienda pública y para el editor.
+   */
+  const panProps = context && panField ? {
+    draggable: false,
+    onDragStart: (event: React.DragEvent<HTMLImageElement>) => event.preventDefault(),
+    onPointerDown: (event: React.PointerEvent<HTMLImageElement>) => {
+      const start = parseImagePosition(currentPosition ?? "");
+      drag.current = { x: event.clientX, y: event.clientY, left: start.x, top: start.y };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    onPointerMove: pan,
+    onPointerUp: (event: React.PointerEvent<HTMLImageElement>) => {
+      drag.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    },
+    onPointerCancel: () => { drag.current = null; },
+  } : {};
+
+  // Sin valor no se dibuja nada: así un campo vacío —el logo es **opcional** (D49)— no deja una imagen
+  // rota, y en el editor solo queda el botón para subir la foto.
+  const photo = current && (
+    <img
+      src={current}
+      alt={alt}
+      className={`${className ?? ""}${context && panField ? " editable-image-pan" : ""}`.trim()}
+      style={imagePositionStyle(currentPosition)}
+      {...panProps}
+    />
+  );
 
   // Fuera del editor (o antes de que cargue) es solo la foto: la tienda pública no cambia. El contenedor
   // se dibuja igual, porque es el que la ancla en su lugar; solo se salta el botón y el selector.
-  if (!context) return <div className={containerClassName ?? ""}>{value && <img src={value} alt={alt} className={className}/>}</div>;
+  if (!context) return <div className={containerClassName ?? ""}>{photo}</div>;
 
-  const current = context.draft[field] ?? value;
   const own = resetTo !== undefined && current !== resetTo;
 
-  async function upload(file: File) {
-    if (!context) return;
+  // Flecha y no `function`: así el ensanchado del `context` sobrevive dentro del cuerpo (una función
+  // declarada se iza y el compilador no puede dar por hecho que el `context` ya no es nulo).
+  const upload = async (file: File) => {
     setBusy(true);
     try {
       context.set(field, await uploadImage(file));
@@ -299,18 +380,17 @@ export function EditableImage({
     } finally {
       setBusy(false);
     }
-  }
+  };
 
   return (
     <div className={containerClassName ?? ""}>
-      {/* Sin valor no se dibuja nada: así un campo vacío —el logo es **opcional** (D49)— no deja una
-          imagen rota, y en el editor solo queda el botón para subir la foto. */}
-      {current && <img src={current} alt={alt} className={className}/>}
+      {photo}
       <div className={`flex items-center gap-2 ${controlsClassName ?? ""}`}>
         <button type="button" onClick={() => input.current?.click()} disabled={busy} title={label} aria-label={label} className={`grid h-11 w-11 place-items-center rounded-full bg-white text-[#243128] shadow-lg transition hover:scale-105 disabled:cursor-progress disabled:opacity-70 ${current ? "" : "border-2 border-dashed border-[#243128]/40"}`}>
           {busy ? <Loader2 size={19} className="animate-spin"/> : current ? <ImageUp size={19}/> : <ImagePlus size={19}/>}
         </button>
         {own && <button type="button" onClick={() => context.set(field, resetTo ?? "")} title={resetLabel} aria-label={resetLabel} className="grid h-11 w-11 place-items-center rounded-full bg-white/90 text-[#243128] shadow-lg transition hover:scale-105"><RotateCcw size={19}/></button>}
+        {tools}
       </div>
       {/* El mismo selector del panel: al elegir un archivo se sube y queda en el borrador. Se limpia el
           `value` para poder volver a elegir el mismo archivo después. */}

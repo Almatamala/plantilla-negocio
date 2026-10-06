@@ -136,6 +136,12 @@ def test_store_settings_save_hero_image(client, admin_headers):
     assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
     assert client.get("/api/settings").json()["hero_image"] is None
 
+    # «Quitar foto» (A74): el editor manda la cadena vacía y la API la guarda tal cual; el frontend la
+    # trata como «sin foto» (`??`, no `||`), así que el hero no cae a ninguna imagen por defecto.
+    payload["hero_image"] = ""
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["hero_image"] == ""
+
 
 def test_store_settings_save_hero_logo(client, admin_headers):
     # Logo del hero (D49, **opcional**): es otra columna de `store_settings`, se edita desde el editor de la
@@ -155,6 +161,58 @@ def test_store_settings_save_hero_logo(client, admin_headers):
     payload["hero_logo"] = None
     assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
     assert client.get("/api/settings").json()["hero_logo"] is None
+
+
+def test_store_settings_save_hero_logo_shape(client, admin_headers):
+    # Forma del marco del logo (D50): `circle` (por defecto), `soft` (bordes difuminados) o `flower`. Es
+    # otra columna de `store_settings`, la cambia el editor de la página con el mismo logo y solo afecta al
+    # recorte de la imagen.
+    assert client.get("/api/settings").json()["hero_logo_shape"] is None
+
+    payload = {key: value for key, value in client.get("/api/settings").json().items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["hero_logo"] = "http://localhost:8000/uploads/logo.png"
+
+    for shape in ("flower", "soft", "circle"):
+        payload["hero_logo_shape"] = shape
+        saved = client.put("/api/settings", headers=admin_headers, json=payload)
+        assert saved.status_code == 200
+        assert saved.json()["hero_logo_shape"] == shape
+        assert client.get("/api/settings").json()["hero_logo_shape"] == shape
+
+    # Solo las tres formas conocidas: cualquier otra se rechaza.
+    payload["hero_logo_shape"] = "estrella"
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+
+
+def test_store_settings_save_hero_image_position(client, admin_headers):
+    # Encuadre de la foto del hero (D51): un `object-position` de CSS (porcentajes 0–100) que el editor
+    # mueve arrastrando la foto. Sin valor guardado manda el recorte por defecto (`object-right`).
+    assert client.get("/api/settings").json()["hero_image_position"] is None
+
+    payload = {key: value for key, value in client.get("/api/settings").json().items() if key not in ("id", "updated_at")}
+    payload["name"] = "BOSQUE"
+    payload["hero_image_position"] = "35% 80%"
+
+    saved = client.put("/api/settings", headers=admin_headers, json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["hero_image_position"] == "35% 80%"
+    assert client.get("/api/settings").json()["hero_image_position"] == "35% 80%"
+
+    # También se aceptan las palabras clave de CSS («center center»): una base ya creada puede traer un
+    # encuadre guardado así y el GET no puede fallar por eso.
+    payload["hero_image_position"] = "center center"
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["hero_image_position"] == "center center"
+
+    # Un encuadre que no sea un `object-position` válido se rechaza (por ejemplo «derecha»).
+    payload["hero_image_position"] = "derecha"
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 422
+
+    # Volver al recorte por defecto: basta con vaciar el ajuste.
+    payload["hero_image_position"] = None
+    assert client.put("/api/settings", headers=admin_headers, json=payload).status_code == 200
+    assert client.get("/api/settings").json()["hero_image_position"] is None
 
 
 def test_admin_token_is_required(client):

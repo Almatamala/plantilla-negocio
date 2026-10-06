@@ -7,6 +7,35 @@ import { defaultThemeColors, normalizeThemeColors, type ThemeColors } from "@/li
 /** Tarjeta de la sección «Beneficios» de la vitrina: título y texto. */
 export type Benefit = { title: string; text: string };
 
+/**
+ * Forma del marco del logo del hero (D50): el círculo de siempre, un círculo de **bordes difuminados** o
+ * una flor. Se eligen en una ventana con las tres siluetas, en el editor de la página.
+ */
+export type LogoShape = "circle" | "soft" | "flower";
+
+/** Las tres formas válidas, en un solo lugar: el resto del código no repite los literales. */
+export const logoShapes: readonly LogoShape[] = ["circle", "soft", "flower"];
+
+/**
+ * Nombre de cada forma para el selector del editor (D50). Al cubrir **todas** las formas, sumar una nueva
+ * obliga a darle su nombre: el selector se arma con `logoShapes` y estas etiquetas, así que la lista de
+ * formas vive en un único lugar.
+ */
+export const logoShapeLabels: Record<LogoShape, string> = {
+  circle: "Círculo",
+  soft: "Bordes difuminados",
+  flower: "Flor",
+};
+
+/**
+ * Normaliza la forma del logo (D50): lo que no sea una de las formas válidas cae al `fallback` (el círculo
+ * por defecto). Es el **único** lugar que conoce los valores válidos, así que lo usan el merge de ajustes,
+ * la clase del marco y el selector, en vez de repetir la comparación en cada uno.
+ */
+export function normalizeLogoShape(value: string | null | undefined, fallback: LogoShape = "circle"): LogoShape {
+  return logoShapes.includes(value as LogoShape) ? (value as LogoShape) : fallback;
+}
+
 export type StoreConfig = {
   name: string;
   announcement: string;
@@ -17,6 +46,10 @@ export type StoreConfig = {
   heroImage: string;
   /** Logo de la tienda en el hero (**opcional**, D49): vacío quiere decir que no se dibuja. */
   heroLogo: string;
+  /** Forma del marco del logo (D50): `circle` por defecto, `soft` o `flower`. */
+  heroLogoShape: LogoShape;
+  /** Encuadre de la foto del hero (D51): un `object-position` de CSS, movible desde el editor. */
+  heroImagePosition: string;
   /** Las tres tarjetas de «Beneficios», en el orden en que se dibujan (D38). */
   benefits: [Benefit, Benefit, Benefit];
   storyEyebrow: string;
@@ -41,7 +74,9 @@ export type ApiSettings = {
   hero_title: string | null;
   hero_description: string | null;
   hero_image: string | null;
+  hero_image_position: string | null;
   hero_logo: string | null;
+  hero_logo_shape: string | null;
   hero_eyebrow: string | null;
   story_headline: string | null;
   story_description: string | null;
@@ -75,10 +110,15 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
     eyebrow: data.hero_eyebrow ?? current.eyebrow,
     headline: data.hero_title ?? current.headline,
     description: data.hero_description ?? current.description,
-    // La foto del hero cae a la de la plantilla si no hay ninguna guardada (o si se dejó vacía).
-    heroImage: data.hero_image?.trim() || current.heroImage,
+    // El hero **sin foto guardada no dibuja ninguna** (A74): un valor vacío se respeta tal cual en vez de
+    // caer a la foto de la plantilla. `??` (y no `||`) distingue «vacío a propósito» de «sin ajuste».
+    heroImage: data.hero_image?.trim() ?? current.heroImage,
     // El logo es opcional: sin valor guardado no se dibuja nada en la esquina del hero (D49).
     heroLogo: data.hero_logo?.trim() || "",
+    // La forma del marco (D50) tiene tres valores: cualquier otra cosa —o nada— cae al círculo de siempre.
+    heroLogoShape: normalizeLogoShape(data.hero_logo_shape),
+    // El encuadre de la foto (D51) cae al recorte por defecto si no hay ninguno guardado.
+    heroImagePosition: data.hero_image_position?.trim() || current.heroImagePosition,
     benefits: [
       mergeBenefit(current.benefits[0], data.benefit_1_title, data.benefit_1_text),
       mergeBenefit(current.benefits[1], data.benefit_2_title, data.benefit_2_text),
@@ -100,10 +140,10 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
 }
 
 /**
- * Foto de fondo del hero de la plantilla (D47): la que se usa mientras no se suba otra desde el editor de
- * la página. El editor la necesita aparte para ofrecer «volver a la de la plantilla».
+ * Encuadre por defecto de la foto del hero (D51): el borde derecho, que es el recorte original de la
+ * plantilla (`object-right`). El editor lo ofrece para volver al encuadre de siempre.
  */
-export const defaultHeroImage = "/hero-bosque.png";
+export const defaultHeroImagePosition = "100% 50%";
 
 export const storeConfig: StoreConfig = {
   name: "Tienda Base",
@@ -111,8 +151,11 @@ export const storeConfig: StoreConfig = {
   eyebrow: "Tu colección, tu estilo",
   headline: "Una tienda que se adapta a tu negocio.",
   description: "Una base limpia para mostrar productos, conectar con clientes y hacer crecer una marca propia.",
-  heroImage: defaultHeroImage,
+  // El hero arranca **sin foto** (A74): la que se sube desde el editor es la única que se dibuja.
+  heroImage: "",
   heroLogo: "",
+  heroLogoShape: "circle",
+  heroImagePosition: defaultHeroImagePosition,
   benefits: [
     { title: "Compra con confianza", text: "Destaca tus garantías, materiales, soporte o cualquier beneficio importante." },
     { title: "Una experiencia simple", text: "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra." },

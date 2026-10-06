@@ -92,6 +92,12 @@ select.select-field {
   position: relative;
   z-index: 50; /* por encima del velo oscuro del editor (z-40) */
   cursor: text;
+  /*
+   * El bloque de texto del hero se vuelve `pointer-events-none` mientras se edita, para que el arrastre
+   * de la foto (D51) llegue a la imagen; cada texto editable recupera los clics con esto. Fuera del editor
+   * la clase ni se aplica, así que la tienda pública no cambia.
+   */
+  pointer-events: auto;
   color: #ffffff; /* en la vista de edición todos los textos editables se ven blancos */
   transition: box-shadow .15s ease;
 }
@@ -118,4 +124,45 @@ select.select-field {
 span.editable-text[contenteditable="true"] {
   display: inline-block;
   min-width: 1ch;
+}
+
+/*
+ * Foto del hero que se **arrastra** para elegir su encuadre (D51). La clase solo se aplica dentro del
+ * editor: `cursor: move` avisa que el gesto mueve la foto y `touch-action: none` deja que ese gesto la
+ * desplace en pantallas táctiles en vez de hacer scroll de la página.
+ */
+.editable-image-pan {
+  cursor: move;
+  touch-action: none;
+}
+
+/*
+ * Forma del logo del hero (D50). El círculo es `rounded-full` (Tailwind); las otras dos son **máscaras**:
+ * la **flor** es una máscara SVG de **veinte pétalos** (un círculo central y veinte alrededor, unidos) y los
+ * **bordes difuminados** son un degradado radial que desvanece el borde del círculo. El `padding` de la
+ * flor deja el fondo blanco como marco, porque la máscara recorta también el borde de la imagen; en los
+ * bordes difuminados la foto simplemente se desvanece hacia afuera (el aro blanco del `border` también).
+ * Sin logo no se dibuja nada y estas clases no se usan.
+ */
+.logo-shape-flower,
+.logo-shape-soft {
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+.logo-shape-flower {
+  padding: 6%;
+  /* La silueta se escribe **una sola vez**: `var()` la sustituye en la propiedad prefijada y en la
+     estándar, así que una forma nueva no deja dos copias que mantener en sincronía (D50). */
+  --logo-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='%23fff'%3E%3Ccircle cx='50.00' cy='50.00' r='38.97'/%3E%3Ccircle cx='50.00' cy='9.57' r='6.57'/%3E%3Ccircle cx='62.49' cy='11.55' r='6.57'/%3E%3Ccircle cx='73.77' cy='17.29' r='6.57'/%3E%3Ccircle cx='82.71' cy='26.23' r='6.57'/%3E%3Ccircle cx='88.45' cy='37.51' r='6.57'/%3E%3Ccircle cx='90.43' cy='50.00' r='6.57'/%3E%3Ccircle cx='88.45' cy='62.49' r='6.57'/%3E%3Ccircle cx='82.71' cy='73.77' r='6.57'/%3E%3Ccircle cx='73.77' cy='82.71' r='6.57'/%3E%3Ccircle cx='62.49' cy='88.45' r='6.57'/%3E%3Ccircle cx='50.00' cy='90.43' r='6.57'/%3E%3Ccircle cx='37.51' cy='88.45' r='6.57'/%3E%3Ccircle cx='26.23' cy='82.71' r='6.57'/%3E%3Ccircle cx='17.29' cy='73.77' r='6.57'/%3E%3Ccircle cx='11.55' cy='62.49' r='6.57'/%3E%3Ccircle cx='9.57' cy='50.00' r='6.57'/%3E%3Ccircle cx='11.55' cy='37.51' r='6.57'/%3E%3Ccircle cx='17.29' cy='26.23' r='6.57'/%3E%3Ccircle cx='26.23' cy='17.29' r='6.57'/%3E%3Ccircle cx='37.51' cy='11.55' r='6.57'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-image: var(--logo-mask);
+  mask-image: var(--logo-mask);
+}
+.logo-shape-soft {
+  --logo-mask: radial-gradient(circle at 50% 50%, #000 55%, transparent 78%);
+  -webkit-mask-image: var(--logo-mask);
+  mask-image: var(--logo-mask);
 }

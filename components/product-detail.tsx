@@ -7,9 +7,9 @@ import { ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, Star, Trash2 } fro
 import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/account";
 import { useCart } from "@/lib/cart";
-import { fetchCatalog } from "@/lib/catalog";
 import { formatPrice, type Product } from "@/lib/products";
 import { loadResource } from "@/lib/resource";
+import { loadCatalog } from "@/lib/use-catalog";
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { allergenInfo } from "@/lib/allergens";
@@ -41,9 +41,13 @@ type Detail = { product: Product; catalog: Product[]; reviews: Review[] };
  * ingredientes, así que la ficha no repite `/api/products` ni `/api/categories` ni el endpoint por slug,
  * y el tono del gradiente coincide con el de la grilla. El catálogo además queda compartido con el
  * carrito lateral.
+ *
+ * Se pide por `loadCatalog()`, la misma puerta que usa la tienda: además de compartir la lectura, es la
+ * que **purga del carrito** los productos que ya no existen, así que entrar directo a una ficha (sin
+ * pasar por la tienda) también limpia el ítem huérfano (D52).
  */
 async function fetchDetail(slug: string): Promise<Detail | null> {
-  const { value: catalog } = await loadResource("catalog", fetchCatalog);
+  const catalog = await loadCatalog();
   const product = (catalog ?? []).find((row) => row.slug === slug);
   if (!product) return null;
   // `?product_id=` filtra en la base: antes se pedían todos los comentarios y se filtraba en el cliente.

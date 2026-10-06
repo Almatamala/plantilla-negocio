@@ -10,6 +10,13 @@ OrderStatus = Literal["pending", "shipped", "delivered", "cancelled", "refunded"
 ReviewStatus = Literal["pending", "approved", "rejected"]
 # Método de entrega (D44): retiro presencial (D16/D33) o envío a domicilio con dirección y tarifa.
 DeliveryMethod = Literal["pickup", "delivery"]
+# Forma del marco del logo del hero (D50): el círculo de siempre, el círculo de bordes difuminados o la flor.
+LogoShape = Literal["circle", "soft", "flower"]
+# Encuadre de la foto del hero (D51): un `object-position` de CSS. Se aceptan los porcentajes que escribe
+# el editor y también las **palabras clave** de CSS (`center center`, `left`, `right top`…), porque
+# cualquier valor válido sirve y una base ya existente puede traer uno de esos.
+POSITION_TOKEN = r"(?:left|right|center|top|bottom|\d{1,3}%|\d+(?:\.\d+)?px)"
+IMAGE_POSITION = re.compile(rf"^{POSITION_TOKEN}(?:\s+{POSITION_TOKEN})?$")
 
 
 class ORMModel(BaseModel):
@@ -290,11 +297,16 @@ class SettingsIn(BaseModel):
     announcement: str | None = Field(default=None, max_length=240)
     hero_title: str | None = Field(default=None, max_length=200)
     hero_description: str | None = None
-    # Foto de fondo del hero, editable en el editor visual de la página (D47/D48); sin valor, la tienda
-    # usa la de la plantilla.
+    # Foto de fondo del hero, editable en el editor visual de la página (D47/D48); **sin valor el hero
+    # queda sin foto** (A74).
     hero_image: str | None = Field(default=None, max_length=500)
     # Logo de la tienda en el hero (opcional, D49); sin valor no se dibuja.
     hero_logo: str | None = Field(default=None, max_length=500)
+    # Forma del marco del logo (D50): `circle` (por defecto), `soft` (bordes difuminados) o `flower`.
+    hero_logo_shape: LogoShape | None = None
+    # Encuadre de la foto del hero (D51), tal como lo mueve el editor con el mouse. Sin valor, la tienda
+    # usa el recorte por defecto (`object-right`).
+    hero_image_position: str | None = Field(default=None, max_length=20, pattern=IMAGE_POSITION)
     story_headline: str | None = Field(default=None, max_length=240)
     story_description: str | None = None
     # Textos que el editor visual de la página (`/admin/editor`, D38) permite cambiar además del hero y la
@@ -331,6 +343,11 @@ class SettingsIn(BaseModel):
 class SettingsOut(SettingsIn, ORMModel):
     id: bool
     updated_at: datetime
+    # En la **salida** estos dos campos no se validan: `GET /api/settings` es público y no puede caerse
+    # porque una fila vieja traiga un valor que la validación de entrada ya no acepta. El frontend
+    # normaliza lo que no entiende a su valor por defecto.
+    hero_logo_shape: str | None = None
+    hero_image_position: str | None = None
 
 
 # ── Feed de Instagram propio (D30) ──────────────────────────────────────────

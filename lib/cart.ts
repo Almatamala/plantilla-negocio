@@ -96,6 +96,22 @@ export function cartCount(cart: Cart): number {
   return Object.values(cart).reduce((total, quantity) => total + quantity, 0);
 }
 
+/**
+ * Saca del carrito los productos que ya no existen en el catálogo.
+ *
+ * Un producto **eliminado** (o pasado a inactivo) deja su id huérfano en `localStorage`: el carrito solo
+ * dibuja lo que recorre del catálogo, así que ese ítem no se ve *y tampoco tiene botón para sacarlo*, y
+ * quedaba ahí para siempre (además de sumar al contador del header). Se limpia cuando llega el catálogo
+ * **real**. Es idempotente y no escribe nada si no hay nada que sacar.
+ */
+export function pruneCart(validIds: Iterable<string>): void {
+  const current = getCart();
+  const valid = validIds instanceof Set ? validIds : new Set(validIds);
+  const kept = Object.entries(current).filter(([id]) => valid.has(id));
+  if (kept.length === Object.keys(current).length) return;
+  setCart(Object.fromEntries(kept));
+}
+
 /** Carrito compartido: leer y escribir siempre pasa por el store. */
 export function useCart() {
   const cart = useSyncExternalStore(subscribe, getCart, () => EMPTY_CART);

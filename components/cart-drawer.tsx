@@ -31,7 +31,10 @@ export function CartDrawer({
   const lines = products.filter((product) => cart[product.id]);
   const count = cartCount(cart);
   const total = lines.reduce((sum, product) => sum + product.price * cart[product.id], 0);
-  const missing = Object.keys(cart).filter((id) => !products.some((product) => product.id === id)).length;
+  // Ítems que el catálogo no puede resolver. Ya **no** son huérfanos para siempre: cuando llega el
+  // catálogo real, `useCatalog` los saca del carrito (`pruneCart`), así que esto solo queda en pie
+  // mientras el catálogo no carga.
+  const unresolved = count > 0 && lines.length === 0;
   // Envío a domicilio (D44): solo se menciona si la tienda tiene alguna zona activa. La tarifa exacta
   // se calcula en el checkout, según la comuna de la dirección.
   const { zones: deliveryZones } = useDeliveryZones();
@@ -50,7 +53,8 @@ export function CartDrawer({
               <button onClick={onClose} aria-label="Cerrar"><X/></button>
             </div>
             <div className="mt-8 flex-1 space-y-5 overflow-auto">
-              {count === 0 ? <p className="text-[var(--brand-muted)]">Aún no agregas productos a tu carrito.</p> : lines.map((product) => (
+              {count === 0 && <p className="text-[var(--brand-muted)]">Aún no agregas productos a tu carrito.</p>}
+              {lines.map((product) => (
                 <div key={product.id} className="flex gap-4 border-b border-[var(--brand-surface)] pb-5">
                   <div data-tone={product.tone} className="product-visual h-20 w-16 shrink-0"/>
                   <div className="flex-1">
@@ -66,7 +70,7 @@ export function CartDrawer({
                   </div>
                 </div>
               ))}
-              {missing > 0 && <p className="rounded-lg bg-[#f6e3d3] p-3 text-xs text-[#8a5a2c]">No pudimos mostrar {missing} {missing === 1 ? "producto" : "productos"} del carrito. Vuelve a la tienda e inténtalo nuevamente.</p>}
+              {unresolved && <p className="rounded-lg bg-[#f6e3d3] p-3 text-xs text-[#8a5a2c]">No pudimos cargar los productos de tu carrito. Revisa la conexión e inténtalo nuevamente.</p>}
             </div>
             {count > 0 && (
               <div className="border-t border-[var(--brand-accent)] pt-5">

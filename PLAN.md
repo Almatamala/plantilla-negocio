@@ -1,7 +1,7 @@
 # Plan de Implementación — BOSQUE
 
 **Proyecto:** Tienda BOSQUE (repostería)
-**Basado en:** `RPD.md` (decisiones D1–D49; D5, D6, D11 y D23 quedaron retiradas)
+**Basado en:** `RPD.md` (decisiones D1–D51; D5, D6, D11 y D23 quedaron retiradas)
 **Fecha:** 2026-09-30 · **Estado:** documento vivo — despliegue y pendientes
 
 ---
@@ -9,7 +9,7 @@
 ## 0. Cómo usar este documento
 
 - **Qué queda acá:** lo que **falta hacer** y cómo **desplegar**. El **estado actual del código** y las
-  **decisiones** (D1–D49, con D5, D6, D11 y D23 retiradas) viven en `RPD.md`.
+  **decisiones** (D1–D51, con D5, D6, D11 y D23 retiradas) viven en `RPD.md`.
 - **Regla del proyecto (AGENTS.md):** antes de escribir código, leer la guía correspondiente en
   `node_modules/next/dist/docs/` (esta versión de Next.js tiene breaking changes respecto de lo conocido).
 - **Verificación de cada cambio:** `npx tsc --noEmit`, `npm run lint` y `npm run build`; en `backend/`,
@@ -331,6 +331,66 @@ sin decisión de producto: el panel convertía un nombre en slug (`«Plátano ma
 categorías y la lógica reinlinada dentro de `createProduct`—. `createProduct` pasa a llamar a `slugify` y
 se queda con su respaldo `|| "producto"` para un nombre sin caracteres válidos. Mismo resultado (la
 función, además, recorta a 140 caracteres), una sola definición.
+
+### 3.12 Forma del logo y encuadre de la foto del hero (2026-10-06)
+
+**Implementado y verificado** (`pytest` 66/66; `tsc`, `lint` y `build` sin errores). Dos puntos del dueño,
+los dos sobre el hero y editados desde el **editor de la página** (D38), con dos decisiones nuevas
+(**D50** y **D51**) y un ajuste del mismo día (**A74**):
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A72** | Poder cambiar la **forma del logo** que se puso en el hero: redonda (la de siempre) o con forma de **flor** —ampliado el mismo día a **tres** formas, con un botón que abre una ventana de siluetas— | **D50:** nueva columna `store_settings.hero_logo_shape` (`VARCHAR(20)`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS` al arrancar) con tres valores, `circle` (por defecto), `soft` (**bordes difuminados**) y `flower`; la API los valida con un `Literal`, así que cualquier otro valor devuelve **422**. `hero_logo_shape` entra en `EditableField`/`editableFields` y se guarda con el mismo `PUT /api/settings` del editor. En el hero, `EditableImage` recibe `tools`: **un botón** (ícono de formas) que abre una **pequeña ventana** con las tres siluetas y su miniatura, solo **en el editor y solo si hay logo**; al elegir una el marco del logo se **redibuja al instante** en la página, queda en el borrador y la ventana se cierra (un botón invisible a pantalla completa la cierra al hacer clic afuera). La forma vive en `app/globals.css`: el círculo sigue siendo `rounded-full`, la flor es una **máscara SVG** de **veinte pétalos** (un `mask-image` con un círculo central y veinte alrededor, con el fondo blanco como marco, porque la máscara recorta también el `border`) y los bordes difuminados son un **degradado radial** que desvanece el borde. Sin logo no se dibuja nada y la tienda pública no cambia. |
+| **A74** | Cambiar «volver a la foto de la plantilla» por **«quitar foto»** (el estado por defecto del hero es **sin foto**) y sacar el botón de volver al encuadre original | **Ajusta D47/D48 y D51:** el botón de la foto del hero se llama **«Quitar foto»** y **vacía el ajuste**; `hero_image` vacío ya **no** cae a `public/hero-bosque.png`, así que el hero queda **sin foto** y el asset de la plantilla deja de usarse. En `EditableImage` el `resetTo=""` sigue mostrando el botón **solo cuando hay foto**. Además se retira el botón **«Volver al encuadre original»** del hero: el encuadre se ajusta **solo arrastrando** la foto (D51). |
+| **A73** | Poder **ajustar la foto del hero** —moverla con el ratón— porque puede quedar **fuera de encuadre** | **D51:** nueva columna `store_settings.hero_image_position` (`VARCHAR(20)`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS` al arrancar) que guarda el **`object-position`** de CSS («100% 50%» es el borde derecho, el recorte original de la plantilla); la API lo valida con una **expresión regular** de dos porcentajes 0–100 y cualquier otra cosa devuelve **422**. `EditableImage` recibe `position` (el encuadre guardado, que aplica también a la tienda pública) y `panField`: con `panField`, dentro del editor la foto se **arrastra con el mouse** (`pointerdown`/`pointermove` con captura de puntero) y el porcentaje sale del gesto —mover la foto hacia la derecha muestra más de su lado izquierdo—, redondeado y acotado a 0–100. Para que el gesto llegue a la foto, el **degradado** del hero y el **bloque de texto** quedan `pointer-events-none` mientras se edita (cada texto editable recupera sus clics con `pointer-events: auto`). |
+
+**Decisión D50 (nueva):** el **logo del hero** (D49) tiene tres formas de marco —`circle` (la de siempre),
+`soft` (**bordes difuminados**) y `flower`— guardadas en `store_settings.hero_logo_shape`; se eligen en el
+**editor de la página** con **un botón que abre una ventana con las tres siluetas y su miniatura**, y se
+publican con «Guardar cambios». La forma es solo el **recorte** de la imagen (un `mask-image` en
+`app/globals.css`: veinte pétalos para la flor y un degradado radial para los bordes difuminados), y la **silueta de cada forma vive una sola vez** (una variable `--logo-mask` que `var()` sustituye en `-webkit-mask-image` y en `mask-image`), así que
+sin logo no se dibuja nada y la tienda pública no cambia. **Amplía D49.**
+
+**Decisión D51 (nueva):** el **encuadre de la foto del hero** es un ajuste propio,
+`store_settings.hero_image_position`, que guarda el **`object-position`** de CSS; el editor lo cambia
+**arrastrando la foto** con el mouse (o el dedo). El valor vale para la tienda y para el editor y, **sin
+valor guardado**, rige el recorte original («100% 50%», el borde derecho). **Amplía D47/D48.**
+
+**Ajuste del mismo día (A74):** el hero **sin foto guardada queda sin foto**: `hero_image` vacío ya no cae
+al asset de la plantilla (`public/hero-bosque.png` deja de usarse) y el botón de la foto pasa de «volver a
+la de la plantilla» a **«Quitar foto»**. También sale el botón de **volver al encuadre original**: el
+encuadre se mueve **solo arrastrando**. Ajusta **D47/D48** y **D51**.
+
+---
+
+### 3.13 Carrito: el ítem huérfano se limpia solo (2026-10-06)
+
+**Implementado y verificado** (`tsc`, `lint` y `build` sin errores; la limpieza se probó aparte con un arnés
+que simula `localStorage`, porque el carrito no tiene pruebas automatizadas en el repo). Un punto del dueño:
+se le quedó en el carrito un ítem que **no podía ver ni eliminar**.
+
+| # | Ajuste pedido | Implementación |
+|---|---|---|
+| **A75** | El carrito quedó con un **ítem borrado** —un producto que ya no existe— que **no se podía mostrar ni eliminar**, y que además sumaba al contador del header | **D52:** nuevo **`pruneCart(validIds)`** en `lib/cart.ts`, que descarta del carrito los ids que no están en el catálogo **real** y lo persiste **una sola vez** (idempotente: sin nada que sacar no escribe). Lo llama la **puerta única del catálogo** (`lib/use-catalog.ts`) en cuanto llega la lectura compartida: `useCatalog` (tienda y checkout) y `loadCatalog` (la **ficha**, que entra directo sin pasar por la tienda), así que el ítem huérfano se limpia en cualquier pantalla que conozca el catálogo —la API **o la última versión conocida del respaldo** si no respondió—, que es la única señal de que esa lista es la de la tienda; **sin datos** (primera visita con la API caída) no se toca nada, porque ahí manda la lista **demo** de la plantilla y borraría ítems válidos. Una tienda **sin productos activos** deja la vitrina como está pero vacía el carrito: todos sus ítems son de productos que ya no existen. El **carrito lateral** deja de contar «productos que faltan» (`missing`) y muestra un solo aviso mientras el catálogo no carga. |
+
+**Decisión D52 (nueva):** el carrito solo puede tener **productos que existen**. Cuando una pantalla conoce su
+catálogo real (`useCatalog` / `loadCatalog`), los ids que ya no están —un producto **eliminado** o pasado a **inactivo**—
+se **borran del carrito** (`pruneCart`), porque el carrito solo dibuja lo que resuelve del catálogo: un id
+huérfano no se ve *y tampoco tiene botón para sacarlo*, y encima sumaba al contador del header. La limpieza
+es **idempotente**, no escribe si no hay nada que sacar y **no se aplica con la lista demo** ni cuando la
+API no respondió y no hay respaldo. Amplía **D20/D41**.
+
+**Ajuste de paso (limpieza de código nuevo):** la lista de formas del logo y sus nombres viven en
+`lib/store-config.ts` (`logoShapes` + `logoShapeLabels`, un `Record` de todas las formas, así que sumar una
+nueva obliga a darle su nombre) y el selector del editor las usa en vez de repetirlas; `EditableImage`
+declara el `<img>` **una sola vez** con las manijas del arrastre en un objeto (`panProps`, vacío fuera del
+editor) en lugar de dos ramas con los mismos atributos repetidos; la **ficha de producto** pide el catálogo
+por esa misma puerta (`loadCatalog`) en vez de llamar a la lectura compartida por su cuenta, así comparte
+la regla de limpieza del carrito (D52) en lugar de repetirla. La **silueta de cada forma del logo** queda
+también en un solo lugar: una variable (`--logo-mask`) que `var()` sustituye en `-webkit-mask-image` y en
+`mask-image`, así que el SVG de veinte pétalos ya no está **dos veces** en `app/globals.css` ni hay que
+acordarse de cambiar las dos (olvidar una dejaba la flor sin recorte en el navegador de la propiedad
+perdida). De paso baja de **7 a 6** los avisos de `<img>` de `lint`.
 
 ---
 
