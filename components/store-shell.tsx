@@ -62,7 +62,7 @@ export function StoreHeader({
           <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="Abrir menú"><Menu size={22}/></button>
           <nav className={`${menu ? "flex" : "hidden"} absolute top-28 left-5 right-5 z-20 flex-col gap-4 rounded-2xl bg-white p-6 shadow-lg md:static md:flex md:flex-row md:bg-transparent md:p-0 md:shadow-none`}>
             <Link href="/#coleccion" onClick={() => setMenu(false)}>Productos</Link>
-            <Link href="/#beneficios" onClick={() => setMenu(false)}>Beneficios</Link>
+            <Link href="/#novedades" onClick={() => setMenu(false)}>Novedades</Link>
             <Link href="/#historia" onClick={() => setMenu(false)}>Nosotros</Link>
           </nav>
           {/* Centrado con `inset-x-0 + mx-auto + w-fit` en vez de `left-1/2 + -translate-x-1/2`: se ve
@@ -138,7 +138,7 @@ export function StoreFooter({ config }: { config: ShellConfig }) {
           <p className={heading}>Tienda</p>
           <ul className={`mt-4 space-y-3 text-sm ${muted}`}>
             <li><Link href="/#coleccion" className={link}>Productos</Link></li>
-            <li><Link href="/#beneficios" className={link}>Beneficios</Link></li>
+            <li><Link href="/#novedades" className={link}>Novedades</Link></li>
             <li><Link href="/#historia" className={link}>Nosotros</Link></li>
           </ul>
         </div>

@@ -100,6 +100,16 @@ class ProductOut(ProductIn, ORMModel):
     updated_at: datetime
 
 
+class HighlightsOut(BaseModel):
+    """Grupos de la vitrina (D54): los productos **más recientes** y los **más vendidos**.
+
+    Son dos listas cortas —de tres cada una— para la sección que reemplazó a las tarjetas de beneficios;
+    el espejo del frontend es `lib/highlights.ts`.
+    """
+    new: list[ProductOut]
+    best_sellers: list[ProductOut]
+
+
 class TimeSlotIn(BaseModel):
     # La franja pertenece a un punto de retiro (D18) y solo aplica los días de `weekdays`
     # (0 domingo … 6 sábado, convención de JavaScript). No tiene nombre: se nombra por su horario
@@ -314,15 +324,10 @@ class SettingsIn(BaseModel):
     # un ajuste).
     story_image: str | None = Field(default=None, max_length=500)
     # Textos que el editor visual de la página (`/admin/editor`, D38) permite cambiar además del hero y la
-    # historia: los antetítulos, las tres tarjetas de beneficios y la bajada y la ubicación del pie.
+    # historia: los antetítulos y la bajada y la ubicación del pie. Las tres tarjetas de beneficios se
+    # retiraron con su sección (D54).
     hero_eyebrow: str | None = Field(default=None, max_length=160)
     story_eyebrow: str | None = Field(default=None, max_length=160)
-    benefit_1_title: str | None = Field(default=None, max_length=160)
-    benefit_1_text: str | None = None
-    benefit_2_title: str | None = Field(default=None, max_length=160)
-    benefit_2_text: str | None = None
-    benefit_3_title: str | None = Field(default=None, max_length=160)
-    benefit_3_text: str | None = None
     footer_location: str | None = Field(default=None, max_length=160)
     footer_tagline: str | None = None
     theme_colors: dict[str, str] | None = None

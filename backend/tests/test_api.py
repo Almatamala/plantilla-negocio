@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import main
 from app.database import get_db
-from app.models import Order, OrderItem
+from app.models import Order, OrderItem, Product
 
 
 def test_health(client):
@@ -71,21 +71,17 @@ def test_store_settings_save_theme_colors(client, admin_headers):
 
 
 def test_store_settings_save_editable_page_texts(client, admin_headers):
-    # Textos que el editor visual de la página (`/admin/editor`, D38) pasó a editar: los antetítulos, las
-    # tres tarjetas de beneficios, la bajada y la ubicación del pie. Cada uno es una columna de `store_settings`, así
-    # que se guardan y vuelven por la API; con `extra="forbid"`, un nombre mal escrito sería un 422.
+    # Textos que el editor visual de la página (`/admin/editor`, D38) pasó a editar: los antetítulos y la
+    # bajada y la ubicación del pie. Cada uno es una columna de `store_settings`, así que se guardan y
+    # vuelven por la API; con `extra="forbid"`, un nombre mal escrito sería un 422. Las tres tarjetas de
+    # beneficios se retiraron con su sección (D54), así que sus columnas ya no existen.
     settings = client.get("/api/settings").json()
+    assert "benefit_1_title" not in settings
     payload = {key: value for key, value in settings.items() if key not in ("id", "updated_at")}
     payload.update({
         "name": "BOSQUE",
         "hero_eyebrow": "Tu colección, tu estilo",
         "story_eyebrow": "Una plantilla que crece contigo",
-        "benefit_1_title": "Compra con confianza",
-        "benefit_1_text": "Texto del primer beneficio.",
-        "benefit_2_title": "Una experiencia simple",
-        "benefit_2_text": "Texto del segundo beneficio.",
-        "benefit_3_title": "Tu negocio, tu estilo",
-        "benefit_3_text": "Texto del tercer beneficio.",
         "footer_location": "San Javier y Talca, Chile",
         "footer_tagline": "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial.",
     })
@@ -97,8 +93,8 @@ def test_store_settings_save_editable_page_texts(client, admin_headers):
 
     stored = client.get("/api/settings").json()
     assert stored["hero_eyebrow"] == "Tu colección, tu estilo"
-    assert stored["benefit_2_text"] == "Texto del segundo beneficio."
     assert stored["story_eyebrow"] == "Una plantilla que crece contigo"
+    assert "benefit_2_text" not in stored
     assert stored["footer_tagline"] == "Repostería artesanal de San Javier y Talca. Pedidos programados con retiro presencial."
 
     assert client.put("/api/settings", headers=admin_headers, json={**payload, "inventado": "x"}).status_code == 422
@@ -756,6 +752,51 @@ def test_reports_agregan_el_periodo(client, admin_headers, db_session):
     assert everything["previous"] is None
 
 
+def test_product_highlights_devuelve_recientes_y_mas_vendidos(client, db_session):
+    """La vitrina pide los 4 más recientes y los 4 más vendidos (D54), sin pedir el catálogo completo.
+
+    Los dos grupos salen de la misma tabla `products` (solo los `active`) y el de ventas suma las
+    unidades de los pedidos que **sí** venden: el cancelado no cuenta. Con cinco productos visibles, el
+    tope de cuatro se nota en los dos grupos —los más nuevos dejan fuera al más antiguo y los más
+    vendidos al de menos unidades—, y un producto sin ventas entra por el orden (cero unidades, y a
+    igualdad de ventas manda la fecha) para que la tienda recién cargada complete sus cuatro.
+    """
+    # Cinco productos visibles con fecha explícita (el orden de «recientes» sale de `created_at`, no del id)
+    # y uno inactivo, que pese a ser el más nuevo no puede aparecer.
+    def product(slug: str, when: datetime, status: str = "active") -> Product:
+        item = Product(name=slug.upper(), slug=slug, price=1000, status=status, created_at=when)
+        db_session.add(item)
+        db_session.flush()
+        return item
+
+    p1 = product("p1", datetime(2026, 9, 1, 12, tzinfo=timezone.utc))
+    p2 = product("p2", datetime(2026, 9, 2, 12, tzinfo=timezone.utc))
+    p3 = product("p3", datetime(2026, 9, 3, 12, tzinfo=timezone.utc))
+    p4 = product("p4", datetime(2026, 9, 4, 12, tzinfo=timezone.utc))
+    p5 = product("p5", datetime(2026, 9, 5, 12, tzinfo=timezone.utc))
+    product("oculto", datetime(2026, 9, 6, 12, tzinfo=timezone.utc), status="inactive")
+
+    def order(status: str, sales: list[tuple[Product, int]]) -> None:
+        row = Order(customer_name="Ana", status=status, total=0)
+        row.items = [OrderItem(product_id=item.id, name=item.name, unit_price=item.price, quantity=units) for item, units in sales]
+        db_session.add(row)
+
+    order("delivered", [(p1, 10), (p2, 5), (p3, 2)])
+    # Un cancelado con muchas unidades no suma ventas: p5 sigue en cero y entra por fecha.
+    order("cancelled", [(p5, 50)])
+    db_session.commit()
+
+    body = client.get("/api/products/highlights").json()
+    assert [item["slug"] for item in body["new"]] == ["p5", "p4", "p3", "p2"]
+    # Más vendidos: las unidades primero y, a igualdad, la fecha de creación (p5, con cero unidades, va
+    # antes que p4, que también tiene cero pero es más antiguo).
+    assert [item["slug"] for item in body["best_sellers"]] == ["p1", "p2", "p3", "p5"]
+    # El endpoint es público, no lo intercepta la ruta por id (`/api/products/{product_id}`) y respeta el
+    # tope de cuatro por grupo: el inactivo (el más nuevo de todos) no aparece en ninguno.
+    assert len(body["new"]) == 4 and len(body["best_sellers"]) == 4
+    assert all(item["slug"] != "oculto" for item in body["new"] + body["best_sellers"])
+
+
 def test_performance_indexes_apuntan_a_columnas_existentes():
     """Los índices que se crean al arrancar (A61) deben ser válidos e idempotentes.
 
@@ -772,6 +813,7 @@ def test_performance_indexes_apuntan_a_columnas_existentes():
         created = set(connection.execute(text("SELECT name FROM sqlite_master WHERE type = 'index'")).scalars().all())
         assert {
             "idx_order_items_order_id",
+            "idx_order_items_product_id",
             "idx_reviews_product_status_created",
             "idx_reviews_status_created",
             "idx_orders_created_at",

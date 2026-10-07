@@ -19,7 +19,7 @@ from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_order_confirmation, send_verification_code
 from .models import Category, ClosedDay, DeliveryZone, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, DeliveryZoneIn, DeliveryZoneOut, DeliveryZonePatch, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, DeliveryZoneIn, DeliveryZoneOut, DeliveryZonePatch, HighlightsOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 logger = logging.getLogger("bosque.main")
@@ -103,9 +103,9 @@ PROFILE_VERIFICATION_COLUMNS = (
 
 # Contenido de la tienda: la **paleta de marca editable** (D29), las **imágenes del hero** —la foto y el
 # **logo** opcional (D47/D49), editables desde el editor visual de la página— y los textos que el **editor
-# visual** (D38) pasó a editar —antetítulos, tarjetas de beneficios, bajada y ubicación del pie— viven junto a
-# los demás ajustes de `store_settings`; `create_all` no altera tablas existentes, así que se agregan al
-# arrancar en PostgreSQL.
+# visual** (D38) pasó a editar —antetítulos, bajada y ubicación del pie— viven junto a los demás ajustes
+# de `store_settings`; `create_all` no altera tablas existentes, así que se agregan al arrancar en
+# PostgreSQL.
 STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS theme_colors JSON",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_image VARCHAR(500)",
@@ -115,12 +115,6 @@ STORE_CONTENT_COLUMNS = (
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS hero_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_eyebrow VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS story_image VARCHAR(500)",
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_title VARCHAR(160)",
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_1_text TEXT",
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_2_title VARCHAR(160)",
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_2_text TEXT",
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_3_title VARCHAR(160)",
-    "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS benefit_3_text TEXT",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS footer_location VARCHAR(160)",
     "ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS footer_tagline TEXT",
 )
@@ -130,13 +124,22 @@ STORE_CONTENT_COLUMNS = (
 # terceros por el feed propio con la API de Instagram (D30) y los **datos bancarios** salen porque la
 # web dejó de ofrecer transferencia (el pago se coordina por WhatsApp, D34). El **lado de la foto de la
 # historia** (`story_image_side`) también se retira (D53): la foto va **siempre a la izquierda**, así que
-# era un ajuste de un solo valor útil. Los cuatro salen del panel y de la API y las columnas se eliminan
-# al arrancar para que una base ya creada quede igual que una nueva.
+# era un ajuste de un solo valor útil. Las **tres tarjetas de beneficios** (`benefit_1_title` …
+# `benefit_3_text`) se retiran con la sección que las mostraba: la vitrina las reemplazó por los
+# **destacados** de productos (4 recientes + 4 más vendidos, D54), así que no quedaba ningún consumidor.
+# Todo sale del panel y de la API y las columnas se eliminan al arrancar para que una base ya creada
+# quede igual que una nueva.
 RETIRED_STORE_SETTINGS_COLUMNS = (
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS products_per_page",
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS instagram_embed_url",
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS bank_account_info",
     "ALTER TABLE store_settings DROP COLUMN IF EXISTS story_image_side",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS benefit_1_title",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS benefit_1_text",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS benefit_2_title",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS benefit_2_text",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS benefit_3_title",
+    "ALTER TABLE store_settings DROP COLUMN IF EXISTS benefit_3_text",
 )
 
 # Días de preparación del producto (D35). Como `create_all` no altera tablas existentes, la columna
@@ -197,6 +200,9 @@ PERFORMANCE_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at DESC)",
     # Zona de envío por comuna: el checkout busca una por país/región/ciudad (D44).
     "CREATE INDEX IF NOT EXISTS idx_delivery_zones_place ON delivery_zones (country, region, city)",
+    # Unidades vendidas de cada producto (los «más vendidos» de la vitrina, D54): la subconsulta filtra
+    # `order_items` por producto, que era la otra tabla que más crecía y no tenía índice por esa columna.
+    "CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items (product_id)",
 )
 
 # Todo el mantenimiento de la base al arrancar (columnas retiradas, columnas nuevas, índices y las
@@ -248,6 +254,10 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Solo los productos `active` son visibles en la tienda; los `inactive` quedan para el panel.
 PUBLIC_STATUSES = ["active"]
+
+# Estados que **no** suman dinero: el panel muestra `refunded` como Cancelado, así que los dos quedan
+# fuera de las ventas, igual que en las tarjetas de Reportes y en los «más vendidos» de la vitrina.
+REPORT_NOT_SALES = ("cancelled", "refunded")
 
 
 def google_configured() -> bool:
@@ -627,6 +637,39 @@ def list_products(include_inactive: bool = False, db: Session = Depends(get_db))
     return db.scalars(query).all()
 
 
+# Cuántos productos muestra cada grupo de la vitrina (D54): cuatro recientes y cuatro más vendidos.
+HIGHLIGHTS_PER_GROUP = 4
+
+# Unidades vendidas de un producto: suma de `order_items.quantity` de los pedidos que **sí** son venta
+# (los cancelados y reembolsados no cuentan, igual que en los reportes). Es una subconsulta correlacionada
+# para poder ordenar el catálogo por ella sin bajar todos los pedidos al servidor web.
+SOLD_UNITS = (
+    select(func.coalesce(func.sum(OrderItem.quantity), 0))
+    .select_from(OrderItem)
+    .join(Order, OrderItem.order_id == Order.id)
+    .where(OrderItem.product_id == Product.id, Order.status.notin_(REPORT_NOT_SALES))
+    .correlate(Product)
+    .scalar_subquery()
+)
+
+
+@app.get("/api/products/highlights", response_model=HighlightsOut)
+def product_highlights(db: Session = Depends(get_db)):
+    """Los cuatro productos **más recientes** y los cuatro **más vendidos** (D54), para la vitrina.
+
+    Los dos grupos son la misma consulta sobre el catálogo **visible** (`active`): el grupo de recientes
+    ordena por `created_at` y el de más vendidos por las unidades vendidas (y, a igualdad de ventas, por
+    fecha de creación). Un producto sin ventas no queda fuera: entra con cero unidades, así que una tienda
+    recién cargada —sin pedidos todavía— igual completa sus cuatro «más vendidos». Los dos grupos son
+    independientes a propósito: un producto nuevo que además vende bien aparece en los dos.
+    """
+    visible = select(Product).where(Product.status.in_(PUBLIC_STATUSES))
+    return HighlightsOut(
+        new=db.scalars(visible.order_by(Product.created_at.desc()).limit(HIGHLIGHTS_PER_GROUP)).all(),
+        best_sellers=db.scalars(visible.order_by(SOLD_UNITS.desc(), Product.created_at.desc()).limit(HIGHLIGHTS_PER_GROUP)).all(),
+    )
+
+
 @app.get("/api/products/slug/{slug}", response_model=ProductOut)
 def get_product_by_slug(slug: str, db: Session = Depends(get_db)):
     """Ficha pública: un producto `inactive` no se muestra en la tienda, así que por URL tampoco."""
@@ -992,10 +1035,6 @@ def my_orders(authorization: str | None = Header(default=None), db: Session = De
 
 
 # ── Reportes del negocio (D21) ──────────────────────────────────────────────
-
-# Estados que **no** suman dinero: el panel muestra `refunded` como Cancelado, así que los dos quedan
-# fuera de las ventas, igual que en las tarjetas de Reportes.
-REPORT_NOT_SALES = ("cancelled", "refunded")
 
 
 def report_orders(db: Session, start: date | None, end: date | None) -> list[Order]:

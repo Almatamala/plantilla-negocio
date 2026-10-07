@@ -4,9 +4,6 @@ import { defaultThemeColors, normalizeThemeColors, type ThemeColors } from "@/li
  * Punto único para personalizar una nueva tienda sin modificar la interfaz.
  * Estos valores pueden ser sobreescritos desde la tabla `store_settings` del panel.
  */
-/** Tarjeta de la sección «Beneficios» de la vitrina: título y texto. */
-export type Benefit = { title: string; text: string };
-
 /**
  * Forma del marco del logo del hero (D50): el círculo de siempre, un círculo de **bordes difuminados** o
  * una flor. Se eligen en una ventana con las tres siluetas, en el editor de la página.
@@ -50,8 +47,6 @@ export type StoreConfig = {
   heroLogoShape: LogoShape;
   /** Encuadre de la foto del hero (D51): un `object-position` de CSS, movible desde el editor. */
   heroImagePosition: string;
-  /** Las tres tarjetas de «Beneficios», en el orden en que se dibujan (D38). */
-  benefits: [Benefit, Benefit, Benefit];
   storyEyebrow: string;
   storyHeadline: string;
   storyDescription: string;
@@ -87,12 +82,6 @@ export type ApiSettings = {
   story_description: string | null;
   story_eyebrow: string | null;
   story_image: string | null;
-  benefit_1_title: string | null;
-  benefit_1_text: string | null;
-  benefit_2_title: string | null;
-  benefit_2_text: string | null;
-  benefit_3_title: string | null;
-  benefit_3_text: string | null;
   footer_location: string | null;
   footer_tagline: string | null;
   contact_email: string | null;
@@ -101,11 +90,6 @@ export type ApiSettings = {
   instagram_url: string | null;
   theme_colors: Partial<Record<string, string>> | null;
 };
-
-/** Una tarjeta de beneficios: lo que llegó de la API y, si viene vacío, el texto por defecto. */
-function mergeBenefit(current: Benefit, title: string | null, text: string | null): Benefit {
-  return { title: title ?? current.title, text: text ?? current.text };
-}
 
 /** Combina los ajustes guardados en el panel con los valores por defecto. */
 export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreConfig {
@@ -125,11 +109,6 @@ export function mergeSettings(current: StoreConfig, data: ApiSettings): StoreCon
     heroLogoShape: normalizeLogoShape(data.hero_logo_shape),
     // El encuadre de la foto (D51) cae al recorte por defecto si no hay ninguno guardado.
     heroImagePosition: data.hero_image_position?.trim() || current.heroImagePosition,
-    benefits: [
-      mergeBenefit(current.benefits[0], data.benefit_1_title, data.benefit_1_text),
-      mergeBenefit(current.benefits[1], data.benefit_2_title, data.benefit_2_text),
-      mergeBenefit(current.benefits[2], data.benefit_3_title, data.benefit_3_text),
-    ],
     storyEyebrow: data.story_eyebrow ?? current.storyEyebrow,
     storyHeadline: data.story_headline ?? current.storyHeadline,
     storyDescription: data.story_description ?? current.storyDescription,
@@ -165,11 +144,6 @@ export const storeConfig: StoreConfig = {
   heroLogo: "",
   heroLogoShape: "circle",
   heroImagePosition: defaultHeroImagePosition,
-  benefits: [
-    { title: "Compra con confianza", text: "Destaca tus garantías, materiales, soporte o cualquier beneficio importante." },
-    { title: "Una experiencia simple", text: "Usa este bloque para explicar cómo funciona tu servicio o proceso de compra." },
-    { title: "Tu negocio, tu estilo", text: "Cambia textos, precios, fotos y colecciones desde el CMS incluido." },
-  ],
   storyEyebrow: "Una plantilla que crece contigo",
   storyHeadline: "Haz que tu marca se sienta única.",
   storyDescription: "Personaliza este espacio para comunicar tu propuesta, historia, beneficios o cualquier mensaje importante para tus clientes.",

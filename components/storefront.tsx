@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ChevronLeft, ChevronRight, Package, Plus, Search, Shapes } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, Shapes } from "lucide-react";
 import { useCart } from "@/lib/cart";
 import { formatPrice, type Product } from "@/lib/products";
 import { useCatalog } from "@/lib/use-catalog";
@@ -11,9 +11,10 @@ import { logoShapeLabels, logoShapes, normalizeLogoShape } from "@/lib/store-con
 import { useStoreSettings } from "@/lib/use-store-settings";
 import { themeVars } from "@/lib/theme";
 import { CartDrawer } from "@/components/cart-drawer";
-import { EditableImage, EditableText, useContentEdit, type EditableField } from "@/components/editable-content";
+import { EditableImage, EditableText, useContentEdit } from "@/components/editable-content";
 import { FloatingCart } from "@/components/floating-cart";
 import { InstagramGrid } from "@/components/instagram-grid";
+import { ProductHighlights } from "@/components/product-highlights";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
@@ -22,16 +23,6 @@ import { WhatsAppButton } from "@/components/whatsapp-button";
  * de la vitrina (no se edita desde el panel), así que la carta siempre pagina igual.
  */
 const PRODUCTS_PER_PAGE = 8;
-
-/**
- * Claves editables de las tres tarjetas de «Beneficios», en el mismo orden que `storeConfig.benefits`
- * (D38): `EditableText` guarda por nombre de campo, así que la pareja título/texto se declara una vez.
- */
-const BENEFIT_FIELDS: { title: EditableField; text: EditableField }[] = [
-  { title: "benefit_1_title", text: "benefit_1_text" },
-  { title: "benefit_2_title", text: "benefit_2_text" },
-  { title: "benefit_3_title", text: "benefit_3_text" },
-];
 
 /**
  * Opciones del selector de forma del logo (D50): la lista y sus nombres salen de `lib/store-config.ts`
@@ -152,17 +143,17 @@ export function Storefront({ products }: { products: Product[] }) {
         foto, la sección queda partida en **dos mitades iguales** que se reparten todo el ancho: la de la
         izquierda lleva la foto sobre un bloque del color de **detalle** de la paleta y la de la derecha
         los textos; sin foto, el texto va centrado como siempre. */}
-    <section id="historia" className={`bg-[var(--brand-accent)] text-white${storyImage ? "" : " px-5 py-20 md:px-10"}`}>
+    <section id="historia" className={`bg-white text-white ${storyImage ? "" : " px-5  md:px-10"}`}>
       {storyImage ? (
-        <div className="grid md:grid-cols-2">
+        <div className="grid md:grid-cols-2 gap-1 py-1">
           {/* La foto es una copia **más pequeña y centrada** del bloque que la rodea: el margen es parejo
               (`inset-8` / `md:inset-14`), así que conserva su forma. Sin esquinas redondeadas: el bloque
               hace de marco (A76). Ojo con las clases pegadas al `${…}`: Tailwind no las genera. */}
-          <div className="relative min-h-[360px] bg-[var(--brand-detail)]">
+          <div className="relative min-h-[360px] bg-[var(--brand-detail)] ">
             <EditableImage field="story_image" value={config.storyImage} alt="" containerClassName="absolute inset-12 md:inset-22" className="h-full w-full object-cover" controlsClassName="absolute right-3 top-3 z-50" resetTo="" resetLabel="Quitar foto" label="Foto de la historia"/>
           </div>
           {/* La otra mitad: los mismos textos, con su propio aire para que no queden pegados al borde. */}
-          <div className="flex items-center justify-center px-5 py-16 md:px-12 md:py-20">
+          <div className="flex items-center justify-center bg-[var(--brand-accent)]  px-5 py-16 md:px-12 md:py-20">
             <div className="mx-auto max-w-xl text-center">{storyText}</div>
           </div>
         </div>
@@ -175,17 +166,10 @@ export function Storefront({ products }: { products: Product[] }) {
         </div>
       )}
     </section>
-    <section id="beneficios" className="mx-auto grid max-w-7xl gap-8 px-5 py-20 md:grid-cols-3 md:px-10">{config.benefits.map((benefit, index) => {
-      // El título y el texto de cada tarjeta se editan en la página («/admin/editor», D38).
-      const fields = BENEFIT_FIELDS[index];
-      return (
-        <div key={fields.title}>
-          <Package className="mb-5 text-[var(--brand-accent)]"/>
-          <EditableText as="h3" field={fields.title} value={benefit.title} className="display text-2xl"/>
-          <EditableText as="p" field={fields.text} value={benefit.text} className="mt-3 leading-7 text-[var(--brand-muted)]"/>
-        </div>
-      );
-    })}</section>
+    {/* Destacados (D54): los tres productos más recientes y los tres más vendidos, en el carrusel que
+        reemplazó a las tarjetas de beneficios. Los grupos los calcula la API; mientras la respuesta llega se
+        muestran los productos del catálogo que ya tiene la tienda. */}
+    <ProductHighlights fallback={catalog}/>
     <InstagramGrid/>
     <StoreFooter config={config}/>
     <WhatsAppButton phone={config.whatsapp_phone}/>
