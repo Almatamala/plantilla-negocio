@@ -213,3 +213,98 @@ expuesto.
 - [ ] `returnUrl` absoluto con HTTPS vía `NEXT_PUBLIC_SITE_URL`.
 - [ ] Pruebas con mocks + integración con tarjetas de prueba.
 
+---
+
+## 6. Roadmap de la plantilla (más rubros, menos edición por cliente)
+
+`ecommerce.md` §6/§8/§10/§11 lista las mejoras que **cierran la brecha con los SaaS** y las que **habilitan
+más rubros** con poca edición. Acá queda el **estado** de esa lista y, para lo que **falta**, sus
+**requerimientos**. El resto de las mejoras de `ecommerce.md` §6 (variantes, cupones, recuperación de
+carrito, SEO completo, favoritos, gift cards, puntos, email marketing, multi-idioma, marketplaces, POS…)
+sigue **pendiente** y se prioriza según §8 de ese documento (esencial → crecimiento → pro).
+
+### 6.1 Implementado
+
+- **Buscador de productos con autocompletado (D55).** La carta abre una lista de coincidencias (foto,
+nombre, categoría y precio) mientras se escribe, se navega con flechas/Enter o el mouse, y lleva a la
+ficha. La regla de búsqueda (`lib/search.ts`) es la misma para el autocompletado y para el filtro de la
+grilla. **No requiere endpoint nuevo**: el catálogo ya está en el navegador por la lectura compartida
+(D41) y buscar funciona incluso con la última versión conocida (D20).
+- **Filtros de la carta (D56).** Además de la búsqueda: **categoría** (píldoras) y **rango de precio**
+(slider con los límites del catálogo), agrupados en un **acordeón** que abre el botón «Filtros». Es
+combinable (AND) con el buscador y, igual que él, **sin endpoint nuevo**.
+
+### 6.2 Pendiente — Pasarelas de pago adicionales (MercadoPago, Flow, Khipu)
+
+> Se suman a Webpay (D8/D34), que sigue siendo el medio por defecto. **Toda** la checklist de §5 aplica
+> igual: son las reglas de cualquier pasarela (nunca marcar pagado sin confirmación, idempotencia, monto
+> recalculado en el servidor, `returnUrl` absoluto con HTTPS, credenciales solo del lado servidor).
+
+1. **Capa de pago única (adaptadores).** Una interfaz común —crear, confirmar, consultar estado,
+   reembolsar— con un adaptador por proveedor, en vez de ramas `if (provider)` repartidas por el checkout.
+   El checkout elige el **método** y el resto del flujo (pedido, correo, panel) no cambia.
+2. **Modelo de datos de transacciones.** Guardar **un registro por intento** (proveedor, id de transacción,
+   `buy_order`/referencia, token, monto, estado, fecha de autorización y respuesta cruda) y asociarlo al
+   pedido. Reutiliza el diseño previsto para Webpay (§5.5) y sirve para auditar y reconciliar.
+3. **Doble canal de confirmación.** A diferencia de Webpay (sin webhook), MercadoPago/Flow/Khipu
+   confirman por **retorno del navegador y/o webhook**: el endpoint de webhook debe ser **público, con
+   firma/secreto verificado, idempotente y detrás de HTTPS**, y **jamás** marcar el pedido como pagado sin
+   una respuesta autorizada del proveedor.
+4. **Idempotencia y reintentos.** Un pago se registra **una sola vez** aunque lleguen dos confirmaciones
+   (retorno + webhook, o dos webhooks); reintentar el pago **no puede duplicar el pedido** (D37: el pago
+   se registra, el pedido sigue en `pending`).
+5. **Endpoints internos con secreto.** El frontend no puede confirmar un pago por el endpoint público de
+   pedidos (hoy exige admin): hace falta el endpoint dedicado con **secreto compartido** de §5.6
+   (`API_ADMIN_TOKEN` o propio), que valide **monto** y sea idempotente.
+6. **Credenciales y entornos.** Variables de entorno por proveedor **solo del lado servidor**
+   (`*_API_KEY`/`*_SECRET`/`*_ACCESS_TOKEN`), nunca `NEXT_PUBLIC_*`; dos juegos (sandbox y producción) que
+   no se mezclan; si se filtraron, se regeneran en el portal del proveedor.
+7. **Activación por bandera.** Un flag de UI por método (como `NEXT_PUBLIC_WEBPAY_ENABLED`) para mostrar
+   solo lo que tenga credenciales cargadas; el gate real son las credenciales, no la UI.
+8. **Reconciliación de pagos sin retorno.** Si el cliente cierra la pestaña, el pago queda autorizado en el
+   proveedor y el pedido sin marcar: consultar el estado desde el panel y con un trabajo periódico que
+   revise los pendientes con transacción (§5.7).
+9. **Reembolsos.** Solo admin, con confirmación y monto ≤ pagado, usando el reembolso del proveedor;
+   definir explícitamente si devuelve stock (no es automático, §5.8).
+10. **Comisiones y aviso al cliente.** Cada proveedor cobra lo suyo; decidir y **mostrar** la comisión del
+    medio en el checkout (el modelo BOSQUE sigue **sin comisión de plataforma**).
+11. **Pruebas.** Nunca llamar a la pasarela real en la suite: **mocks** de los adaptadores (como Instagram)
+    y, antes de producción, pruebas en **sandbox** del proveedor con sus medios de prueba.
+12. **UX del checkout.** Selector de método, botón de pago deshabilitado mientras se **crea** la
+    transacción (dos clics no pueden crear dos), y salida por WhatsApp ante error/rechazo, sin reintentar a
+    ciegas.
+
+### 6.3 Pendiente — Integración con couriers chilenos (Chilexpress, Starken, Blue Express)
+
+> Hoy el envío es **propio por comuna** (D44): tarifa fija por zona y sin número de seguimiento. El courier
+> agrega **cotización real, guía y tracking**; convive con el retiro presencial y con las zonas propias.
+
+1. **Capa de envío única (adaptadores).** Una interfaz común —cotizar, crear guía, consultar estado,
+   cancelar— con un adaptador por courier, para que el checkout y el panel no conozcan los detalles de cada
+   API. Las **zonas de envío propias (D44)** siguen como opción/fallback.
+2. **Modelo de datos.** Por pedido: `shipping_carrier`, `tracking_number`, `tracking_url`, estado del
+   envío, `shipped_at`/`delivered_at` y la **guía** (archivo/URL). La tabla `delivery_zones` se mantiene;
+   el courier puede reemplazarla o complementarla por comuna.
+3. **Códigos de comuna, no texto libre.** Los couriers identifican destinos por **su propio código**
+   (p. ej. `codex` de Chilexpress), no por el nombre de la comuna. `lib/chile.ts` trae regiones y comunas
+   **por nombre**: hace falta una **tabla de equivalencias** región/comuna → código del courier.
+4. **Cotización real (peso y dimensiones).** Cotizar requiere **origen** (punto de retiro), **destino** y
+   **peso/medidas del paquete**. Hoy el producto no tiene peso ni dimensiones: agregar
+   `products.weight_grams` y `length_cm`/`width_cm`/`height_cm` (o un empaque por pedido) y calcular el
+   bulto.
+5. **Coexistencia de tarifas.** Definir la precedencia entre la **tarifa propia por comuna** (`fee` y
+   `free_threshold`, D44) y la **cotización del courier**, y **recalcular el monto en el servidor** (nunca
+   confiar en el que manda el navegador, igual que hoy).
+6. **Guías y etiquetas.** Generar e imprimir la **etiqueta** (PDF/ZPL) desde el panel, marcar el pedido
+   como enviado y guardar la guía para reimprimir.
+7. **Seguimiento.** Sincronizar el estado (webhook del courier o trabajo periódico), mostrarlo en **Mi
+   cuenta**, en el **correo de confirmación** y en la tabla de **Pedidos** del panel.
+8. **Cobertura y fallback.** Validar si el courier cubre la comuna y, si no, caer a la zona propia o
+   rechazar el envío con aviso; el retiro presencial (D16/D33) sigue siempre disponible.
+9. **Credenciales y entornos.** Credenciales por courier **solo del lado servidor** (API key/portal),
+   sandbox y producción separados, y nunca en `NEXT_PUBLIC_*`.
+10. **Operación diaria.** Agendar el retiro / armar el **manifiesto** del día, cancelar guías y manejar
+    **pérdidas/reclamos** (reconciliación con el courier).
+11. **Pruebas.** **Mocks** de los adaptadores (nunca el courier real en la suite) y pruebas en sandbox
+    antes de producción; la generación de etiquetas no se ejecuta en los tests.
+

@@ -90,14 +90,14 @@ export function ProductHighlights({ fallback = [] }: { fallback?: Product[] }) {
   return (
     <section id="novedades" className="bg-[var(--cream)] ">
       <div className="grid md:grid-cols-2 gap-1">
-        {/* Panel izquierdo: el marco queda fijo (a sangre contra el borde de la página) y la foto de detalle
-            se desliza dentro. El fondo del visual (`product-visual`) es el degradado de la paleta, así que un
-            producto sin foto igual muestra su bloque de color. */}
-        
-
-        {/* Panel derecho: la tarjeta (marco de la foto + pie) no se mueve. Dentro de su marco se desliza la
+        {/* Panel izquierdo: la tarjeta (marco de la foto + pie) no se mueve. Dentro de su marco se desliza la
             foto principal y el pie —nombre y «Desde $…»— cambia con un fundido, sin desplazarse. Las flechas
             van en círculo **al lado de la tarjeta** y los puntos debajo. */}
+        
+
+        {/* Panel derecho: el marco queda fijo (a sangre contra el borde de la página) y la foto de detalle
+            se desliza dentro. El fondo del visual (`product-visual`) es el degradado de la paleta, así que un
+            producto sin foto igual muestra su bloque de color. */}
         <div className="relative flex flex-col items-center justify-center bg-[var(--brand-surface)] px-14 py-12 md:px-24 md:py-16">
           <div className="w-full max-w-sm">
             {/* Título **encima de la carta**, en la misma columna que ella: dice en qué grupo se está y se

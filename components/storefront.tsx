@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ChevronLeft, ChevronRight, Plus, Search, Shapes } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Plus, Shapes } from "lucide-react";
 import { useCart } from "@/lib/cart";
 import { formatPrice, type Product } from "@/lib/products";
+import { filterProducts } from "@/lib/search";
 import { useCatalog } from "@/lib/use-catalog";
 import { logoShapeLabels, logoShapes, normalizeLogoShape } from "@/lib/store-config";
 import { useStoreSettings } from "@/lib/use-store-settings";
@@ -14,7 +15,9 @@ import { CartDrawer } from "@/components/cart-drawer";
 import { EditableImage, EditableText, useContentEdit } from "@/components/editable-content";
 import { FloatingCart } from "@/components/floating-cart";
 import { InstagramGrid } from "@/components/instagram-grid";
+import { ProductFilters, type PriceRange } from "@/components/product-filters";
 import { ProductHighlights } from "@/components/product-highlights";
+import { ProductSearch } from "@/components/product-search";
 import { StoreFooter, StoreHeader } from "@/components/store-shell";
 import { WhatsAppButton } from "@/components/whatsapp-button";
 
@@ -93,14 +96,20 @@ export function Storefront({ products }: { products: Product[] }) {
   const [drawer, setDrawer] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+  // Filtros avanzados (D56): rango de precio activo (`null` = sin filtro).
+  const [range, setRange] = useState<PriceRange | null>(null);
   const [page, setPage] = useState(0);
   const { cart, add, change, count } = useCart();
 
-  // Búsqueda y categoría son filtros independientes y combinables: el texto busca dentro de la
-  // categoría activa (AND), y «Todos» (categoría vacía) no restringe.
-  const visible = catalog.filter((p) =>
-    (category === "" || p.category === category) && p.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  // Los filtros de la carta (texto, categoría y precio) son independientes y combinables: se aplican
+  // todos a la vez (AND). La regla vive en `lib/search.ts` —la **misma** que el autocompletado (D55)—,
+  // así que una sugerencia siempre deja un resultado acá (D56).
+  const visible = filterProducts(catalog, {
+    query: search,
+    category,
+    minPrice: range?.[0] ?? null,
+    maxPrice: range?.[1] ?? null,
+  });
   const addToCart = (id: string) => { add(id); setDrawer(true); };
 
   // Catálogo paginado: la vitrina muestra 8 productos por página (4 columnas × 2 filas) y la página se
@@ -112,6 +121,7 @@ export function Storefront({ products }: { products: Product[] }) {
   // Al filtrar o buscar se vuelve a la primera página, y los productos que quedan se acomodan solos.
   const onSearch = (value: string) => { setSearch(value); setPage(0); };
   const onCategory = (value: string) => { setCategory(value); setPage(0); };
+  const onRange = (value: PriceRange | null) => { setRange(value); setPage(0); };
 
   // Sección de historia (A76/D53): **con foto** es un «about us» de dos mitades —la foto a la izquierda y
   // los textos a la derecha—; **sin foto** queda solo el texto centrado, como siempre. La foto sale del
@@ -127,9 +137,9 @@ export function Storefront({ products }: { products: Product[] }) {
     {/* Hero (A66/D47/D48/D49): la foto de fondo —la que se sube desde el editor de la página; **sin foto el hero queda sin fondo** (A74)— cubre toda la sección y el texto queda a la izquierda; el degradado hacia la derecha sale del color de la página (`--cream`), así la foto se mimetiza con el fondo. El **logo** de la esquina inferior es opcional (D49) y va de un **tamaño fijo**, con la forma del marco —círculo, bordes difuminados o flor— elegida en el editor (D50). En el editor aparecen encima los botones para cambiar cada foto y la foto se **arrastra para encuadrarla** (D51); por eso el degradado y el bloque de texto son `pointer-events-none` mientras se edita, así el gesto llega a la foto. La caja «Destacado · Colección destacada» se retiró. */}
     <section id="inicio" className="relative"><EditableImage field="hero_image" value={config.heroImage} position={config.heroImagePosition} panField="hero_image_position" resetTo="" resetLabel="Quitar foto" containerClassName="absolute inset-0" className="h-full w-full object-cover" controlsClassName="absolute right-5 top-5 z-50"/><div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-r from-[var(--cream)] to-transparent to-60%"/><div className={`relative mx-auto max-w-7xl px-5 md:px-10 ${edit ? "pointer-events-none" : ""}`}><div className="flex min-h-[430px] max-w-xl flex-col justify-center py-14 md:py-20"><EditableText as="p" field="hero_eyebrow" value={config.eyebrow} className="mb-5 text-xs tracking-[.2em] text-[var(--brand-accent)] uppercase"/><EditableText as="h1" field="hero_title" value={config.headline} className="display max-w-xl text-5xl leading-[.96] md:text-7xl"/><EditableText as="p" field="hero_description" value={config.description} className="mt-7 max-w-md leading-7 text-[var(--brand-muted)]"/><Link href="/#coleccion" className="mt-9 inline-flex w-fit items-center gap-3 border-b border-[var(--brand-accent)] pb-2 text-sm font-medium">Ver productos <ArrowRight size={16}/></Link></div></div>{/* Logo de la tienda (D49, **opcional**): un marco en la esquina inferior derecha del hero, redondo o con forma de flor (D50). Sin logo no se dibuja nada y, en el editor de la página, queda el botón para subirlo más los de la forma. Va **después** del texto para quedar por encima: sin `z-index` en el contenedor, el botón sí puede subir sobre el velo. */}<EditableImage field="hero_logo" value={config.heroLogo} alt={config.name} containerClassName="absolute right-10 bottom-10 flex flex-col items-end gap-2" className={`h-20 w-20 border-4 border-white bg-white object-cover shadow-xl md:h-40 md:w-40 ${logoShapeClass(logoShape)}`} controlsClassName="relative z-50" tools={logoValue ? <LogoShapeTools shape={logoShape}/> : undefined} resetTo="" resetLabel="Quitar el logo" label="Logo de la tienda"/></section>
     <section id="coleccion" className="bg-[var(--brand-surface)] px-5 py-20 md:px-10"><div className="mx-auto max-w-7xl">
-      <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs tracking-[.18em] text-[var(--brand-accent)] uppercase">Catálogo</p><h2 className="display mt-2 text-4xl md:text-5xl">Productos destacados</h2></div><label className="flex items-center gap-2 border-b border-[var(--brand-accent)] pb-2 text-sm"><Search size={16}/><input id="buscador" value={search} onChange={(e) => onSearch(e.target.value)} placeholder="Buscar productos" className="w-44 bg-transparent outline-none placeholder:text-[var(--brand-muted)]"/></label></div>
+      <div className="mb-7 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs tracking-[.18em] text-[var(--brand-accent)] uppercase">Catálogo</p><h2 className="display mt-2 text-4xl md:text-5xl">Productos destacados</h2></div><ProductSearch products={catalog} value={search} onChange={onSearch}/></div>
       {/* Los filtros van arriba del catálogo, como en la referencia. */}
-      <div className="mb-8 flex flex-wrap items-center gap-2">{["Todos", ...Array.from(new Set(catalog.map((product) => product.category)))].map((option) => <button key={option} onClick={() => onCategory(option === "Todos" ? "" : option)} className="rounded-full border border-[var(--brand-accent)] px-4 py-2 text-sm transition hover:border-[var(--brand-accent)] hover:bg-[var(--brand-accent)] hover:text-white">{option}</button>)}
+      <div className="mb-8 flex flex-wrap items-center gap-2"><ProductFilters products={catalog} category={category} onCategory={onCategory} range={range} onRange={onRange}/>
         {/* Flechas de página del catálogo, a la derecha de los filtros. */}
         {pageCount > 1 && <div className="ml-auto flex items-center gap-2"><span className="text-sm text-[var(--brand-muted)]">{currentPage + 1} / {pageCount}</span><button onClick={() => goToPage(-1)} disabled={currentPage === 0} aria-label="Productos anteriores" className="grid h-10 w-10 place-items-center rounded-full border border-[var(--brand-accent)] text-[var(--brand-accent)] transition hover:bg-[var(--brand-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--brand-accent)]"><ChevronLeft size={18}/></button><button onClick={() => goToPage(1)} disabled={currentPage >= pageCount - 1} aria-label="Productos siguientes" className="grid h-10 w-10 place-items-center rounded-full border border-[var(--brand-accent)] text-[var(--brand-accent)] transition hover:bg-[var(--brand-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--brand-accent)]"><ChevronRight size={18}/></button></div>}
       </div>
