@@ -22,7 +22,7 @@ import { Metric } from "@/components/admin-metric";
 import { ReportsSection } from "@/components/admin-reports";
 import { formatSlot, weekdayFromIso } from "@/lib/schedule";
 
-type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "contenido" | "reportes";
+type Section = "inicio" | "productos" | "pedidos" | "agenda" | "comentarios" | "instagram" | "contenido" | "reportes";
 type OrderItem = { name: string; quantity: number; price: number; productId?: string | null };
 // Estados unificados (D37): un pedido en preparación ya está pagado, así que «Pagado» y «Preparando»
 // se unificaron en «Pendiente» y solo se ofrecen Pendiente / Enviado / Entregado / Cancelado.
@@ -42,7 +42,7 @@ const SELECT_FIELD_INLINE = "select-field rounded-lg border border-[#d9ddd5] bg-
 const SELECT_FIELD = `${SELECT_FIELD_INLINE} w-full`;
 const SELECT_FIELD_SM = "select-field rounded-md border border-[#d9ddd5] bg-white px-2 py-1 text-xs outline-none transition hover:border-[#243128] focus:border-[#243128]";
 const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: "inicio", label: "Inicio", icon: LayoutDashboard }, { id: "productos", label: "Productos", icon: Package }, { id: "pedidos", label: "Pedidos", icon: Box }, { id: "agenda", label: "Agenda", icon: CalendarDays }, { id: "comentarios", label: "Comentarios", icon: MessageSquare }, { id: "contenido", label: "Contenido", icon: FileText }, { id: "reportes", label: "Reportes", icon: BarChart3 },
+  { id: "inicio", label: "Inicio", icon: LayoutDashboard }, { id: "productos", label: "Productos", icon: Package }, { id: "pedidos", label: "Pedidos", icon: Box }, { id: "agenda", label: "Agenda", icon: CalendarDays }, { id: "comentarios", label: "Comentarios", icon: MessageSquare }, { id: "instagram", label: "Instagram", icon: AtSign }, { id: "contenido", label: "Contenido", icon: FileText }, { id: "reportes", label: "Reportes", icon: BarChart3 },
 ];
 
 /** Estados con los que un pedido ya no se gestiona: el panel los pide solo al mostrar el historial. */
@@ -165,6 +165,7 @@ function AdminContent(props: { section: Section; catalog: AdminProduct[]; orders
   if (section === "pedidos") return <section className="rounded-xl bg-white p-5"><p className="text-sm text-[#647167]"></p><OrdersSection orders={orders} onOrderChange={props.onOrderChange} onOrderEdit={props.onOrderEdit} onScopeChange={props.onOrderScope}/></section>;
   if (section === "agenda") return <AgendaSection setState={setState}/>;
   if (section === "comentarios") return <ReviewsSection setState={setState}/>;
+  if (section === "instagram") return <InstagramSection setState={setState}/>;
   if (section === "contenido") return <ContentEditor setState={setState}/>;
   return <ReportsSection catalog={catalog}/>;
 }
@@ -730,6 +731,90 @@ function OrderModal({ order, catalog, onClose, onSaved, setState }: { order?: Or
     </Modal>
   );
 }
+type InstagramStatus = { configured: boolean; user_id: string | null; source: string | null; refreshed_at: string | null; next_refresh_at: string | null; last_error: string | null };
+
+/**
+ * Credenciales del feed de Instagram (D30). El token de larga duración vive en la API
+ * (`PUT /api/instagram/token`) y **nunca se devuelve**: acá se ve el estado de la cuenta, cuándo se
+ * renovó y un campo para cargar uno nuevo. Sin token, la sección de la tienda no se dibuja.
+ */
+function InstagramSection({ setState }: { setState: (value: string) => void }) {
+  const [status, setStatus] = useState<InstagramStatus | null>(null);
+  const [token, setToken] = useState("");
+  const [userId, setUserId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try {
+      const data = await apiFetch<InstagramStatus>("/api/instagram/token", { admin: true });
+      setStatus(data);
+      setUserId(data.user_id ?? "");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo leer el estado de Instagram."); }
+  }
+  useEffect(() => { void load(); }, []);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const data = await apiFetch<InstagramStatus>("/api/instagram/token", { method: "PUT", admin: true, body: { access_token: token.trim(), user_id: userId.trim() || null } });
+      setStatus(data);
+      setToken("");
+      setState("Token de Instagram validado y guardado.");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo guardar el token."); }
+    finally { setBusy(false); }
+  }
+
+  async function refresh() {
+    setBusy(true);
+    try {
+      const data = await apiFetch<InstagramStatus>("/api/instagram/refresh", { method: "POST", admin: true });
+      setStatus(data);
+      setState("Token renovado con Instagram.");
+    } catch (e) { setState(e instanceof Error ? e.message : "No se pudo renovar el token."); await load(); }
+    finally { setBusy(false); }
+  }
+
+  const when = (value: string | null | undefined) => value ? new Date(value).toLocaleString("es-CL") : "—";
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-xl bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="display text-2xl">Feed de Instagram</h2>
+          <span className={`rounded-full px-2.5 py-1 text-xs ${status?.configured ? "bg-[#e4efe4] text-[#2f5d3a]" : "bg-[#f3e2e0] text-[#8a4a44]"}`}>
+            {status ? (status.configured ? "Conectado" : "Sin configurar") : "Leyendo…"}
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-[#647167]">
+          El token de larga duración se guarda en la base y la API lo renueva sola cada 50 días. Por seguridad no se
+          vuelve a mostrar: si pegas uno nuevo, reemplaza al anterior.
+        </p>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div><dt className="text-[#748077]">Cuenta</dt><dd className="mt-0.5 font-medium">{status?.user_id ?? "—"}</dd></div>
+          <div><dt className="text-[#748077]">Origen del token</dt><dd className="mt-0.5 font-medium">{status?.source === "base_de_datos" ? "Base de datos" : status?.source === "entorno" ? "Variable de entorno" : "—"}</dd></div>
+          <div><dt className="text-[#748077]">Última renovación</dt><dd className="mt-0.5 font-medium">{when(status?.refreshed_at)}</dd></div>
+          <div><dt className="text-[#748077]">Próxima renovación</dt><dd className="mt-0.5 font-medium">{when(status?.next_refresh_at)}</dd></div>
+        </dl>
+        {status?.last_error && <p className="mt-4 rounded-lg bg-[#f3e2e0] p-3 text-sm text-[#8a4a44]">Último error: {status.last_error}</p>}
+        <div className="mt-4"><button onClick={refresh} disabled={busy} className="rounded-lg border border-[#d9ddd5] px-4 py-2 text-sm hover:border-[#243128] disabled:opacity-50">Renovar ahora</button></div>
+      </section>
+      <form onSubmit={save} className="space-y-4 rounded-xl bg-white p-5">
+        <h3 className="display text-xl">Cargar token</h3>
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-[#647167]">Token de acceso de larga duración</span>
+          <textarea required minLength={20} rows={3} value={token} onChange={(e) => setToken(e.target.value)} spellCheck={false} className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 font-mono text-xs outline-none focus:border-[#243128]" placeholder="IGQX…"/>
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1.5 block text-[#647167]">ID de la cuenta (opcional)</span>
+          <input value={userId} onChange={(e) => setUserId(e.target.value.replace(/\D/g, ""))} inputMode="numeric" className="w-full rounded-lg border border-[#d9ddd5] px-3 py-2.5 text-sm outline-none focus:border-[#243128]" placeholder="17841434442618145"/>
+        </label>
+        <div className="flex justify-end"><button disabled={busy || token.trim().length < 20} className="rounded-lg bg-[#243128] px-4 py-2.5 text-sm text-white disabled:opacity-50">{busy ? "Validando…" : "Guardar token"}</button></div>
+      </form>
+    </div>
+  );
+}
+
 function ContentEditor({ setState }: { setState: (value: string) => void }) {
   // Solo el contacto y la paleta se editan acá: los textos de la página y la **foto del hero** viven en el
   // editor visual `/admin/editor` (D38 y D48), así que ya no se muestran en Contenido.
