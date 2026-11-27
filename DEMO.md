@@ -1,5 +1,8 @@
 # Demo interactiva — cómo publicarla
 
+> **Demo publicada:** <https://bosque-demo.vercel.app> — entra con `demo@bosque.cl` / `bosque-demo`.
+> Proyecto `bosque-demo` en Vercel (framework Services) y Postgres en Neon (plan gratis, São Paulo).
+
 Una URL pública, un solo proyecto y datos de ejemplo listos para hacer clic: tienda, ficha de
 producto, carrito, checkout, cuenta de cliente y panel de administración. **Sin cobros reales, sin
 correos, sin Google y sin Instagram**: todo lo externo queda apagado y la demo se apoya en tu
@@ -13,7 +16,7 @@ catálogo real, exportado de la base.
 | URL pública | una sola: la del proyecto de Vercel |
 
 El navegador habla con la API por `https://<dominio>/api/backend/*`; el `vercel.json` enruta ese
-prefijo al servicio `backend` y le quita `/api/backend` antes de que la API vea la ruta. Como todo
+prefijo al servicio `backend` y la API descarta `/api/backend` antes de resolver la ruta. Como todo
 sale del mismo dominio, no hay CORS ni segunda URL que configurar en el frontend.
 
 > Los datos viven en la base y cualquiera con la cuenta demo puede editarlos desde el panel: es una

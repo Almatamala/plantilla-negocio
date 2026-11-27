@@ -240,9 +240,15 @@ VERIFICATION_MAX_ATTEMPTS = 5
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    if engine.dialect.name == "postgresql":
-        with engine.begin() as connection:
+    # En serverless arrancan varias instancias a la vez (y cada cold start repite el bloque): si dos
+    # ejecutan `create_all` en paralelo, la segunda choca con `pg_type_duplicate_object` al crear una
+    # tabla que la primera acaba de crear. El lock de asesoramiento por transacción serializa el
+    # arranque —la segunda espera y encuentra el esquema hecho— y deja los ALTER en la misma transacción.
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(73190422)"))
+        Base.metadata.create_all(bind=connection)
+        if connection.dialect.name == "postgresql":
             for statement in STARTUP_STATEMENTS:
                 connection.execute(text(statement))
     # Renovación automática del token de Instagram (D30): la tarea revisa cada pocas horas y renueva el
@@ -257,7 +263,36 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="BOSQUE API", version="2.0.0", lifespan=lifespan)
+
+
+class StripServicePrefix:
+    """Vercel Services entrega las peticiones como `/api/backend/...`.
+
+    El `request.path` de `vercel.json` debería quitarlo antes de llegar al código, pero cuando la
+    plataforma no lo aplica la app ve el prefijo y todas las rutas responden 404. El middleware lo
+    quita solo si está presente, así que es inocuo si el transform sí actúa.
+    """
+
+    prefix = "/api/backend"
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket"):
+            path = scope.get("path", "")
+            if path == self.prefix or path.startswith(self.prefix + "/"):
+                inner = path[len(self.prefix):] or "/"
+                scope = dict(scope)
+                scope["path"] = inner
+                scope["raw_path"] = inner.encode()
+                scope["root_path"] = self.prefix + scope.get("root_path", "")
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(StripServicePrefix)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Solo los productos `active` son visibles en la tienda; los `inactive` quedan para el panel.
