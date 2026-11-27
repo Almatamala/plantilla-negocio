@@ -194,16 +194,21 @@ class OrderItem(Base):
 
 
 class InstagramToken(Base):
-    """Token de larga duración del feed de Instagram propio (D30), en una fila única.
+    """Token de larga duración y cuenta del feed de Instagram propio (D30), en una fila única.
 
     Vive **aparte** de `store_settings` porque es una credencial, no contenido editable: así no corre el
     riesgo de colarse en `GET /api/settings`, que es público. Lo guarda y lo renueva la tarea de fondo de
-    la API (`app/instagram.py`); `INSTAGRAM_ACCESS_TOKEN` queda solo como valor de arranque. La tabla la
-    crea `Base.metadata.create_all` al arrancar, así que no necesita ningún `ALTER TABLE`.
+    la API (`app/instagram.py`) o lo carga `PUT /api/instagram/token`; `INSTAGRAM_ACCESS_TOKEN` e
+    `INSTAGRAM_USER_ID` quedan solo como valores de arranque. La tabla la crea
+    `Base.metadata.create_all` al arrancar; `user_id` se agrega con `ALTER TABLE` en PostgreSQL porque las
+    bases ya creadas no tienen la columna.
     """
     __tablename__ = "instagram_token"
     id: Mapped[bool] = mapped_column(Boolean, primary_key=True, default=True)
     access_token: Mapped[Optional[str]] = mapped_column(String(500))
+    # Cuenta a la que pertenece el token: se guarda con él para que una demo sembrada por API no dependa
+    # de `INSTAGRAM_USER_ID` en el entorno (el entorno sigue mandando cuando no hay nada guardado).
+    user_id: Mapped[Optional[str]] = mapped_column(String(64))
     refreshed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Motivo de la última renovación fallida, para poder diagnosticarla desde `/api/instagram/token`
     # (el aviso al dueño de que la sección va a dejar de dibujarse).

@@ -102,10 +102,20 @@ def current_token(db: Session) -> tuple[str, str]:
     return get_settings().instagram_access_token.strip(), "entorno"
 
 
+def account_user_id(db: Session) -> str:
+    """Cuenta cuyo feed se muestra: la guardada junto al token o, si no hay, la del entorno.
+
+    Se guarda con el token (`PUT /api/instagram/token`) para que una demo sembrada no dependa de
+    `INSTAGRAM_USER_ID`: la variable sigue siendo el valor de arranque de una instalación nueva.
+    """
+    saved = (stored_token(db).user_id or "").strip()
+    return saved or get_settings().instagram_user_id.strip()
+
+
 def feed_configured(db: Session) -> bool:
     """¿Hay con qué armar el feed? Sin credenciales la sección no se dibuja y no es un error."""
     token, _ = current_token(db)
-    return bool(token and get_settings().instagram_user_id.strip())
+    return bool(token and account_user_id(db))
 
 
 def _image_of(media: dict) -> str:
@@ -135,13 +145,49 @@ def fetch_posts(db: Session, limit: int) -> list[dict]:
     if cached and time.monotonic() - cached[0] < FEED_CACHE_SECONDS:
         return cached[1]
     token, _ = current_token(db)
-    user_id = get_settings().instagram_user_id.strip()
+    user_id = account_user_id(db)
     if not token or not user_id:
         raise InstagramError("Falta INSTAGRAM_ACCESS_TOKEN (o su renovación) o INSTAGRAM_USER_ID.")
     data = _graph_get(f"{user_id}/media", {"fields": MEDIA_FIELDS, "limit": limit, "access_token": token})
     posts = [post for post in (normalize_media(item) for item in data.get("data", [])) if post["image"]][:limit]
     _feed_cache[limit] = (time.monotonic(), posts)
     return posts
+
+
+def save_credentials(db: Session, access_token: str, user_id: str | None = None) -> InstagramToken:
+    """Valida contra Instagram y guarda el token (y su cuenta): lo que usa `PUT /api/instagram/token`.
+
+    Antes de guardar se comprueba el token pidiendo la primera publicación de la cuenta: es la misma
+    llamada que hace el feed y sirve para validar el token y el id a la vez, así un valor vencido se
+    rechaza en el momento en vez de dejar la sección vacía. Si no se pasa la cuenta se pregunta a
+    `GET /me` —ojo, en *Instagram API with Instagram Login* `/me` y `/media` usan espacios de id distintos,
+    por eso el id de `/me` solo se usa cuando no hay otro—. `refreshed_at` se limpia para que la tarea de
+    fondo intente renovarlo en su próximo ciclo: es un token recién pegado, del que no consta renovación.
+    """
+    token = (access_token or "").strip()
+    if not token:
+        raise InstagramError("Falta el token de acceso.")
+    requested = (user_id or "").strip()
+    if requested:
+        data = _graph_get(f"{requested}/media", {"fields": "id", "limit": 1, "access_token": token})
+        if not data.get("data"):
+            raise InstagramError(f"La cuenta {requested} no devolvió publicaciones; revisa el ID de Instagram.")
+        account = requested
+    else:
+        data = _graph_get("me", {"fields": "id,username", "access_token": token})
+        account = str(data.get("id") or "").strip()
+        if not account:
+            raise InstagramError("Instagram no devolvió la cuenta del token.")
+    row = stored_token(db)
+    row.access_token = token
+    row.user_id = account
+    row.refreshed_at = None
+    row.last_error = None
+    db.commit()
+    db.refresh(row)
+    reset_feed_cache()
+    logger.info("Credenciales de Instagram cargadas para la cuenta %s.", account)
+    return row
 
 
 def refresh_token(db: Session) -> InstagramToken:
@@ -171,7 +217,7 @@ def refresh_if_due(db: Session) -> bool:
     """
     settings = get_settings()
     row = stored_token(db)
-    if not (settings.instagram_user_id.strip() and (settings.instagram_access_token.strip() or row.access_token)):
+    if not (account_user_id(db) and (settings.instagram_access_token.strip() or row.access_token)):
         return False
     last = as_utc(row.refreshed_at)
     if last is not None and datetime.now(timezone.utc) - last < timedelta(days=settings.instagram_refresh_days):

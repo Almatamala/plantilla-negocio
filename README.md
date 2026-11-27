@@ -25,6 +25,9 @@ npm run dev            # http://localhost:3000
 La API queda en `http://localhost:8000` (`/health` responde el estado). El frontend la busca con
 `NEXT_PUBLIC_API_URL`; sin esa variable usa `http://localhost:8000`.
 
+Para publicar una **demo interactiva** (un solo dominio, catálogo y agenda de ejemplo y una cuenta de
+administración) sigue `DEMO.md`.
+
 ## Variables de entorno
 
 | Variable | Dónde | Para qué |

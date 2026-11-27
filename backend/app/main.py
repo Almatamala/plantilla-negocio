@@ -19,7 +19,7 @@ from .config import get_settings
 from .database import Base, engine, get_db
 from .emails import send_order_confirmation, send_verification_code
 from .models import Category, ClosedDay, DeliveryZone, Order, OrderItem, Product, Profile, Review, ShippingZone, StoreSettings, TimeSlot
-from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, DeliveryZoneIn, DeliveryZoneOut, DeliveryZonePatch, HighlightsOut, InstagramFeedOut, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
+from .schemas import CategoryIn, CategoryOut, ClosedDayIn, ClosedDayOut, DeliveryZoneIn, DeliveryZoneOut, DeliveryZonePatch, HighlightsOut, InstagramFeedOut, InstagramTokenIn, InstagramTokenStatusOut, LoginIn, OrderIn, OrderOut, OrderStatusPatch, ProductIn, ProductOut, ProfileOut, ProfilePatch, RegisterIn, ReportOut, ReportPlaceOut, ReportProductOut, ReportSlotOut, ReportTotalsOut, ReportWeekdayOut, ResendCodeIn, ReviewIn, ReviewOut, ReviewStatusPatch, SettingsIn, SettingsOut, ShippingZoneIn, ShippingZoneOut, ShippingZonePatch, TimeSlotIn, TimeSlotOut, TimeSlotPatch, VerifyEmailIn
 
 settings = get_settings()
 logger = logging.getLogger("bosque.main")
@@ -172,6 +172,13 @@ PROFILE_ADDRESS_COLUMNS = (
     "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS city VARCHAR(120)",
 )
 
+# Instagram (D30): la tabla `instagram_token` guarda además la **cuenta** del feed, para que una demo
+# sembrada por API (`PUT /api/instagram/token`) no dependa de `INSTAGRAM_USER_ID` en el entorno. La tabla la
+# crea `create_all`; la columna se agrega al arrancar porque una base ya creada no la tiene.
+INSTAGRAM_CREDENTIALS_COLUMNS = (
+    "ALTER TABLE instagram_token ADD COLUMN IF NOT EXISTS user_id VARCHAR(64)",
+)
+
 # Entrega del pedido (D44): `pickup` (retiro presencial) o `delivery` (envío a domicilio con dirección y
 # tarifa). La tabla `delivery_zones` la crea `create_all` (tabla nueva); estas columnas se agregan a
 # `orders` porque `create_all` no altera tablas ya creadas.
@@ -221,6 +228,7 @@ STARTUP_STATEMENTS = (
     *ORDER_STATUS_STATEMENTS,
     *PROFILE_ADDRESS_COLUMNS,
     *ORDER_DELIVERY_COLUMNS,
+    *INSTAGRAM_CREDENTIALS_COLUMNS,
     *PERFORMANCE_INDEXES,
 )
 
@@ -1167,10 +1175,11 @@ def instagram_status(db: Session) -> InstagramTokenStatusOut:
     """Estado del token para diagnosticar la renovación automática (el token en sí no sale de acá)."""
     row = instagram.stored_token(db)
     token, source = instagram.current_token(db)
+    account = instagram.account_user_id(db)
     refreshed = instagram.as_utc(row.refreshed_at)
     return InstagramTokenStatusOut(
-        configured=bool(token) and bool(settings.instagram_user_id.strip()),
-        user_id=settings.instagram_user_id.strip() or None,
+        configured=bool(token) and bool(account),
+        user_id=account or None,
         source=source if token else None,
         refreshed_at=refreshed,
         next_refresh_at=refreshed + timedelta(days=settings.instagram_refresh_days) if refreshed else None,
@@ -1181,6 +1190,21 @@ def instagram_status(db: Session) -> InstagramTokenStatusOut:
 @app.get("/api/instagram/token", response_model=InstagramTokenStatusOut, dependencies=[Depends(require_admin)])
 def instagram_token_status(db: Session = Depends(get_db)):
     """Cuándo se renovó el token y cuándo tocará, más el motivo del último fallo (solo admin)."""
+    return instagram_status(db)
+
+
+@app.put("/api/instagram/token", response_model=InstagramTokenStatusOut, dependencies=[Depends(require_admin)])
+def instagram_token_save(payload: InstagramTokenIn, db: Session = Depends(get_db)):
+    """Carga el token y la cuenta del feed (lo usa la siembra de la demo).
+
+    Valida el token pidiendo la última publicación de la cuenta antes de guardarlo: un valor vencido se
+    rechaza con su motivo en vez de dejar la sección vacía. Si no se pasa `user_id` se usa el que devuelve
+    Instagram (`GET /me`). La respuesta es el mismo estado que el `GET` y **nunca** incluye el token.
+    """
+    try:
+        instagram.save_credentials(db, payload.access_token, payload.user_id)
+    except instagram.InstagramError as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Instagram rechazó el token: {error}") from error
     return instagram_status(db)
 
 
