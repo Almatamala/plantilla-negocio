@@ -37,11 +37,18 @@ No hace falta ejecutar SQL a mano.
 ## 2. Proyecto en Vercel
 
 1. Importa el repositorio en Vercel.
-2. En **Settings → Build and Deployment**, cambia el **Framework** a **Services** (si no, Vercel
+2. En **Settings → Git → Production Branch**, elige la rama donde está este trabajo (`Demo`). El
+   repositorio publica `master` por defecto y esa rama todavía no tiene los scripts de siembra, las
+   fotos de `public/demo` ni el `entrypoint` del backend: si no la cambias, el deploy sale sin
+   catálogo y con la API caída. La alternativa es hacer merge de `Demo` en `master` y dejar la rama
+   como está.
+3. En **Settings → Build and Deployment**, cambia el **Framework** a **Services** (si no, Vercel
    compila solo el frontend y el `backend` nunca se despliega).
-3. Define las variables del paso 3 y despliega.
+4. Define las variables del paso 3 y despliega.
 
-`vercel.json` ya declara los dos servicios, así que no hay que configurar carpetas ni comandos.
+`vercel.json` ya declara los dos servicios, así que no hay que configurar carpetas ni comandos. La
+API de Python se instala desde `backend/requirements.txt` con la versión de Python que Vercel trae
+por defecto (3.12), que es compatible con lo que usa el proyecto.
 
 ## 3. Variables de entorno
 
