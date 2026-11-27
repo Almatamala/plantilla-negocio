@@ -1,0 +1,257 @@
+{
+  "generated_at": "2026-11-26T23:38:05.215Z",
+  "categories": [
+    {
+      "name": "Brownie",
+      "slug": "brownie"
+    },
+    {
+      "name": "Galletas NY rellenas",
+      "slug": "galletas-ny-rellenas"
+    },
+    {
+      "name": "Galletas NY simples",
+      "slug": "galletas-ny-simples"
+    },
+    {
+      "name": "Rollitos de canela",
+      "slug": "rollitos-de-canela"
+    }
+  ],
+  "products": [
+    {
+      "name": "Brownie Noisette",
+      "slug": "brownie-noisette",
+      "category": "brownie",
+      "price": 2900,
+      "description": "Cacao, mantequilla avellanada y azúcar morena.",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/brownie-noisette.jpg",
+      "images": [
+        "/demo/brownie-noisette.jpg"
+      ]
+    },
+    {
+      "name": "Rollitos de canela de caramelo salado",
+      "slug": "rollitos-de-canela-de-caramelo-salado",
+      "category": "rollitos-de-canela",
+      "price": 2800,
+      "description": "",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/rollitos-de-canela-de-caramelo-salado.jpg",
+      "images": [
+        "/demo/rollitos-de-canela-de-caramelo-salado.jpg",
+        "/demo/rollitos-de-canela-de-caramelo-salado-2.jpg"
+      ]
+    },
+    {
+      "name": "Rollitos de canela de chocolate",
+      "slug": "rollitos-de-canela-de-chocolate",
+      "category": "rollitos-de-canela",
+      "price": 2800,
+      "description": "",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/rollitos-de-canela-de-chocolate.jpg",
+      "images": [
+        "/demo/rollitos-de-canela-de-chocolate.jpg",
+        "/demo/rollitos-de-canela-de-chocolate-2.jpg"
+      ]
+    },
+    {
+      "name": "Rollitos de canela clásicos",
+      "slug": "rollitos-de-canela-clasicos",
+      "category": "rollitos-de-canela",
+      "price": 2500,
+      "description": "",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/rollitos-de-canela-clasicos.jpg",
+      "images": [
+        "/demo/rollitos-de-canela-clasicos.jpg",
+        "/demo/rollitos-de-canela-clasicos-2.jpg"
+      ]
+    },
+    {
+      "name": "Zanahoria (Carrot cake)",
+      "slug": "zanahoria-carrot-cake",
+      "category": "galletas-ny-rellenas",
+      "price": 2500,
+      "description": "Rellena de queso crema.",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/zanahoria-carrot-cake.jpg",
+      "images": [
+        "/demo/zanahoria-carrot-cake.jpg"
+      ]
+    },
+    {
+      "name": "Plátano manjar",
+      "slug": "platano-manjar",
+      "category": "galletas-ny-rellenas",
+      "price": 2500,
+      "description": "Rellena de plátano caramelizado y manjar cremoso.",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/platano-manjar.jpg",
+      "images": [
+        "/demo/platano-manjar.jpg"
+      ]
+    },
+    {
+      "name": "Red velvet",
+      "slug": "red-velvet",
+      "category": "galletas-ny-rellenas",
+      "price": 2500,
+      "description": "Rellena de queso crema.",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/red-velvet.jpg",
+      "images": [
+        "/demo/red-velvet.jpg",
+        "/demo/red-velvet-2.jpg"
+      ]
+    },
+    {
+      "name": "Pie de limón",
+      "slug": "pie-de-limon",
+      "category": "galletas-ny-rellenas",
+      "price": 2500,
+      "description": "Rellena de curd de limón.",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/pie-de-limon.jpg",
+      "images": [
+        "/demo/pie-de-limon.jpg",
+        "/demo/pie-de-limon-2.jpg"
+      ]
+    },
+    {
+      "name": "Doble chocolate",
+      "slug": "doble-chocolate",
+      "category": "galletas-ny-simples",
+      "price": 1900,
+      "description": "",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/doble-chocolate.jpg",
+      "images": [
+        "/demo/doble-chocolate.jpg",
+        "/demo/doble-chocolate-2.jpg"
+      ]
+    },
+    {
+      "name": "Chip de chocolate clásica",
+      "slug": "chip-de-chocolate-clasica",
+      "category": "galletas-ny-simples",
+      "price": 1900,
+      "description": "",
+      "ingredients": "",
+      "allergens": [],
+      "status": "active",
+      "inventory": 0,
+      "preparation_days": 0,
+      "image_url": "/demo/chip-de-chocolate-clasica.jpg",
+      "images": [
+        "/demo/chip-de-chocolate-clasica.jpg",
+        "/demo/chip-de-chocolate-clasica-2.jpg"
+      ]
+    }
+  ],
+  "settings": {
+    "name": "Bosque Pastelería",
+    "contact_email": "bosquenativosintiente@gmail.com",
+    "contact_phone": "+56944259116",
+    "whatsapp_phone": "+56944259116",
+    "instagram_url": "https://www.instagram.com/bosque.cl?utm_source=ig_web_button_share_sheet&stkn=ZDNlZDc0MzIxNw==",
+    "announcement": "Se aproximan ofertas halloween !!",
+    "hero_title": "Recetas trabajadas con técnica, cariño y detalle.",
+    "hero_description": "bienvenidos a Bosque Pastelería en línea, donde cada postre se hornea a pedido y llega justo cuando lo necesitas.",
+    "hero_image": "/demo/hero.png",
+    "hero_logo": "/demo/logo.png",
+    "hero_logo_shape": "flower",
+    "hero_image_position": "92% 69%",
+    "story_headline": "Sobre nosostros",
+    "story_description": "Todo empezó en una cocina pequeña y con un horno que apenas alcanzaba la temperatura que le pedíamos. Nunca planeamos tener una repostería. Hacíamos brownies para cumpleaños, galletas para regalar y rolls de canela los domingos, solo porque nos gustaba el olor que dejaban en toda la casa. Un día, un amigo nos pidió una caja para llevar a una reunión. Después otro pidió dos. Y cuando quisimos darnos cuenta, la gente que nunca había probado nuestros dulces los pedía por recomendación. Así que hicimos lo que hacen los que empiezan: comprar más bandejas, aprender de cada error (hubo muchas galletas quemadas) y ajustar recetas hasta que nos convencieran de verdad. Cada receta pasó por decenas de pruebas, y solo salió a la venta cuando nos dejó con ganas de repetir. Lo que nos importa Hecho en casa, de verdad. Horneamos en pequeñas tandas para que todo llegue fresco. Ingredientes de calidad. Mantequilla real, buen chocolate y nada de atajos. Cercanía. Detrás de cada pedido hay personas que quieren que te guste, no solo que lo compres. Hoy Seguimos siendo un negocio pequeño que crece de a poco, gracias a quienes confiaron en nosotros desde la primera caja. Cada pedido nos recuerda por qué empezamos: porque un dulce bien hecho puede mejorar el día de alguien. Gracias por ser parte de esta historia. La seguimos escribiendo con ustedes.",
+    "story_image": "/demo/historia.jpg",
+    "hero_eyebrow": "Ingredientes de calidad",
+    "story_eyebrow": "javiera no me acuerdo del apellido",
+    "footer_location": "San Javier, Chile",
+    "footer_tagline": null,
+    "theme_colors": {
+      "accent": "#808c6d",
+      "ink": "#401a04",
+      "surface": "#d7cdc1",
+      "muted": "#846851",
+      "detail": "#d9b391"
+    }
+  },
+  "pickup_zones": [
+    {
+      "name": "concepción centro",
+      "location": "Barros Arana 1068, 4070053 Concepción, Bío Bío",
+      "slots": [
+        {
+          "start_time": "09:00",
+          "end_time": "20:00",
+          "weekdays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "delivery_zones": [
+    {
+      "country": "Chile",
+      "region": "Biobío",
+      "city": "Concepción",
+      "fee": 4000,
+      "free_threshold": 20000,
+      "active": true
+    },
+    {
+      "country": "Chile",
+      "region": "Biobío",
+      "city": "San Pedro de la Paz",
+      "fee": 6000,
+      "free_threshold": 25000,
+      "active": true
+    }
+  ]
+}

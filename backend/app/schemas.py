@@ -434,6 +434,16 @@ class ReportOut(BaseModel):
     slots: list[ReportSlotOut]
 
 
+class InstagramTokenIn(BaseModel):
+    """Credenciales del feed que llegan por `PUT /api/instagram/token` (la siembra de la demo).
+
+    El token es de **larga duración** y la cuenta es opcional porque Instagram la devuelve en `GET /me` y
+    esa manda; el token nunca se devuelve en ninguna respuesta.
+    """
+    access_token: str = Field(min_length=20)
+    user_id: str | None = Field(default=None, pattern=r"^\d+$")
+
+
 class InstagramTokenStatusOut(BaseModel):
     """Estado del token de larga duración, para diagnosticar la renovación automática (solo admin)."""
     configured: bool

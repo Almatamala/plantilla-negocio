@@ -663,6 +663,41 @@ def test_instagram_refresh_guarda_el_motivo_del_fallo(client, admin_headers, mon
     assert status["source"] == "entorno"  # sigue usando el del entorno hasta que la renovación funcione
 
 
+def test_instagram_token_cargado_por_api(client, admin_headers, monkeypatch):
+    # La siembra de la demo carga las credenciales con `PUT /api/instagram/token`: la API valida el token
+    # pidiendo la última publicación de la cuenta, lo guarda con su cuenta y devuelve el estado sin token.
+    from app import instagram
+
+    instagram.reset_feed_cache()
+    calls: list[dict] = []
+    monkeypatch.setattr(instagram, "_graph_get", fake_graph({"data": [{"id": "1"}]}, calls))
+
+    body = {"access_token": "token-largo-de-demo-123456", "user_id": "17841434442618145"}
+    assert client.put("/api/instagram/token", json=body).status_code == 401
+
+    saved = client.put("/api/instagram/token", headers=admin_headers, json=body)
+    assert saved.status_code == 200
+    assert calls[0]["path"] == "17841434442618145/media"
+    status = saved.json()
+    assert status["configured"] is True
+    assert status["source"] == "base_de_datos"
+    assert status["user_id"] == "17841434442618145"
+    assert "token-largo" not in saved.text
+
+    # Si Instagram rechaza el token, el motivo se devuelve tal cual y no se guarda nada.
+    def rejected(path: str, params: dict) -> dict:
+        raise instagram.InstagramError("Invalid OAuth access token")
+
+    monkeypatch.setattr(instagram, "_graph_get", rejected)
+    another = client.put(
+        "/api/instagram/token",
+        headers=admin_headers,
+        json={"access_token": "token-largo-de-demo-123456", "user_id": "999"},
+    )
+    assert another.status_code == 502
+    assert "Invalid OAuth" in another.json()["detail"]
+
+
 def test_orders_por_defecto_solo_los_abiertos(client, admin_headers):
     # El panel pide en el día a día solo los pedidos **abiertos** (pendientes o enviados), que son los que
     # se gestionan y nunca se vuelven cientos; el historial completo (entregados y cancelados) entra con
